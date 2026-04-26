@@ -3247,7 +3247,8 @@ function toggleStatsIncludeStableford() {
     });
     _rounds.sort((a, b) => (b.date > a.date ? 1 : -1));
     localStorage.setItem(ROUNDS_KEY, JSON.stringify(_rounds));
-    if (['home', 'history', 'stats', 'summary'].includes(S.view)) render();
+    if (['home', 'stats', 'summary'].includes(S.view)) render();
+    else if (S.view === 'scorecard' && !S.numpadPid) render();
   });
 
   _db.collection('meta').doc('players').onSnapshot(snap => {
