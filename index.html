@@ -132,6 +132,7 @@
   }
   .badge-stableford { background: #eef2ff; color: #4338ca; }
   .badge-wolf       { background: #1a1a1a; color: #fff; }
+  .badge-stroke     { background: #f0f7f4; color: var(--green-mid); }
 
   .home-footer {
     position: fixed; bottom: 0; left: 0; right: 0;
@@ -1218,7 +1219,7 @@ function renderHome(c) {
         ? '<span class="badge-fmt badge-stableford">Stableford</span>'
         : r.format === 'wolf'
         ? '<span class="badge-fmt badge-wolf">🐺 Wolf</span>'
-        : '';
+        : '<span class="badge-fmt badge-stroke">⛳ Stroke Play</span>';
       let bottom = '';
       if (r.done) {
         if (r.format === 'stableford') {
