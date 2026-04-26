@@ -520,6 +520,19 @@
     cursor:pointer; touch-action:manipulation;
   }
 
+  /* Compact header for 3+ players */
+  #view-scorecard.compact .hole-hdr { padding: 2px 14px 3px; }
+  #view-scorecard.compact .hole-lbl { display: none; }
+  #view-scorecard.compact .hole-num { font-size: 24px; line-height: 1.1; }
+  #view-scorecard.compact .hole-meta { font-size: 11px; margin-top: 0; }
+  #view-scorecard.compact .nav-btn { width: 36px; height: 36px; font-size: 20px; }
+  #view-scorecard.compact .dots-row { padding: 0 12px 3px; gap: 3px; }
+  #view-scorecard.compact .dot { width: 7px; height: 7px; }
+  #view-scorecard.compact .dot.current { width: 10px; height: 10px; }
+  #view-scorecard.compact .wolf-banner { padding: 5px 14px; font-size: 13px; }
+  #view-scorecard.compact .wolf-dec-area { padding: 6px 14px; }
+  #view-scorecard.compact .wolf-status-bar { padding: 5px 14px; }
+
   .sc-footer {
     position: fixed; bottom: 0; left: 0; right: 0;
     padding: 12px 16px;
@@ -2253,7 +2266,8 @@ function renderScorecard(c) {
       </div>
     </div>` : '';
 
-  c.innerHTML = `<div id="view-scorecard">
+  const isCompact = round.players.length >= 3;
+  c.innerHTML = `<div id="view-scorecard"${isCompact ? ' class="compact"' : ''}>
     <div class="hole-hdr">
       <button class="nav-btn" onclick="gotoHole(${S.hole-1})" ${S.hole===firstHole?'disabled':''}>&#8249;</button>
       <div class="hole-mid">
