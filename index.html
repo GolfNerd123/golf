@@ -3020,18 +3020,14 @@ function computeRivalry(rounds) {
 
   for (const r of rounds) {
     if (!r.done) continue;
-    if (r.players.length !== 4) continue;
     const names = r.players.map(p => normName(p.name));
+    // Must be exactly these four players — all present, none extra
     if (!allFour.every(n => names.includes(n))) continue;
+    if (!names.every(n => allFour.includes(n))) continue;
 
     const aPids = RIVALRY_TEAM_A.map(n => findPid(r, n)).filter(Boolean);
     const bPids = RIVALRY_TEAM_B.map(n => findPid(r, n)).filter(Boolean);
     if (aPids.length !== 2 || bPids.length !== 2) continue;
-
-    const allScored = [...aPids, ...bPids].every(pid =>
-      r.holes.every(h => (r.scores[pid]?.[h.n]?.s ?? 0) > 0)
-    );
-    if (!allScored) continue;
 
     const aScore = aPids.reduce((s, pid) => s + netTotal(r, pid), 0);
     const bScore = bPids.reduce((s, pid) => s + netTotal(r, pid), 0);
@@ -3057,14 +3053,13 @@ function rivalryBannerHtml(roundId, rounds) {
   const r = rounds.find(x => x.id === roundId);
   if (!r) return '';
   const allFour = [...RIVALRY_TEAM_A, ...RIVALRY_TEAM_B];
-  if (r.players.length !== 4) return '';
   const names = r.players.map(p => normName(p.name));
   if (!allFour.every(n => names.includes(n))) return '';
+  if (!names.every(n => allFour.includes(n))) return '';
   const findPid = nn => r.players.find(p => normName(p.name) === nn)?.id;
   const aPids = RIVALRY_TEAM_A.map(findPid).filter(Boolean);
   const bPids = RIVALRY_TEAM_B.map(findPid).filter(Boolean);
   if (aPids.length !== 2 || bPids.length !== 2) return '';
-  if (![...aPids, ...bPids].every(pid => r.holes.every(h => (r.scores[pid]?.[h.n]?.s ?? 0) > 0))) return '';
 
   const nm = rivalryNameMap(rounds);
   const [aN1, aN2] = RIVALRY_TEAM_A.map(n => nm[n] || n);
