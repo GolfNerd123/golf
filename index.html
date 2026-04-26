@@ -844,6 +844,7 @@ const S = {
   roundId: null,
   hole: 1,
   statsPlayer: null,
+  statsIncludeStroke: true,
   statsIncludeWolf: true,
   statsIncludeStableford: true,
   playerEdit: null,
@@ -2798,8 +2799,9 @@ function renderSummary(c) {
 // ═══════════════════════════════════════════
 // fmt = 'stroke' | 'stableford' | 'wolf'
 // includeWolf / includeStableford: when fmt='stroke', also count those rounds as stroke rounds
-function buildStats(rounds, name, fmt, includeWolf, includeStableford) {
+function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeStroke) {
   fmt = fmt || 'stroke';
+  if (includeStroke === undefined) includeStroke = true;
   const s = {
     name, fmt, rounds: 0,
     bestDate: null, bestCourse: null, bestFmt: null,
@@ -2811,7 +2813,7 @@ function buildStats(rounds, name, fmt, includeWolf, includeStableford) {
   let ss = 0, ps = 0;
   for (const r of rounds) {
     const roundFmt = r.format || 'stroke';
-    const matches = roundFmt === fmt
+    const matches = (roundFmt === fmt && (roundFmt !== 'stroke' || includeStroke))
       || (fmt === 'stroke' && includeWolf        && roundFmt === 'wolf')
       || (fmt === 'stroke' && includeStableford  && roundFmt === 'stableford');
     if (!r.done || !matches) continue;
@@ -2948,7 +2950,7 @@ function renderStats(c) {
   // Build all three format stats for every player simultaneously
   const allPlayerStats = allNames.map(name => ({
     name,
-    stroke:     buildStats(rounds, name, 'stroke',     S.statsIncludeWolf, S.statsIncludeStableford),
+    stroke:     buildStats(rounds, name, 'stroke',     S.statsIncludeWolf, S.statsIncludeStableford, S.statsIncludeStroke),
     stableford: buildStats(rounds, name, 'stableford', false, false),
     wolf:       buildStats(rounds, name, 'wolf',       false, false),
   })).filter(ps => ps.stroke.rounds > 0 || ps.stableford.rounds > 0 || ps.wolf.rounds > 0);
@@ -3036,6 +3038,7 @@ function renderStats(c) {
     const mixToggles = (hasWolfRounds || hasStablefordRounds)
       ? `<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding:10px 14px;background:#f0f7f4;border-radius:10px;border-left:3px solid var(--green-mid)">
           <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;width:100%;margin-bottom:2px">Include in stroke stats:</span>
+          <label style="${lblStyle}"><input type="checkbox" ${S.statsIncludeStroke?'checked':''}     onchange="toggleStatsIncludeStroke()"     style="${checkStyle}"> ⛳ Stroke rounds</label>
           ${hasWolfRounds       ? `<label style="${lblStyle}"><input type="checkbox" ${S.statsIncludeWolf?'checked':''}       onchange="toggleStatsIncludeWolf()"       style="${checkStyle}"> 🐺 Wolf rounds</label>` : ''}
           ${hasStablefordRounds ? `<label style="${lblStyle}"><input type="checkbox" ${S.statsIncludeStableford?'checked':''} onchange="toggleStatsIncludeStableford()" style="${checkStyle}"> ★ Stableford rounds</label>` : ''}
          </div>`
@@ -3240,6 +3243,10 @@ function selStatsPlayer(name) {
   renderStats(document.getElementById('main'));
 }
 
+function toggleStatsIncludeStroke() {
+  S.statsIncludeStroke = !S.statsIncludeStroke;
+  renderStats(document.getElementById('main'));
+}
 function toggleStatsIncludeWolf() {
   S.statsIncludeWolf = !S.statsIncludeWolf;
   renderStats(document.getElementById('main'));
