@@ -851,6 +851,8 @@ const RIVALRY_TEAM_B = ['carlos', 'ingibjorg'];
 function normName(s) {
   return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 }
+// First word of normalized name — used to match "Sigurjón Atli Sigurðsson" → "sigurjon"
+function firstNorm(s) { return normName(s).split(/\s+/)[0]; }
 
 // Icelandic courses within ~100 km of Reykjavik.
 // Grafarholt back-9 par/SI from public scorecards; all other data estimated.
@@ -3013,14 +3015,14 @@ function buildProgressChart(history, refLine, refLabel) {
 // ─── Team rivalry helpers ────────────────────────────────────────────────────
 function computeRivalry(rounds) {
   const allFour = [...RIVALRY_TEAM_A, ...RIVALRY_TEAM_B];
-  const findPid = (r, nn) => r.players.find(p => normName(p.name) === nn)?.id;
+  const findPid = (r, nn) => r.players.find(p => firstNorm(p.name) === nn)?.id;
 
   let aWins = 0, bWins = 0, ties = 0;
   const history = [];
 
   for (const r of rounds) {
     if (!r.done) continue;
-    const names = r.players.map(p => normName(p.name));
+    const names = r.players.map(p => firstNorm(p.name));
     // Must be exactly these four players — all present, none extra
     if (!allFour.every(n => names.includes(n))) continue;
     if (!names.every(n => allFour.includes(n))) continue;
@@ -3042,8 +3044,8 @@ function rivalryNameMap(rounds) {
   const map = {};
   const allFour = [...RIVALRY_TEAM_A, ...RIVALRY_TEAM_B];
   for (const r of rounds) for (const p of r.players) {
-    const nn = normName(p.name);
-    if (allFour.includes(nn)) map[nn] = p.name;
+    const fn = firstNorm(p.name);
+    if (allFour.includes(fn)) map[fn] = p.name;
   }
   return map;
 }
@@ -3053,10 +3055,10 @@ function rivalryBannerHtml(roundId, rounds) {
   const r = rounds.find(x => x.id === roundId);
   if (!r) return '';
   const allFour = [...RIVALRY_TEAM_A, ...RIVALRY_TEAM_B];
-  const names = r.players.map(p => normName(p.name));
+  const names = r.players.map(p => firstNorm(p.name));
   if (!allFour.every(n => names.includes(n))) return '';
   if (!names.every(n => allFour.includes(n))) return '';
-  const findPid = nn => r.players.find(p => normName(p.name) === nn)?.id;
+  const findPid = nn => r.players.find(p => firstNorm(p.name) === nn)?.id;
   const aPids = RIVALRY_TEAM_A.map(findPid).filter(Boolean);
   const bPids = RIVALRY_TEAM_B.map(findPid).filter(Boolean);
   if (aPids.length !== 2 || bPids.length !== 2) return '';
@@ -3093,7 +3095,7 @@ function rivalryDebugHtml(rounds) {
   const allFour = [...RIVALRY_TEAM_A, ...RIVALRY_TEAM_B];
   const done = rounds.filter(r => r.done);
   const rows = done.map(r => {
-    const names = r.players.map(p => normName(p.name));
+    const names = r.players.map(p => firstNorm(p.name));
     const allPresent = allFour.every(n => names.includes(n));
     const noExtra   = names.every(n => allFour.includes(n));
     const status = allPresent && noExtra ? '✅ counts'
@@ -3101,7 +3103,7 @@ function rivalryDebugHtml(rounds) {
                  : '❌ extra: ' + names.filter(n => !allFour.includes(n)).join(', ');
     return `<div style="font-size:11px;padding:4px 0;border-bottom:1px solid #eee">
       <b>${esc(r.course||r.id)}</b> ${r.date||''}<br>
-      Players: ${r.players.map(p=>`"${esc(p.name)}" → <i>${normName(p.name)}</i>`).join(', ')}<br>
+      Players: ${r.players.map(p=>`"${esc(p.name)}" → <i>${firstNorm(p.name)}</i>`).join(', ')}<br>
       ${status}
     </div>`;
   }).join('');
