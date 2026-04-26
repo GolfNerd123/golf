@@ -1355,14 +1355,14 @@ function renderCourses(c) {
           </div>
         </div>
 
-        <span class="lbl">Scan Scorecard Image</span>
+        <span class="lbl">Upload Handicap Table</span>
         <div class="scan-section">
-          <div class="scan-section-title">Paste a photo of the HCP/scorecard table — par &amp; SI will be filled automatically</div>
+          <div class="scan-section-title">Upload a photo of the course handicap table — par &amp; SI will be filled automatically</div>
           <div class="scan-key-row">
             <input class="input" id="ce-apikey" type="password" placeholder="Claude API key (sk-ant-…)" value="${esc(savedKey)}" autocomplete="off">
           </div>
           <button class="scan-btn" id="scan-btn" onclick="document.getElementById('scan-file').click()">
-            📷 Scan Scorecard Image
+            📷 Upload Handicap Table
           </button>
           <input type="file" id="scan-file" accept="image/*" capture="environment" style="display:none" onchange="handleScanImage(event)">
           ${scanMsg ? `<div class="scan-status" style="color:${scanMsgColor}">${esc(scanMsg)}</div>` : '<div class="scan-status"></div>'}
