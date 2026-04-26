@@ -6,6 +6,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a4731">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="apple-mobile-web-app-title" content="Golf">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -2248,11 +2251,41 @@ function clearWolfDecision(holeN) {
   renderScorecard(document.getElementById('main'));
 }
 
+function downloadRoundBackup(round) {
+  const lines = [];
+  lines.push(`Golf Scorecard Backup`);
+  lines.push(`Course: ${round.courseName}`);
+  lines.push(`Date: ${new Date(round.date).toLocaleDateString()}`);
+  lines.push(`Format: ${round.format}`);
+  lines.push('');
+  const holePars = Object.fromEntries(round.holes.map(h => [h.n, h.par]));
+  const header = ['Hole', ...round.holes.map(h => h.n), 'Total'].join('\t');
+  const parRow = ['Par', ...round.holes.map(h => h.par), round.holes.reduce((s,h)=>s+h.par,0)].join('\t');
+  lines.push(header);
+  lines.push(parRow);
+  for (const p of round.players) {
+    const scores = round.holes.map(h => round.scores[p.id]?.[h.n]?.s || '-');
+    const total = round.holes.reduce((s,h) => s + (round.scores[p.id]?.[h.n]?.s || 0), 0);
+    lines.push([p.name, ...scores, total || '-'].join('\t'));
+  }
+  lines.push('');
+  lines.push(JSON.stringify(round));
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `golf-${round.courseName.replace(/\s+/g,'-')}-${round.date.slice(0,10)}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function finishRound() {
   const round = byId(S.roundId);
   if (!round) return;
   const incomplete = round.players.some(p => round.holes.some(h => !round.scores[p.id]?.[h.n]?.s));
-  const go = () => { round.done = true; saveRound(round); nav('summary', { roundId: S.roundId }); };
+  const go = () => { round.done = true; saveRound(round); downloadRoundBackup(round); nav('summary', { roundId: S.roundId }); };
   if (incomplete) { if (confirm('Some holes have no scores. Finish anyway?')) go(); } else go();
 }
 
