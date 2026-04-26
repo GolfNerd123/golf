@@ -3089,9 +3089,32 @@ function rivalryBannerHtml(roundId, rounds) {
   </div>`;
 }
 
+function rivalryDebugHtml(rounds) {
+  const allFour = [...RIVALRY_TEAM_A, ...RIVALRY_TEAM_B];
+  const done = rounds.filter(r => r.done);
+  const rows = done.map(r => {
+    const names = r.players.map(p => normName(p.name));
+    const allPresent = allFour.every(n => names.includes(n));
+    const noExtra   = names.every(n => allFour.includes(n));
+    const status = allPresent && noExtra ? '✅ counts'
+                 : !allPresent ? '❌ missing: ' + allFour.filter(n => !names.includes(n)).join(', ')
+                 : '❌ extra: ' + names.filter(n => !allFour.includes(n)).join(', ');
+    return `<div style="font-size:11px;padding:4px 0;border-bottom:1px solid #eee">
+      <b>${esc(r.course||r.id)}</b> ${r.date||''}<br>
+      Players: ${r.players.map(p=>`"${esc(p.name)}" → <i>${normName(p.name)}</i>`).join(', ')}<br>
+      ${status}
+    </div>`;
+  }).join('');
+  return `<div style="margin-top:20px;background:#fffbe6;border:1px solid #f0c040;border-radius:10px;padding:12px;font-family:monospace">
+    <b>🔍 Rivalry debug</b> — ${done.length} completed round(s) checked<br>
+    Expected names: ${allFour.join(', ')}<br><br>
+    ${rows || '<i>No completed rounds found</i>'}
+  </div>`;
+}
+
 function rivalrySectionHtml(rounds) {
   const rv = computeRivalry(rounds);
-  if (rv.total === 0) return '';
+  if (rv.total === 0) return rivalryDebugHtml(rounds);
 
   const nm = rivalryNameMap(rounds);
   const [aN1, aN2] = RIVALRY_TEAM_A.map(n => nm[n] || n);
