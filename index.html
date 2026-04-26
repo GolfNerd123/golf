@@ -3020,6 +3020,7 @@ function computeRivalry(rounds) {
 
   for (const r of rounds) {
     if (!r.done) continue;
+    if (r.players.length !== 4) continue;
     const names = r.players.map(p => normName(p.name));
     if (!allFour.every(n => names.includes(n))) continue;
 
@@ -3056,6 +3057,7 @@ function rivalryBannerHtml(roundId, rounds) {
   const r = rounds.find(x => x.id === roundId);
   if (!r) return '';
   const allFour = [...RIVALRY_TEAM_A, ...RIVALRY_TEAM_B];
+  if (r.players.length !== 4) return '';
   const names = r.players.map(p => normName(p.name));
   if (!allFour.every(n => names.includes(n))) return '';
   const findPid = nn => r.players.find(p => normName(p.name) === nn)?.id;
