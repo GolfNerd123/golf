@@ -889,6 +889,17 @@ function removeRound(id) {
   _db.collection('rounds').doc(id).delete().catch(() => {});
 }
 
+function clearAllRounds() {
+  if (!confirm('Delete ALL rounds? This cannot be undone.')) return;
+  const ids = _rounds.map(r => r.id);
+  _rounds = [];
+  localStorage.setItem(ROUNDS_KEY, JSON.stringify([]));
+  const batch = _db.batch();
+  ids.forEach(id => batch.delete(_db.collection('rounds').doc(id)));
+  batch.commit().catch(() => {});
+  render();
+}
+
 // ═══════════════════════════════════════════
 // STORAGE — PLAYERS
 // ═══════════════════════════════════════════
@@ -1159,7 +1170,7 @@ function renderHome(c) {
       <p>Tap "+ New Round" to get started</p>
     </div>`;
   } else {
-    list += '<p class="hint">Long-press a round to delete it</p>';
+    list += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><p class="hint" style="margin:0">Long-press a round to delete it</p><button onclick="clearAllRounds()" style="font-size:11px;color:#c0392b;background:none;border:none;cursor:pointer;padding:0;text-decoration:underline">Delete all</button></div>';
     for (const r of rounds) {
       const tp   = parSum(r);
       const date = new Date(r.date).toLocaleDateString('en-US',{ month:'short', day:'numeric', year:'numeric' });
