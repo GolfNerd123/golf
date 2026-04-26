@@ -894,6 +894,7 @@ const S = {
   statsIncludeStroke: true,
   statsIncludeWolf: true,
   statsIncludeStableford: true,
+  statsShowRaw: false,
   playerEdit: null,
   courseEdit: null,
   ce: null,
@@ -2847,7 +2848,7 @@ function renderSummary(c) {
 // ═══════════════════════════════════════════
 // fmt = 'stroke' | 'stableford' | 'wolf'
 // includeWolf / includeStableford: when fmt='stroke', also count those rounds as stroke rounds
-function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeStroke) {
+function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeStroke, noHcp) {
   fmt = fmt || 'stroke';
   if (includeStroke === undefined) includeStroke = true;
   const s = {
@@ -2892,14 +2893,15 @@ function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeSt
       if (pts > s.bestPts) { s.bestPts = pts; s.bestDate = r.date; s.bestCourse = r.course; }
       s.history.push({ date: r.date, course: r.course, val: pts });
     } else {
-      const rpar = parSum(r), net = netTotal(r, pid);
+      const rpar = parSum(r);
+      const net = noHcp ? grossTotal(r, pid) : netTotal(r, pid);
       ss += net; ps += rpar;
       if (net < s.bestNet) { s.bestNet = net; s.bestNetToPar = net - rpar; s.bestDate = r.date; s.bestCourse = r.course; s.bestFmt = roundFmt === 'stroke' ? null : roundFmt; }
       s.history.push({ date: r.date, course: r.course, val: net - rpar, net, srcFmt: roundFmt });
       for (const h of r.holes) {
         const g = r.scores[pid]?.[h.n]?.s; if (!g) continue;
         s.totalHoles++;
-        const d = (g - siStrokes(chcp, h.si, nh)) - h.par;
+        const d = (g - (noHcp ? 0 : siStrokes(chcp, h.si, nh))) - h.par;
         if      (g === 1)   s.sc.holesInOne++;
         else if (d <= -3)   s.sc.albatrosses++;
         else if (d === -2)  s.sc.eagles++;
@@ -2999,6 +3001,7 @@ function renderStats(c) {
   const allPlayerStats = allNames.map(name => ({
     name,
     stroke:     buildStats(rounds, name, 'stroke',     S.statsIncludeWolf, S.statsIncludeStableford, S.statsIncludeStroke),
+    strokeRaw:  buildStats(rounds, name, 'stroke',     S.statsIncludeWolf, S.statsIncludeStableford, S.statsIncludeStroke, true),
     stableford: buildStats(rounds, name, 'stableford', false, false),
     wolf:       buildStats(rounds, name, 'wolf',       false, false),
   })).filter(ps => ps.stroke.rounds > 0 || ps.stableford.rounds > 0 || ps.wolf.rounds > 0);
@@ -3116,6 +3119,22 @@ function renderStats(c) {
       ${chartCard(sel, 'Net Strokes vs Par — Progress', 0, 'E')}
       <div class="sec" style="margin-top:0;margin-bottom:10px">Scoring Distribution (Net)</div>
       ${bdCard(sel, SCORE_TYPES)}
+      <button onclick="toggleStatsRaw()" style="width:100%;margin-top:14px;padding:11px 14px;background:#f5f5f0;border:1px solid var(--border);border-radius:10px;font-size:13px;font-weight:600;color:#555;cursor:pointer;display:flex;align-items:center;justify-content:space-between;touch-action:manipulation">
+        <span>Without handicap</span>
+        <span style="font-size:16px">${S.statsShowRaw ? '▲' : '▼'}</span>
+      </button>
+      ${S.statsShowRaw ? (() => { const raw = selPs.strokeRaw; return `
+      <div style="background:#fafaf8;border:1px solid var(--border);border-top:none;border-radius:0 0 10px 10px;padding:14px">
+        <div class="stat-grid">
+          <div class="stat-box"><div class="sb-val">${raw.avgNet.toFixed(1)}</div><div class="sb-lbl">Avg Gross Strokes</div></div>
+          <div class="stat-box"><div class="sb-val" style="${raw.avgNetToPar<0?'color:#e63946':''}">${(raw.avgNetToPar>=0?'+':'')+raw.avgNetToPar.toFixed(1)}</div><div class="sb-lbl">Avg vs Par (Gross)</div></div>
+          <div class="stat-box"><div class="sb-val">${raw.bestNet>0?String(raw.bestNet):'-'}</div><div class="sb-lbl">Best Gross Strokes</div>${bestSubHtml(raw,'')}</div>
+          <div class="stat-box"><div class="sb-val" style="${raw.bestNetToPar<0?'color:#e63946':''}">${raw.bestNet>0?dStr(raw.bestNetToPar):'-'}</div><div class="sb-lbl">Best vs Par (Gross)</div></div>
+        </div>
+        ${chartCard(raw, 'Gross Strokes vs Par — Progress', 0, 'E')}
+        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px">Scoring Distribution (Gross)</div>
+        ${bdCard(raw, SCORE_TYPES)}
+      </div>` ; })() : ''}
     `;
   }
 
@@ -3323,6 +3342,10 @@ function confirmDeleteRound() {
   if (confirm('Delete this round?')) { removeRound(id); render(); }
 }
 
+function toggleStatsRaw() {
+  S.statsShowRaw = !S.statsShowRaw;
+  renderStats(document.getElementById('main'));
+}
 function toggleStatsIncludeStroke() {
   S.statsIncludeStroke = !S.statsIncludeStroke;
   renderStats(document.getElementById('main'));
