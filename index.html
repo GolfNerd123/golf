@@ -889,16 +889,6 @@ function removeRound(id) {
   _db.collection('rounds').doc(id).delete().catch(() => {});
 }
 
-function clearAllRounds() {
-  if (!confirm('Delete ALL rounds? This cannot be undone.')) return;
-  const ids = _rounds.map(r => r.id);
-  _rounds = [];
-  localStorage.setItem(ROUNDS_KEY, JSON.stringify([]));
-  const batch = _db.batch();
-  ids.forEach(id => batch.delete(_db.collection('rounds').doc(id)));
-  batch.commit().catch(() => {});
-  render();
-}
 
 // ═══════════════════════════════════════════
 // STORAGE — PLAYERS
@@ -1170,7 +1160,7 @@ function renderHome(c) {
       <p>Tap "+ New Round" to get started</p>
     </div>`;
   } else {
-    list += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><p class="hint" style="margin:0">Long-press a round to delete it</p><button onclick="clearAllRounds()" style="font-size:11px;color:#c0392b;background:none;border:none;cursor:pointer;padding:0;text-decoration:underline">Delete all</button></div>';
+    list += '<p class="hint">Long-press a round to delete it</p>';
     for (const r of rounds) {
       const tp   = parSum(r);
       const date = new Date(r.date).toLocaleDateString('en-US',{ month:'short', day:'numeric', year:'numeric' });
@@ -3269,35 +3259,17 @@ function toggleStatsIncludeStableford() {
 
   render();
 
-  // Load from Firestore and migrate any local-only rounds up
+  // Load from Firestore — Firestore is the single source of truth
   try {
     const [rSnap, pSnap] = await Promise.all([
       _db.collection('rounds').get(),
       _db.collection('meta').doc('players').get(),
     ]);
 
-    const fbRounds = rSnap.docs.map(d => d.data());
-
-    // Upload local rounds that aren't in Firestore yet
-    const fbIds = new Set(fbRounds.map(r => r.id));
-    const batch = _db.batch();
-    let migrated = 0;
-    for (const r of _rounds) {
-      if (!fbIds.has(r.id)) { batch.set(_db.collection('rounds').doc(r.id), r); migrated++; }
-    }
-    if (migrated) await batch.commit();
-
-    // Merge: Firestore is authoritative for rounds it already has
-    const localIds = new Set(_rounds.map(r => r.id));
-    for (const r of fbRounds) {
-      const i = _rounds.findIndex(x => x.id === r.id);
-      if (i >= 0) _rounds[i] = r; else _rounds.push(r);
-    }
-    _rounds.sort((a, b) => (b.date > a.date ? 1 : -1));
+    // Replace local data entirely with what Firestore has
+    _rounds = rSnap.docs.map(d => d.data()).sort((a, b) => (b.date > a.date ? 1 : -1));
 
     if (pSnap.exists) _players = pSnap.data().list || [];
-    // Upload local players if Firestore has none
-    else if (_players.length) _db.collection('meta').doc('players').set({ list: _players });
 
     localStorage.setItem(ROUNDS_KEY,  JSON.stringify(_rounds));
     localStorage.setItem(PLAYERS_KEY, JSON.stringify(_players));
