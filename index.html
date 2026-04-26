@@ -1,0 +1,3123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1a4731">
+<meta name="apple-mobile-web-app-title" content="Golf">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="manifest" href="manifest.json">
+<title>Golf Scorecard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --green:      #1a4731;
+    --green-mid:  #2d6a4f;
+    --green-pale: #95d5b2;
+    --bg:         #f4f4ef;
+    --text:       #1a1a1a;
+    --muted:      #888;
+    --border:     #e0e0d8;
+    --shadow:     0 2px 8px rgba(0,0,0,.09);
+    --radius:     14px;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  html, body {
+    height: 100%; height: 100dvh;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+    -webkit-text-size-adjust: 100%; overflow: hidden;
+  }
+
+  #app { height: 100%; display: flex; flex-direction: column; }
+
+  /* Header */
+  #hdr {
+    background: var(--green); color: #fff;
+    padding: 0 12px;
+    padding-top: max(10px, env(safe-area-inset-top));
+    height: max(54px, calc(44px + env(safe-area-inset-top)));
+    display: flex; align-items: flex-end; gap: 8px;
+    padding-bottom: 10px; flex-shrink: 0;
+  }
+  #back-btn {
+    background: none; border: none; color: #fff;
+    font-size: 22px; padding: 0 6px; cursor: pointer;
+    opacity: 0; pointer-events: none; min-width: 36px;
+    line-height: 1; touch-action: manipulation;
+  }
+  #back-btn.show { opacity: 1; pointer-events: auto; }
+  #hdr-title { flex: 1; font-size: 18px; font-weight: 700; text-align: center; }
+  #hdr-right { min-width: 36px; }
+
+  /* Main */
+  #main { flex: 1; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+  #main.locked { overflow: hidden; }
+
+  /* Shared */
+  .btn {
+    display: block; width: 100%; padding: 15px;
+    border: none; border-radius: var(--radius);
+    font-size: 16px; font-weight: 700;
+    cursor: pointer; touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent; transition: opacity .1s;
+  }
+  .btn:active { opacity: .78; }
+  .btn-green   { background: var(--green); color: #fff; }
+  .btn-outline { background: #fff; color: var(--green); border: 2px solid var(--green); }
+  .btn-red     { background: #c84b11; color: #fff; }
+
+  .input {
+    width: 100%; padding: 13px 14px;
+    border: 1px solid var(--border); border-radius: 12px;
+    font-size: 16px; background: #fff; color: var(--text);
+    -webkit-appearance: none; outline: none;
+  }
+  .input:focus { border-color: var(--green-mid); }
+
+  .lbl {
+    font-size: 11px; font-weight: 700; color: var(--green);
+    text-transform: uppercase; letter-spacing: 1.1px;
+    margin-bottom: 8px; margin-top: 20px; display: block;
+  }
+  .hint { font-size: 11px; color: #bbb; text-align: center; margin-bottom: 12px; }
+
+  /* Home */
+  #view-home { display: flex; flex-direction: column; height: 100%; }
+  #rounds-list { flex: 1; overflow-y: auto; padding: 14px; padding-bottom: 100px; }
+
+  .empty-state {
+    height: 50vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center; gap: 8px;
+  }
+  .empty-state .ico { font-size: 56px; margin-bottom: 8px; }
+  .empty-state h2   { font-size: 20px; color: var(--green); }
+  .empty-state p    { font-size: 14px; color: var(--muted); }
+
+  .round-card {
+    background: #fff; border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 14px;
+    margin-bottom: 10px; cursor: pointer;
+    -webkit-tap-highlight-color: transparent; transition: opacity .1s;
+  }
+  .round-card:active { opacity: .82; }
+  .rc-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 3px; }
+  .rc-course  { font-size: 16px; font-weight: 700; color: var(--green); flex: 1; }
+  .rc-date    { font-size: 12px; color: var(--muted); margin-left: 8px; white-space: nowrap; }
+  .rc-players { font-size: 13px; color: #666; margin-bottom: 10px; }
+
+  .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { background: #f0f7f4; border-radius: 10px; padding: 7px 11px; text-align: center; min-width: 60px; }
+  .chip-name  { font-size: 10px; color: #666; display: block; }
+  .chip-score { font-size: 19px; font-weight: 800; color: var(--green); display: block; }
+  .chip-diff  { font-size: 10px; color: var(--muted); display: block; }
+
+  .badge-prog {
+    display: inline-block; background: #fff4e6; border: 1px solid #ffd399;
+    border-radius: 7px; padding: 3px 9px;
+    font-size: 12px; font-weight: 600; color: #e67e22;
+  }
+  .badge-fmt {
+    display: inline-block; border-radius: 7px; padding: 3px 9px;
+    font-size: 11px; font-weight: 700; margin-left: 6px;
+  }
+  .badge-stableford { background: #eef2ff; color: #4338ca; }
+  .badge-wolf       { background: #1a1a1a; color: #fff; }
+
+  .home-footer {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    display: flex; gap: 8px; padding: 10px 14px;
+    padding-bottom: max(18px, var(--safe-bottom));
+    background: var(--bg); border-top: 1px solid var(--border);
+  }
+  .home-footer .btn { flex: 1; padding: 11px 4px; font-size: 12px; }
+  .home-footer .btn-green { flex: 2; font-size: 13px; }
+
+  /* Players screen */
+  #view-players { padding: 16px; padding-bottom: 48px; }
+
+  .player-form-card {
+    background: #fff; border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 16px; margin-bottom: 16px;
+  }
+  .player-form-title { font-size: 14px; font-weight: 700; color: var(--green); margin-bottom: 12px; }
+
+  .form-row { display: flex; gap: 10px; margin-bottom: 10px; align-items: flex-start; }
+  .form-row .input { flex: 1; }
+
+  .player-list { display: flex; flex-direction: column; gap: 10px; }
+
+  .player-item {
+    background: #fff; border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 14px 16px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .player-item-info { flex: 1; }
+  .player-item-name { font-size: 16px; font-weight: 700; }
+  .player-item-hcp  { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .player-item-actions { display: flex; gap: 8px; }
+
+  .icon-btn {
+    width: 36px; height: 36px; border: none; border-radius: 10px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    font-size: 15px; touch-action: manipulation; font-family: inherit;
+  }
+  .icon-btn-edit { background: #f0f7f4; color: var(--green); }
+  .icon-btn-del  { background: #fff0f0; color: #c0392b; }
+
+  /* New Round */
+  #view-new-round { padding: 18px; padding-bottom: 48px; }
+
+  .seg-row { display: flex; gap: 8px; }
+  .seg-btn {
+    flex: 1; padding: 12px; border: 2px solid var(--border);
+    border-radius: 12px; background: #fff;
+    font-size: 15px; font-weight: 600; color: var(--muted);
+    cursor: pointer; touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .seg-btn.active { border-color: var(--green); color: var(--green); background: #f0f7f4; }
+
+  .two-col { display: flex; gap: 10px; }
+  .two-col > * { flex: 1; }
+  .input-wrap { display: flex; flex-direction: column; }
+  .input-cap {
+    font-size: 10px; font-weight: 700; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .8px; margin-bottom: 4px;
+  }
+
+  /* Course presets */
+  .course-scroll { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; -webkit-overflow-scrolling: touch; margin-bottom: 10px; }
+  .course-pill {
+    flex-shrink: 0; padding: 8px 14px; border: 2px solid var(--border);
+    border-radius: 20px; background: #fff; color: var(--muted);
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+    transition: border-color .1s, background .1s, color .1s;
+  }
+  .course-pill.active { border-color: var(--green); background: #f0f7f4; color: var(--green); }
+
+  /* Format selector */
+  .fmt-row { display: flex; gap: 8px; }
+  .fmt-btn {
+    flex: 1; padding: 11px 6px; border: 2px solid var(--border);
+    border-radius: 12px; background: #fff; color: var(--muted);
+    font-size: 12px; font-weight: 600; cursor: pointer; text-align: center;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  }
+  .fmt-btn.active { border-color: var(--green); color: var(--green); background: #f0f7f4; }
+  .fmt-btn.disabled { opacity: .35; pointer-events: none; }
+  .fmt-ico { font-size: 20px; display: block; margin-bottom: 3px; }
+  .fmt-note { font-size: 10px; color: #c84b11; margin-top: 6px; }
+  .fmt-help {
+    margin-top: 10px; padding: 12px 14px;
+    background: #f0f7f4; border-radius: 10px;
+    border-left: 3px solid var(--green-mid);
+    font-size: 12px; color: #333; line-height: 1.55;
+  }
+  .fmt-help strong { color: var(--green); display: block; margin-bottom: 4px; font-size: 12px; }
+  .fmt-help ul { margin: 4px 0 0 14px; padding: 0; }
+  .fmt-help li { margin-bottom: 2px; }
+
+  /* Player selector */
+  .psel-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .psel-item {
+    background: #fff; border: 2px solid var(--border); border-radius: 12px;
+    padding: 11px 12px; cursor: pointer;
+    display: flex; align-items: center; gap: 8px;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+    transition: border-color .1s, background .1s;
+  }
+  .psel-item.sel { border-color: var(--green); background: #f0f7f4; }
+  .psel-item.dim { opacity: .38; pointer-events: none; }
+  .psel-chk {
+    width: 18px; height: 18px; border: 2px solid var(--border);
+    border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; color: #fff;
+  }
+  .psel-item.sel .psel-chk { background: var(--green); border-color: var(--green); }
+  .psel-info { flex: 1; min-width: 0; }
+  .psel-name { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .psel-hcp  { font-size: 11px; color: var(--muted); }
+
+  .guest-row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .guest-row .input { flex: 1; }
+  .guest-row .input.hcp { flex: 0 0 82px; }
+
+  /* Hole settings */
+  .section-toggle {
+    display: flex; justify-content: space-between; align-items: center;
+    background: #fff; border: 1px solid #c8e6d8; border-radius: 12px;
+    padding: 13px 14px; cursor: pointer; margin-top: 20px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .section-toggle span:first-child { font-weight: 600; color: var(--green); font-size: 15px; }
+  .toggle-badge {
+    background: var(--green); color: #fff;
+    padding: 3px 10px; border-radius: 10px; font-size: 13px; font-weight: 700;
+  }
+
+  /* Shared hole table (used in new-round hole settings) */
+  .hole-tbl-wrap { overflow-x: auto; margin-top: 10px; -webkit-overflow-scrolling: touch; }
+  .hole-tbl { border-collapse: collapse; white-space: nowrap; }
+  .hole-tbl th {
+    background: var(--green); color: var(--green-pale);
+    font-size: 10px; font-weight: 700; letter-spacing: .5px;
+    padding: 6px 4px; text-align: center; min-width: 48px;
+  }
+  .hole-tbl th:first-child { min-width: 28px; width: 28px; }
+  .hole-tbl td { border: 1px solid var(--border); padding: 3px 2px; text-align: center; background: #fff; }
+  .hole-tbl .row-lbl { background: #f0f7f4; font-size: 10px; font-weight: 700; color: var(--green); padding: 0 6px; border: none; }
+  .hc-ctrl { display: flex; align-items: center; justify-content: center; gap: 2px; }
+  .hc-btn {
+    width: 26px; height: 32px; background: var(--green); color: #fff;
+    border: none; border-radius: 6px; font-size: 18px; line-height: 1;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    touch-action: manipulation; padding: 0; flex-shrink: 0;
+  }
+  .hc-val { font-size: 12px; font-weight: 700; min-width: 16px; text-align: center; }
+
+  /* Hole list — course edit */
+  .hole-section-hdr {
+    font-size: 11px; font-weight: 800; color: var(--green);
+    text-transform: uppercase; letter-spacing: 1px;
+    margin: 16px 0 8px; padding: 6px 10px;
+    background: #f0f7f4; border-radius: 8px;
+  }
+  .hole-list { display: flex; flex-direction: column; gap: 6px; }
+  .hole-row {
+    background: #fff; border: 1.5px solid var(--border); border-radius: 12px;
+    padding: 10px 14px; display: flex; align-items: center; gap: 14px;
+  }
+  .hole-row-num {
+    font-size: 15px; font-weight: 800; color: var(--green);
+    min-width: 32px; text-align: center;
+  }
+  .hole-row-fields { display: flex; gap: 18px; flex: 1; }
+  .hole-row-field { display: flex; align-items: center; gap: 5px; }
+  .hole-row-lbl { font-size: 11px; font-weight: 700; color: var(--muted); min-width: 18px; }
+  .hc-input {
+    width: 42px; height: 32px; font-size: 15px; font-weight: 700;
+    text-align: center; border: 1.5px solid var(--border); border-radius: 7px;
+    background: #fafaf8; color: var(--text); padding: 0;
+    -moz-appearance: textfield; outline: none; font-family: inherit;
+  }
+  .hc-input:focus { border-color: var(--green-mid); background: #fff; }
+  .hc-input::-webkit-outer-spin-button,
+  .hc-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+  /* Tee selector (Hlíðavöllur per-player) */
+  .tee-section {
+    background: #f0f7f4; border: 1px solid #c8e6d8; border-radius: 12px;
+    padding: 12px 14px; margin-top: 14px;
+  }
+  .tee-section-title { font-size: 12px; font-weight: 800; color: var(--green); margin-bottom: 10px; letter-spacing: .5px; }
+  .tee-player-row { margin-bottom: 12px; }
+  .tee-player-row:last-child { margin-bottom: 0; }
+  .tee-player-name { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+  .tee-controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .tee-seg { display: flex; gap: 4px; }
+  .tee-btn {
+    padding: 6px 11px; border: 2px solid var(--border); border-radius: 10px;
+    background: #fff; color: var(--muted); font-size: 12px; font-weight: 700;
+    cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+    transition: border-color .1s, background .1s, color .1s;
+  }
+  .tee-btn.active { border-color: var(--green); color: var(--green); background: #e8f5ee; }
+  .tee-ch-result {
+    font-size: 12px; font-weight: 700; color: var(--green);
+    background: #fff; border: 1.5px solid #c8e6d8; border-radius: 8px;
+    padding: 5px 10px; margin-left: auto; white-space: nowrap;
+  }
+
+  /* Scan scorecard */
+  .scan-section {
+    background: #f0f7f4; border: 1px solid #c8e6d8; border-radius: 12px;
+    padding: 14px; margin-bottom: 14px;
+  }
+  .scan-section-title { font-size: 12px; font-weight: 700; color: var(--green); margin-bottom: 10px; }
+  .scan-key-row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .scan-key-row .input { flex: 1; font-size: 13px; padding: 10px 12px; }
+  .scan-btn {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 12px; border-radius: 10px; font-size: 14px; font-weight: 700;
+    border: 2px solid var(--green); background: #fff; color: var(--green);
+    cursor: pointer; touch-action: manipulation; width: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .scan-btn:active { opacity: .75; }
+  .scan-btn:disabled { opacity: .45; pointer-events: none; }
+  .scan-status { font-size: 12px; margin-top: 8px; text-align: center; min-height: 18px; font-weight: 600; }
+
+  /* Scorecard */
+  #view-scorecard { display: flex; flex-direction: column; height: 100%; }
+
+  .hole-hdr {
+    background: var(--green); padding: 10px 18px 14px;
+    display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  }
+  .nav-btn {
+    width: 46px; height: 46px; border-radius: 50%;
+    background: rgba(255,255,255,.15); border: none;
+    color: #fff; font-size: 26px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent; flex-shrink: 0;
+  }
+  .nav-btn:disabled { opacity: .22; }
+  .nav-btn:active:not(:disabled) { background: rgba(255,255,255,.25); }
+  .hole-mid   { flex: 1; text-align: center; color: #fff; }
+  .hole-lbl   { font-size: 10px; font-weight: 800; letter-spacing: 2.5px; color: var(--green-pale); }
+  .hole-num   { font-size: 62px; font-weight: 800; line-height: 1; }
+  .hole-meta  { font-size: 14px; font-weight: 600; color: var(--green-pale); }
+  .hole-meta span { font-size: 11px; font-weight: 400; opacity: .8; }
+
+  .dots-row {
+    background: var(--green);
+    display: flex; justify-content: center; flex-wrap: wrap;
+    gap: 5px; padding: 0 12px 12px; flex-shrink: 0;
+  }
+  .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: rgba(255,255,255,.2); border: none;
+    cursor: pointer; padding: 0; touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent; transition: all .12s;
+  }
+  .dot.done    { background: var(--green-pale); }
+  .dot.current { width: 13px; height: 13px; background: #fff; }
+
+  /* Wolf banner */
+  .wolf-banner {
+    background: #111; color: #fff; flex-shrink: 0;
+    padding: 9px 16px; display: flex; align-items: center; gap: 8px;
+    font-size: 14px; font-weight: 700;
+  }
+  .wolf-banner-sub { font-size: 11px; color: rgba(255,255,255,.55); font-weight: 400; margin-left: 4px; }
+
+  .wolf-dec-area {
+    background: #fafaf8; border-bottom: 1px solid var(--border);
+    padding: 10px 14px; flex-shrink: 0;
+  }
+  .wolf-dec-lbl { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .wolf-dec-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .wdb {
+    flex: 1; min-width: 72px; padding: 9px 6px; text-align: center;
+    border-radius: 10px; border: 2px solid var(--border); background: #fff;
+    font-size: 12px; font-weight: 700; color: #444; cursor: pointer;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  }
+  .wdb.partner         { border-color: var(--green); color: var(--green); }
+  .wdb.partner.active  { background: var(--green); color: #fff; }
+  .wdb.lone            { border-color: #c84b11; color: #c84b11; }
+  .wdb.lone.active     { background: #c84b11; color: #fff; }
+
+  .wolf-status-bar {
+    background: #f0f7f4; border-bottom: 1px solid #c8e6d8;
+    padding: 9px 14px; display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  }
+  .wolf-status-txt  { flex: 1; font-size: 13px; font-weight: 600; color: var(--green); }
+  .wolf-change-lnk  { font-size: 12px; color: var(--muted); background: none; border: none; cursor: pointer; font-family: inherit; text-decoration: underline; padding: 0; }
+
+  .wolf-result-bar {
+    background: #333; color: #fff; padding: 7px 14px;
+    text-align: center; font-size: 12px; font-weight: 700; flex-shrink: 0;
+  }
+  .wolf-result-bar.w-win  { background: var(--green-mid); }
+  .wolf-result-bar.w-lose { background: #c84b11; }
+  .wolf-result-bar.w-tie  { background: #666; }
+
+  /* Role badges on player cards */
+  .role-badge {
+    display: inline-block; font-size: 8px; font-weight: 800;
+    letter-spacing: .5px; padding: 2px 5px; border-radius: 4px;
+    text-transform: uppercase; margin-left: 6px;
+  }
+  .rb-wolf    { background: #111; color: #fff; }
+  .rb-partner { background: var(--green); color: #fff; }
+  .rb-opp     { background: #e8e8e0; color: #666; }
+
+  /* Stableford pts bubble */
+  .pts-wrap {
+    width: 52px; height: 52px; border-radius: 50%; flex-shrink: 0;
+    border: 2.5px solid var(--green); background: #f0f7f4;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .pts-wrap.nil { border-color: #ddd; background: #fafaf8; }
+  .pts-val { font-size: 20px; font-weight: 800; color: var(--green); line-height: 1; }
+  .pts-wrap.nil .pts-val { color: #ccc; }
+  .pts-lbl { font-size: 8px; font-weight: 700; color: var(--green); opacity: .7; }
+  .pts-wrap.nil .pts-lbl { color: #ccc; }
+
+  .players-scroll {
+    flex: 1; background: var(--bg); border-radius: 24px 24px 0 0;
+    overflow-y: auto; padding: 14px 14px 100px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .p-card {
+    background: #fff; border-radius: 18px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.07);
+    padding: 14px 16px; margin-bottom: 10px;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  .p-name    { font-size: 17px; font-weight: 700; }
+  .p-running { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .p-net     { font-size: 11px; color: var(--green-mid); margin-top: 1px; }
+
+  .score-ctrl { display: flex; align-items: center; gap: 10px; }
+  .sc-btn {
+    width: 52px; height: 52px; border-radius: 50%;
+    background: var(--green); border: none; color: #fff;
+    font-size: 30px; font-weight: 300; line-height: 1;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent; flex-shrink: 0;
+  }
+  .sc-btn:active { transform: scale(.93); }
+  .sc-circle {
+    width: 66px; height: 66px; border-radius: 50%;
+    border: 2.5px solid #ddd;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: #fafaf8; flex-shrink: 0;
+  }
+  .sc-val { font-size: 26px; font-weight: 800; color: #ccc; line-height: 1; }
+  .sc-sub { font-size: 10px; font-weight: 700; margin-top: 1px; }
+
+  .sc-footer {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    padding: 12px 16px;
+    padding-bottom: max(20px, var(--safe-bottom));
+    background: var(--bg); border-top: 1px solid var(--border);
+  }
+
+  /* Summary */
+  #view-summary { padding: 14px; padding-bottom: 48px; }
+
+  .banner { background: var(--green); border-radius: 16px; padding: 18px; text-align: center; margin-bottom: 14px; }
+  .banner h2 { color: #fff; font-size: 21px; font-weight: 800; }
+  .banner p  { color: var(--green-pale); font-size: 13px; margin-top: 4px; }
+
+  .winner-card {
+    background: #fef3c7; border: 1px solid #fcd34d;
+    border-radius: 14px; padding: 14px; text-align: center; margin-bottom: 18px;
+  }
+  .winner-card .wl { font-size: 10px; font-weight: 800; letter-spacing: 2px; color: #92400e; }
+  .winner-card .wn { font-size: 22px; font-weight: 800; color: #78350f; margin-top: 3px; }
+  .winner-card .ws { font-size: 16px; color: #78350f; margin-top: 2px; }
+
+  .sec { font-size: 11px; font-weight: 700; color: var(--green);
+         text-transform: uppercase; letter-spacing: 1px; margin: 18px 0 10px; }
+
+  .tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-bottom: 14px; }
+  .sc-tbl { border-collapse: collapse; font-size: 11px; white-space: nowrap; }
+  .sc-tbl th, .sc-tbl td { border: 1px solid #e0e0d8; padding: 5px 3px; text-align: center; min-width: 26px; }
+  .sc-tbl .nc  { width: 76px; min-width: 76px; text-align: left; padding-left: 7px; }
+  .sc-tbl .sc  { min-width: 34px; background: rgba(0,0,0,.03); }
+  .sc-tbl thead th { background: var(--green); color: var(--green-pale); font-weight: 700; }
+  .sc-tbl .par-row td { background: #f0f7f4; color: var(--green-mid); font-weight: 600; }
+  .sc-tbl .si-row  td { background: #fafaf8; color: #999; font-size: 10px; }
+  .sc-tbl .win-row   { background: #fffbee; }
+
+  .s-circle { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid; font-size: 11px; font-weight: 700; }
+  .s-square { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 2px; border: 1.5px solid; font-size: 11px; font-weight: 700; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #666; }
+  .lg-circle { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid; }
+  .lg-square { width: 12px; height: 12px; border-radius: 2px; border: 1.5px solid; }
+
+  .lb-row {
+    background: #fff; border-radius: 12px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    padding: 12px 14px; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .lb-rank { width: 28px; height: 28px; border-radius: 50%; background: #e8e8e0; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; color: #888; flex-shrink: 0; }
+  .lb-rank.first { background: var(--green); color: #fff; }
+  .lb-name  { flex: 1; font-size: 15px; font-weight: 600; }
+  .lb-right { text-align: right; }
+  .lb-score { font-size: 19px; font-weight: 800; }
+  .lb-hcp   { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .lb-diff  { font-size: 13px; font-weight: 600; }
+
+  /* Wolf summary table */
+  .wolf-hole-tbl { border-collapse: collapse; width: 100%; font-size: 12px; }
+  .wolf-hole-tbl th, .wolf-hole-tbl td { border: 1px solid var(--border); padding: 6px 8px; text-align: center; }
+  .wolf-hole-tbl thead th { background: #111; color: #fff; font-weight: 700; }
+  .wolf-hole-tbl .wolf-cell { font-weight: 700; color: var(--green); }
+  .wolf-hole-tbl .win-row td { background: #f0f7f4; }
+  .wolf-hole-tbl .lose-row td { background: #fff8f6; }
+
+  .act-row { display: flex; gap: 10px; margin-top: 22px; }
+  .act-row .btn { flex: 1; padding: 14px; }
+
+  /* Stats */
+  #view-stats { padding: 14px; padding-bottom: 48px; }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 10px; margin-bottom: 22px; }
+  .stat-box { background: #fff; border-radius: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.07); padding: 14px; text-align: center; }
+  .sb-val { font-size: 24px; font-weight: 800; color: var(--green); }
+  .sb-lbl { font-size: 10px; color: #aaa; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; margin-top: 4px; }
+
+  .bd-card { background: #fff; border-radius: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.07); padding: 14px; margin-bottom: 22px; }
+  .bd-row  { display: flex; align-items: center; gap: 7px; margin-bottom: 9px; }
+  .bd-dot  { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .bd-lbl  { width: 90px; font-size: 13px; color: #444; }
+  .bd-bar  { flex: 1; height: 7px; background: #f0f0ec; border-radius: 3px; overflow: hidden; }
+  .bd-fill { height: 100%; border-radius: 3px; }
+  .bd-n    { width: 26px; font-size: 13px; font-weight: 700; text-align: right; }
+  .bd-pct  { width: 32px; font-size: 11px; color: #aaa; text-align: right; }
+  .bd-foot { font-size: 11px; color: #bbb; text-align: center; margin-top: 4px; }
+
+  .sb-sub { font-size: 11px; color: #aaa; margin-top: 2px; }
+  .stat-grid-2 { display: grid; grid-template-columns: repeat(2,1fr); gap: 10px; margin-bottom: 22px; }
+
+  .chart-card { background: #fff; border-radius: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.07); padding: 14px 10px 8px; margin-bottom: 22px; overflow: hidden; }
+  .chart-title { font-size: 10px; font-weight: 700; color: var(--green); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; padding: 0 4px; }
+
+  .no-stats { text-align: center; padding: 60px 32px; }
+  .no-stats h2 { font-size: 20px; color: var(--green); margin-bottom: 10px; }
+  .no-stats p  { font-size: 14px; color: var(--muted); line-height: 1.5; }
+
+  .nav-pills { display: flex; gap: 8px; padding: 0 14px 14px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .nav-pill {
+    padding: 6px 14px; border-radius: 16px; background: rgba(255,255,255,.15); border: none;
+    color: rgba(255,255,255,.7); font-size: 13px; font-weight: 600;
+    cursor: pointer; white-space: nowrap; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  }
+  .nav-pill.active { background: #fff; color: var(--green); }
+
+  .link-btn { background: none; border: none; color: var(--green); font-size: 13px; font-weight: 600; text-decoration: underline; cursor: pointer; padding: 0; font-family: inherit; }
+
+  /* Courses screen */
+  #view-courses { padding: 16px; padding-bottom: 48px; }
+  .course-item {
+    background: #fff; border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 14px 16px; margin-bottom: 10px;
+  }
+  .course-item-top { display: flex; align-items: flex-start; gap: 10px; }
+  .course-item-info { flex: 1; }
+  .course-item-name { font-size: 16px; font-weight: 700; color: var(--green); }
+  .course-item-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .course-item-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+  .course-edit-card {
+    background: #fff; border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 16px; margin-bottom: 16px;
+  }
+  .course-edit-title { font-size: 14px; font-weight: 700; color: var(--green); margin-bottom: 14px; }
+  .modified-tag {
+    display: inline-block; font-size: 10px; font-weight: 700; background: #fff4e6;
+    color: #e67e22; border: 1px solid #ffd399; border-radius: 5px;
+    padding: 2px 6px; margin-left: 8px; vertical-align: middle;
+  }
+
+  /* Stroke-index badge on player cards */
+  .stroke-badge {
+    display: inline-block; font-size: 9px; font-weight: 800;
+    background: #e8f5ee; color: var(--green); border: 1px solid #c8e6d8;
+    padding: 1px 5px; border-radius: 4px; margin-left: 6px; vertical-align: middle;
+  }
+
+  /* Score circle tappable */
+  .sc-circle { cursor: pointer; }
+  .sc-circle:active { opacity: .75; }
+
+  /* Numpad bottom sheet */
+  .numpad-dim { position: fixed; inset: 0; background: rgba(0,0,0,.38); z-index: 199; touch-action: none; }
+  .numpad-sheet {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
+    background: #fff; border-radius: 22px 22px 0 0;
+    box-shadow: 0 -4px 28px rgba(0,0,0,.18);
+    padding: 16px 16px;
+    padding-bottom: max(24px, var(--safe-bottom));
+  }
+  .numpad-hdr { font-size: 13px; font-weight: 700; color: var(--green); text-align: center; margin-bottom: 14px; }
+  .numpad-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; }
+  .np-btn {
+    padding: 16px 4px; font-size: 20px; font-weight: 700;
+    background: #f0f7f4; border: none; border-radius: 12px; color: var(--green);
+    cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  }
+  .np-btn:active { background: var(--green); color: #fff; }
+  .np-cancel { background: #fff0f0; color: #c84b11; grid-column: span 4; padding: 13px; font-size: 15px; }
+  .np-cancel:active { background: #c84b11; color: #fff; }
+
+  /* Per-player scorecard in summary */
+  .psc-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .psc-pill {
+    padding: 6px 14px; border-radius: 16px; border: 2px solid var(--green);
+    background: #fff; color: var(--green); font-size: 13px; font-weight: 700;
+    cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  }
+  .psc-pill.active { background: var(--green); color: #fff; }
+  .copy-btn {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%; padding: 13px; border-radius: 12px; margin-top: 12px;
+    background: #fff; border: 2px solid var(--green);
+    font-size: 14px; font-weight: 700; color: var(--green);
+    cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+    transition: background .15s;
+  }
+  .copy-btn:active { background: var(--green); color: #fff; }
+  .copy-btn.copied { background: #f0f7f4; border-color: var(--green-mid); color: var(--green-mid); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="hdr">
+    <button id="back-btn" onclick="goBack()">&#8592;</button>
+    <h1 id="hdr-title">Golf Scorecard</h1>
+    <div id="hdr-right"></div>
+  </header>
+  <main id="main"></main>
+</div>
+<script>
+// ═══════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════
+const DEFAULT_PARS_18 = [4,4,3,4,5,3,4,4,5,4,3,4,5,4,3,4,5,4];
+const DEFAULT_PARS_9  = [4,4,3,4,5,3,4,4,5];
+const DEFAULT_SI_18   = [1,9,17,11,3,13,7,5,15,10,18,14,2,12,16,4,6,8];
+const DEFAULT_SI_9    = [1,9,17,11,3,13,7,5,15];
+const ROUNDS_KEY  = 'golf_rounds_v2';
+const PLAYERS_KEY = 'golf_players_v1';
+const COURSES_KEY = 'golf_courses_v1';
+
+const SCORE_TYPES = [
+  { key:'holesInOne',   label:'Hole in One',  color:'#FFD700' },
+  { key:'albatrosses',  label:'Albatross',     color:'#e6b800' },
+  { key:'eagles',       label:'Eagle',         color:'#f0b429' },
+  { key:'birdies',      label:'Birdie',        color:'#e63946' },
+  { key:'pars',         label:'Par',           color:'#2d6a4f' },
+  { key:'bogeys',       label:'Bogey',         color:'#555'    },
+  { key:'doubleBogeys', label:'Double Bogey',  color:'#888'    },
+  { key:'triplePlus',   label:'Triple+',       color:'#bbb'    },
+];
+
+// Icelandic courses within ~100 km of Reykjavik.
+// Grafarholt back-9 par/SI from public scorecards; all other data estimated.
+const COURSES = [
+  { id:'grafarholt', name:'Grafarholt', club:'Reykjavík Golf Club', holes:18,
+    courseRating:70.5, slopeRating:121,
+    pars:[4,3,5,4,4,3,4,4,4, 4,3,5,4,4,5,4,3,4],
+    si:  [1,17,5,9,3,15,13,11,7, 8,6,12,16,18,2,4,10,14] },
+  { id:'korpa', name:'Korpa', club:'Reykjavík Golf Club', holes:18,
+    courseRating:72.3, slopeRating:132,
+    pars:[4,4,3,5,4,3,4,4,5, 4,3,5,4,4,3,4,4,5],
+    si:  [3,11,17,1,7,15,9,5,13, 4,18,2,10,12,16,8,6,14] },
+  { id:'keilir', name:'Keilir', club:'Golfklúbburinn Keilir', holes:18,
+    courseRating:70.1, slopeRating:123,
+    pars:[4,3,4,4,5,3,4,4,4, 4,3,4,5,4,3,5,4,4],
+    si:  [5,15,11,1,9,17,3,7,13, 2,18,10,6,14,16,4,8,12] },
+  { id:'leynir', name:'Leynir', club:'Golfklúbburinn Leynir', holes:18,
+    courseRating:71.0, slopeRating:134,
+    pars:[4,4,3,5,4,4,3,4,5, 4,3,5,4,4,3,4,5,4],
+    si:  [7,3,17,1,11,5,15,9,13, 6,18,2,10,14,16,4,8,12] },
+  { id:'hlidavollur', name:'Hlíðavöllur', club:'Golfklúbbur Mosfellsbæjar', holes:18,
+    courseRating:70.2, slopeRating:131,
+    pars:[4,3,5,4,4,3,4,5,4, 4,5,4,4,3,5,4,3,4],
+    si:  [5,15,1,11,3,17,9,7,13, 4,2,14,8,18,6,10,16,12],
+    tees: {
+      karlar: [
+        { color:'hvítir', label:'Hvítir', cr:70.2, slope:131, par:71 },
+        { color:'gulir',  label:'Gulir',  cr:68.0, slope:123, par:71 },
+        { color:'blár',   label:'Blár',   cr:65.5, slope:115, par:71 },
+        { color:'rauður', label:'Rauður', cr:63.5, slope:108, par:71 },
+      ],
+      konur: [
+        { color:'blár',   label:'Blár',   cr:72.0, slope:128, par:72 },
+        { color:'rauður', label:'Rauður', cr:69.5, slope:120, par:72 },
+      ],
+    } },
+  { id:'bakkakot', name:'Bakkakot', club:'Golfklúbbur Mosfellsbæjar', holes:9,
+    courseRating:31.3, slopeRating:107,
+    pars:[4,3,5,4,4,3,4,4,4],
+    si:  [1,9,17,5,3,13,7,11,15] },
+];
+
+// ═══════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════
+const S = {
+  view: 'home',
+  roundId: null,
+  hole: 1,
+  statsPlayer: null,
+  statsIncludeWolf: true,
+  statsIncludeStableford: true,
+  playerEdit: null,
+  courseEdit: null,
+  ce: null,
+  summaryPlayer: null,
+  numpadPid: null,
+
+  nr: {
+    holes: 18,
+    pars: [...DEFAULT_PARS_18],
+    si:   [...DEFAULT_SI_18],
+    courseRating: '',
+    slopeRating:  '113',
+    showHoleSettings: false,
+    selPids: [],
+    guests: [{ name:'', hcp:'' }, { name:'', hcp:'' },
+             { name:'', hcp:'' }, { name:'', hcp:'' }],
+    format:   'stroke',
+    courseId: null,
+    nineStart: 1,   // 1 = front 9, 10 = back 9
+  },
+};
+
+// ═══════════════════════════════════════════
+// STORAGE — ROUNDS
+// ═══════════════════════════════════════════
+function loadRounds() {
+  try { return JSON.parse(localStorage.getItem(ROUNDS_KEY) || '[]'); }
+  catch { return []; }
+}
+function persistRounds(arr) { localStorage.setItem(ROUNDS_KEY, JSON.stringify(arr)); }
+function saveRound(r) {
+  const all = loadRounds();
+  const i = all.findIndex(x => x.id === r.id);
+  if (i >= 0) all[i] = r; else all.unshift(r);
+  persistRounds(all);
+}
+function byId(id) { return loadRounds().find(r => r.id === id) || null; }
+function removeRound(id) { persistRounds(loadRounds().filter(r => r.id !== id)); }
+
+// ═══════════════════════════════════════════
+// STORAGE — PLAYERS
+// ═══════════════════════════════════════════
+function loadPlayers() {
+  try { return JSON.parse(localStorage.getItem(PLAYERS_KEY) || '[]'); }
+  catch { return []; }
+}
+function persistPlayers(arr) { localStorage.setItem(PLAYERS_KEY, JSON.stringify(arr)); }
+function upsertPlayer(p) {
+  const all = loadPlayers();
+  const i = all.findIndex(x => x.id === p.id);
+  if (i >= 0) all[i] = p; else all.push(p);
+  persistPlayers(all);
+}
+function deletePlayer(id) { persistPlayers(loadPlayers().filter(p => p.id !== id)); }
+
+// ═══════════════════════════════════════════
+// STORAGE — COURSES
+// ═══════════════════════════════════════════
+function loadCourses() {
+  try {
+    const overrides = JSON.parse(localStorage.getItem(COURSES_KEY) || '[]');
+    const presetIds = COURSES.map(c => c.id);
+    const result = COURSES.map(c => overrides.find(o => o.id === c.id) || c);
+    overrides.filter(o => !presetIds.includes(o.id)).forEach(o => result.push(o));
+    return result;
+  } catch { return [...COURSES]; }
+}
+function saveCourseData(course) {
+  try {
+    const overrides = JSON.parse(localStorage.getItem(COURSES_KEY) || '[]');
+    const i = overrides.findIndex(o => o.id === course.id);
+    if (i >= 0) overrides[i] = course; else overrides.push(course);
+    localStorage.setItem(COURSES_KEY, JSON.stringify(overrides));
+  } catch {}
+}
+function deleteCourseData(id) {
+  try {
+    const overrides = JSON.parse(localStorage.getItem(COURSES_KEY) || '[]');
+    localStorage.setItem(COURSES_KEY, JSON.stringify(overrides.filter(o => o.id !== id)));
+  } catch {}
+}
+function isPresetCourse(id) { return COURSES.some(c => c.id === id); }
+function isModifiedPreset(id) {
+  try {
+    const overrides = JSON.parse(localStorage.getItem(COURSES_KEY) || '[]');
+    return isPresetCourse(id) && overrides.some(o => o.id === id);
+  } catch { return false; }
+}
+
+// ═══════════════════════════════════════════
+// SCORING HELPERS
+// ═══════════════════════════════════════════
+function scoreColor(strokes, par) {
+  if (!strokes) return '#ccc';
+  const d = strokes - par;
+  if (strokes === 1 || d <= -2) return '#FFD700';
+  if (d === -1) return '#e63946';
+  if (d === 0)  return '#2d6a4f';
+  if (d === 1)  return '#333';
+  return '#888';
+}
+function grossTotal(round, pid, from, to) {
+  from = from || 1; to = to || round.holes.length;
+  let t = 0;
+  for (let n = from; n <= to; n++) t += round.scores[pid]?.[n]?.s || 0;
+  return t;
+}
+function parSum(round, from, to) {
+  from = from || 1; to = to || round.holes.length;
+  return round.holes.filter(h => h.n >= from && h.n <= to).reduce((s,h)=>s+h.par, 0);
+}
+function dStr(n) { return n === 0 ? 'E' : n > 0 ? '+'+n : ''+n; }
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ═══════════════════════════════════════════
+// HANDICAP HELPERS
+// ═══════════════════════════════════════════
+function calcTeeHcp(hcpIndex, tee) {
+  const hci = parseFloat(hcpIndex) || 0;
+  return Math.round(hci * tee.slope / 113 + (tee.cr - tee.par));
+}
+function courseHcp(player, round) {
+  if (player.courseHcpOverride != null) return player.courseHcpOverride;
+  const hci = parseFloat(player.handicapIndex) || 0;
+  if (hci <= 0) return 0;
+  const slope  = parseFloat(round.slopeRating) || 113;
+  const par    = parSum(round);
+  const rating = parseFloat(round.courseRating) || par;
+  const adj    = round.holes.length === 9 ? hci / 2 : hci;
+  return Math.round(adj * (slope / 113) + (rating - par));
+}
+function siStrokes(chcp, si, nh) {
+  if (chcp <= 0) return 0;
+  const base  = Math.floor(chcp / nh);
+  const extra = chcp % nh;
+  return base + (si <= extra ? 1 : 0);
+}
+function netTotal(round, pid) {
+  const player = round.players.find(p => p.id === pid);
+  if (!player) return 0;
+  const chcp = courseHcp(player, round);
+  const nh   = round.holes.length;
+  let net = 0;
+  for (const hole of round.holes) {
+    const g = round.scores[pid]?.[hole.n]?.s || 0;
+    if (!g) continue;
+    net += g - siStrokes(chcp, hole.si, nh);
+  }
+  return net;
+}
+
+// ═══════════════════════════════════════════
+// STABLEFORD HELPERS
+// ═══════════════════════════════════════════
+function stablefordPts(strokes, par, hcpStrokes) {
+  if (!strokes) return null;
+  const net = strokes - hcpStrokes;
+  const d   = net - par;
+  if (d <= -2) return 4;
+  if (d === -1) return 3;
+  if (d === 0)  return 2;
+  if (d === 1)  return 1;
+  return 0;
+}
+function stablefordTotal(round, pid) {
+  const player = round.players.find(p => p.id === pid);
+  if (!player) return 0;
+  const chcp = courseHcp(player, round);
+  const nh   = round.holes.length;
+  let total  = 0;
+  for (const hole of round.holes) {
+    const g  = round.scores[pid]?.[hole.n]?.s;
+    if (!g) continue;
+    const hs = siStrokes(chcp, hole.si, nh);
+    total   += stablefordPts(g, hole.par, hs) || 0;
+  }
+  return total;
+}
+
+// ═══════════════════════════════════════════
+// WOLF HELPERS
+// ═══════════════════════════════════════════
+function wolfForHole(round, holeN) {
+  return round.players[(holeN - 1) % round.players.length].id;
+}
+
+// Returns { pid: points } or null if decision not made / scores missing.
+// Zero-sum: 2v2 win = +2/-2; lone win = wolf +6, each opp -2; lone lose = wolf -6, each opp +2.
+function wolfHolePoints(round, holeN) {
+  const wd = round.wolfHoles?.[holeN];
+  if (!wd || (!wd.isLone && !wd.partnerPid)) return null;
+
+  const hole    = round.holes[holeN - 1];
+  const nh      = round.holes.length;
+  const wolfPid = wolfForHole(round, holeN);
+
+  function netS(pid) {
+    const g = round.scores[pid]?.[holeN]?.s;
+    if (!g) return 999;
+    const player = round.players.find(p => p.id === pid);
+    return g - siStrokes(courseHcp(player, round), hole.si, nh);
+  }
+
+  const wolfTeam  = wd.isLone ? [wolfPid] : [wolfPid, wd.partnerPid];
+  const otherTeam = round.players.map(p => p.id).filter(id => !wolfTeam.includes(id));
+
+  const wolfBest  = Math.min(...wolfTeam.map(netS));
+  const otherBest = Math.min(...otherTeam.map(netS));
+
+  const pts = {};
+  round.players.forEach(p => { pts[p.id] = 0; });
+
+  if (wolfBest === 999 || otherBest === 999) return pts;
+  if (wolfBest === otherBest) return pts;
+
+  if (wd.isLone) {
+    if (wolfBest < otherBest) {
+      pts[wolfPid] = 6;
+      otherTeam.forEach(id => { pts[id] = -2; });
+    } else {
+      pts[wolfPid] = -6;
+      otherTeam.forEach(id => { pts[id] = 2; });
+    }
+  } else {
+    if (wolfBest < otherBest) {
+      wolfTeam.forEach(id => { pts[id] = 2; });
+      otherTeam.forEach(id => { pts[id] = -2; });
+    } else {
+      wolfTeam.forEach(id => { pts[id] = -2; });
+      otherTeam.forEach(id => { pts[id] = 2; });
+    }
+  }
+  return pts;
+}
+
+function wolfTotalPts(round, pid) {
+  let total = 0;
+  for (const hole of round.holes) {
+    const pts = wolfHolePoints(round, hole.n);
+    if (pts) total += pts[pid] || 0;
+  }
+  return total;
+}
+
+// ═══════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════
+function nav(view, params) {
+  if (params) Object.assign(S, params);
+  S.view = view;
+  history.pushState({ view, ...params }, '');
+  render();
+}
+function goBack() {
+  const map = { 'new-round':'home', players:'home', courses:'home', scorecard:'home', summary:'home', stats:'home' };
+  nav(map[S.view] || 'home');
+}
+window.addEventListener('popstate', e => {
+  if (e.state) { Object.assign(S, e.state); render(); }
+  else { S.view = 'home'; render(); }
+});
+
+// ═══════════════════════════════════════════
+// RENDER DISPATCHER
+// ═══════════════════════════════════════════
+function render() {
+  const main  = document.getElementById('main');
+  const back  = document.getElementById('back-btn');
+  const title = document.getElementById('hdr-title');
+  document.getElementById('hdr-right').innerHTML = '';
+  main.classList.toggle('locked', S.view === 'scorecard');
+
+  const titles = {
+    home: 'Golf Scorecard', players: 'Players', courses: 'Courses',
+    'new-round': 'New Round', stats: 'Statistics',
+    scorecard: S.roundId ? (byId(S.roundId)?.course || 'Scorecard') : 'Scorecard',
+    summary: 'Round Summary',
+  };
+  title.textContent = titles[S.view] || 'Golf Scorecard';
+  back.classList.toggle('show', S.view !== 'home');
+
+  const views = {
+    home: renderHome, players: renderPlayers, courses: renderCourses,
+    'new-round': renderNewRound, scorecard: renderScorecard,
+    summary: renderSummary, stats: renderStats,
+  };
+  (views[S.view] || renderHome)(main);
+
+  if (S.view === 'new-round') restoreNrInputs();
+}
+
+// ═══════════════════════════════════════════
+// HOME
+// ═══════════════════════════════════════════
+function renderHome(c) {
+  const rounds = loadRounds();
+  let list = '';
+
+  if (!rounds.length) {
+    list = `<div class="empty-state">
+      <div class="ico">⛳</div>
+      <h2>No rounds yet</h2>
+      <p>Tap "+ New Round" to get started</p>
+    </div>`;
+  } else {
+    list += '<p class="hint">Long-press a round to delete it</p>';
+    for (const r of rounds) {
+      const tp   = parSum(r);
+      const date = new Date(r.date).toLocaleDateString('en-US',{ month:'short', day:'numeric', year:'numeric' });
+      const names = r.players.map(p=>p.name).join(', ');
+      const fmtBadge = r.format === 'stableford'
+        ? '<span class="badge-fmt badge-stableford">Stableford</span>'
+        : r.format === 'wolf'
+        ? '<span class="badge-fmt badge-wolf">🐺 Wolf</span>'
+        : '';
+      let bottom = '';
+      if (r.done) {
+        if (r.format === 'stableford') {
+          bottom = '<div class="chip-row">' +
+            r.players.map(p => {
+              const pts = stablefordTotal(r, p.id);
+              return `<div class="chip">
+                <span class="chip-name">${esc(p.name.split(' ')[0])}</span>
+                <span class="chip-score">${pts}</span>
+                <span class="chip-diff">pts</span>
+              </div>`;
+            }).join('') + '</div>';
+        } else if (r.format === 'wolf') {
+          bottom = '<div class="chip-row">' +
+            r.players.map(p => {
+              const pts = wolfTotalPts(r, p.id);
+              const sign = pts > 0 ? '+' : '';
+              return `<div class="chip">
+                <span class="chip-name">${esc(p.name.split(' ')[0])}</span>
+                <span class="chip-score">${sign}${pts}</span>
+                <span class="chip-diff">pts</span>
+              </div>`;
+            }).join('') + '</div>';
+        } else {
+          bottom = '<div class="chip-row">' +
+            r.players.map(p => {
+              const tot = grossTotal(r, p.id);
+              const d   = tot - tp;
+              return `<div class="chip">
+                <span class="chip-name">${esc(p.name.split(' ')[0])}</span>
+                <span class="chip-score">${tot}</span>
+                <span class="chip-diff">${dStr(d)}</span>
+              </div>`;
+            }).join('') + '</div>';
+        }
+      } else {
+        bottom = '<span class="badge-prog">In Progress</span>';
+      }
+      list += `<div class="round-card" data-id="${r.id}">
+        <div class="rc-top">
+          <div class="rc-course">${esc(r.course)}${fmtBadge}</div>
+          <div class="rc-date">${date}</div>
+        </div>
+        <div class="rc-players">${esc(names)} &middot; ${r.holes.length} holes</div>
+        ${bottom}
+      </div>`;
+    }
+  }
+
+  c.innerHTML = `<div id="view-home">
+    <div id="rounds-list">${list}</div>
+    <div class="home-footer">
+      <button class="btn btn-outline" onclick="nav('players')">Players</button>
+      <button class="btn btn-outline" onclick="nav('courses')">Courses</button>
+      <button class="btn btn-outline" onclick="nav('stats')">Stats</button>
+      <button class="btn btn-green"   onclick="nav('new-round')">+ New Round</button>
+    </div>
+  </div>`;
+
+  c.querySelectorAll('.round-card').forEach(card => {
+    const id = card.dataset.id;
+    card.addEventListener('click', () => openRound(id));
+    let t;
+    card.addEventListener('touchstart', () => { t = setTimeout(() => { if(confirm('Delete this round?')){ removeRound(id); render(); } }, 600); }, {passive:true});
+    card.addEventListener('touchend',  () => clearTimeout(t), {passive:true});
+    card.addEventListener('touchmove', () => clearTimeout(t), {passive:true});
+    card.addEventListener('contextmenu', e => { e.preventDefault(); if(confirm('Delete this round?')){ removeRound(id); render(); } });
+  });
+}
+
+function openRound(id) {
+  const r = byId(id);
+  if (!r) return;
+  if (r.done) { S.summaryPlayer = null; nav('summary', { roundId: id }); return; }
+  let start = r.holes[0]?.n || 1;
+  for (const h of r.holes) {
+    if (!r.players.every(p => r.scores[p.id]?.[h.n]?.s)) { start = h.n; break; }
+  }
+  nav('scorecard', { roundId: id, hole: start });
+}
+
+// ═══════════════════════════════════════════
+// PLAYERS SCREEN
+// ═══════════════════════════════════════════
+function renderPlayers(c) {
+  const players = loadPlayers();
+  const editId  = S.playerEdit;
+
+  function formHTML(pid) {
+    const p = pid && pid !== 'new' ? players.find(x => x.id === pid) : null;
+    const pg = p?.gender || 'karlar';
+    return `<div class="player-form-card">
+      <div class="player-form-title">${p ? 'Edit Player' : 'New Player'}</div>
+      <div class="form-row">
+        <input class="input" id="pf-name" placeholder="Full name" value="${p ? esc(p.name) : ''}" autocomplete="off">
+      </div>
+      <div class="form-row">
+        <div class="input-wrap" style="flex:1">
+          <span class="input-cap">Handicap Index</span>
+          <input class="input" id="pf-hcp" type="number" placeholder="e.g. 18.4" step="0.1" min="0" max="54" value="${p && p.handicapIndex != null ? p.handicapIndex : ''}">
+        </div>
+        <div class="input-wrap" style="flex:1">
+          <span class="input-cap">Home Club (optional)</span>
+          <input class="input" id="pf-club" placeholder="Club name" value="${p ? esc(p.club||'') : ''}" autocomplete="off">
+        </div>
+      </div>
+      <span class="input-cap">Gender</span>
+      <div class="tee-seg pf-gender-row" style="margin-bottom:10px">
+        <button class="tee-btn${pg==='karlar'?' active':''}" data-val="karlar" onclick="pfSetGender(this,'karlar')">Karlar</button>
+        <button class="tee-btn${pg==='konur'?' active':''}" data-val="konur" onclick="pfSetGender(this,'konur')">Konur</button>
+      </div>
+      <span class="input-cap">Default Tee</span>
+      <div class="tee-seg" id="pf-tee-row" style="margin-bottom:14px">
+        ${teeBtnsForGender(pg, p?.defaultTee||null)}
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-green" style="flex:2" onclick="submitPlayer(${p ? `'${p.id}'` : 'null'})">
+          ${p ? 'Update' : 'Save Player'}
+        </button>
+        <button class="btn btn-outline" style="flex:1;padding:15px 10px" onclick="cancelPlayerEdit()">Cancel</button>
+      </div>
+    </div>`;
+  }
+
+  const showForm  = editId === 'new';
+  const addBtnHTML = editId ? '' :
+    `<button class="btn btn-green" style="margin-top:14px" onclick="newPlayerForm()">+ Add Player</button>`;
+
+  const emptyHTML = !players.length && !showForm ? `<div class="empty-state" style="height:35vh">
+    <div class="ico" style="font-size:44px">&#128100;</div>
+    <h2>No players saved</h2>
+    <p>Save your regular playing group so you can quickly pick them when starting a round</p>
+  </div>` : '';
+
+  const listHTML = players.map(p => {
+    if (editId === p.id) return formHTML(p.id);
+    const hcpText  = p.handicapIndex != null ? `HCP ${p.handicapIndex}` : 'No HCP';
+    const clubText = p.club ? ` &middot; ${esc(p.club)}` : '';
+    const genderTxt = p.gender === 'konur' ? 'Konur' : 'Karlar';
+    const teeTxt    = p.defaultTee
+      ? ` &middot; ${(TEE_COLORS[p.gender||'karlar']||[]).find(t=>t.color===p.defaultTee)?.label || p.defaultTee}` : '';
+    return `<div class="player-item">
+      <div class="player-item-info">
+        <div class="player-item-name">${esc(p.name)}</div>
+        <div class="player-item-hcp">${hcpText}${clubText} &middot; ${genderTxt}${teeTxt}</div>
+      </div>
+      <div class="player-item-actions">
+        <button class="icon-btn icon-btn-edit" onclick="editPlayerForm('${p.id}')">&#9998;</button>
+        <button class="icon-btn icon-btn-del"  onclick="confirmDeletePlayer('${p.id}')">&#10005;</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  c.innerHTML = `<div id="view-players">
+    ${showForm ? formHTML(null) : ''}
+    ${emptyHTML}
+    <div class="player-list">${listHTML}</div>
+    ${addBtnHTML}
+  </div>`;
+
+  if (showForm || editId) {
+    setTimeout(() => document.getElementById('pf-name')?.focus(), 50);
+  }
+}
+
+function newPlayerForm()        { S.playerEdit = 'new'; renderPlayers(document.getElementById('main')); }
+function editPlayerForm(id)     { S.playerEdit = id;    renderPlayers(document.getElementById('main')); }
+function cancelPlayerEdit()     { S.playerEdit = null;  renderPlayers(document.getElementById('main')); }
+function confirmDeletePlayer(id) {
+  const p = loadPlayers().find(x => x.id === id);
+  if (p && confirm(`Delete "${p.name}"?`)) { deletePlayer(id); renderPlayers(document.getElementById('main')); }
+}
+function submitPlayer(editId) {
+  const name = document.getElementById('pf-name')?.value?.trim();
+  if (!name) { alert('Please enter a name.'); return; }
+  const hcpVal    = document.getElementById('pf-hcp')?.value;
+  const clubVal   = document.getElementById('pf-club')?.value?.trim() || '';
+  const genderBtn = document.querySelector('.pf-gender-row .tee-btn.active');
+  const teeBtn    = document.querySelector('#pf-tee-row .tee-btn.active');
+  upsertPlayer({
+    id: editId || ('pl' + Date.now()),
+    name,
+    handicapIndex: hcpVal !== '' && !isNaN(hcpVal) ? parseFloat(hcpVal) : null,
+    club:       clubVal || undefined,
+    gender:     genderBtn?.dataset.val || 'karlar',
+    defaultTee: teeBtn?.dataset.val    || null,
+  });
+  S.playerEdit = null;
+  renderPlayers(document.getElementById('main'));
+}
+
+// ═══════════════════════════════════════════
+// COURSES SCREEN
+// ═══════════════════════════════════════════
+function renderCourses(c) {
+  const courses = loadCourses();
+
+  if (S.courseEdit) {
+    const isNew   = S.courseEdit === 'new';
+    const ce      = S.ce;
+    const half    = Math.floor(ce.holes / 2);
+    const frontPar = ce.pars.slice(0, half).reduce((a,b)=>a+b, 0);
+    const backPar  = ce.pars.slice(half, ce.holes).reduce((a,b)=>a+b, 0);
+    const totalPar = frontPar + backPar;
+
+    function holeRow(i) {
+      return `<div class="hole-row">
+        <div class="hole-row-num">H${i+1}</div>
+        <div class="hole-row-fields">
+          <div class="hole-row-field">
+            <span class="hole-row-lbl">Par</span>
+            <button class="hc-btn" onclick="adjCeHole('par',${i},-1)">&#8722;</button>
+            <input type="number" class="hc-input" id="ce-par-${i}" value="${ce.pars[i]}" min="3" max="6">
+            <button class="hc-btn" onclick="adjCeHole('par',${i},1)">+</button>
+          </div>
+          <div class="hole-row-field">
+            <span class="hole-row-lbl">SI</span>
+            <button class="hc-btn" onclick="adjCeHole('si',${i},-1)">&#8722;</button>
+            <input type="number" class="hc-input" id="ce-si-${i}" value="${ce.si[i]}" min="1" max="${ce.holes}">
+            <button class="hc-btn" onclick="adjCeHole('si',${i},1)">+</button>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    const frontRows = Array.from({length: half}, (_, i) => holeRow(i)).join('');
+    const backRows  = Array.from({length: ce.holes - half}, (_, i) => holeRow(half + i)).join('');
+
+    const holeSection = ce.holes === 9
+      ? `<div class="hole-section-hdr">9 Holes — Par ${totalPar}</div>
+         <div class="hole-list">${frontRows}${backRows}</div>`
+      : `<div class="hole-section-hdr">Front 9 — Out: Par ${frontPar}</div>
+         <div class="hole-list">${frontRows}</div>
+         <div class="hole-section-hdr">Back 9 — In: Par ${backPar}</div>
+         <div class="hole-list">${backRows}</div>`;
+
+    const savedKey = localStorage.getItem('golf_claude_key') || '';
+    const scanMsg  = ce._scanMsg || '';
+    const scanMsgColor = scanMsg.startsWith('✓') ? '#1a4731' : '#c84b11';
+
+    c.innerHTML = `<div id="view-courses">
+      <div class="course-edit-card">
+        <div class="course-edit-title">${isNew ? 'New Course' : 'Edit Course'}</div>
+
+        <span class="lbl" style="margin-top:0">Course Name</span>
+        <input class="input" id="ce-name" placeholder="e.g. Hlíðavöllur" value="${esc(ce.name)}" autocomplete="off">
+
+        <span class="lbl">Club Name</span>
+        <input class="input" id="ce-club" placeholder="e.g. Golfklúbbur Mosfellsbæjar" value="${esc(ce.club)}" autocomplete="off">
+
+        <span class="lbl">Holes</span>
+        <div class="seg-row">
+          <button class="seg-btn ${ce.holes===9?'active':''}"  onclick="setCeHoles(9)">9 Holes</button>
+          <button class="seg-btn ${ce.holes===18?'active':''}" onclick="setCeHoles(18)">18 Holes</button>
+        </div>
+
+        <span class="lbl">Course Rating &amp; Slope</span>
+        <div class="two-col">
+          <div class="input-wrap">
+            <span class="input-cap">Course Rating</span>
+            <input class="input" id="ce-rating" type="number" placeholder="${totalPar}.0" step="0.1" min="20" max="85" value="${esc(String(ce.courseRating||''))}">
+          </div>
+          <div class="input-wrap">
+            <span class="input-cap">Slope Rating</span>
+            <input class="input" id="ce-slope" type="number" placeholder="113" step="1" min="55" max="155" value="${esc(String(ce.slopeRating||''))}">
+          </div>
+        </div>
+
+        <span class="lbl">Scan Scorecard Image</span>
+        <div class="scan-section">
+          <div class="scan-section-title">Paste a photo of the HCP/scorecard table — par &amp; SI will be filled automatically</div>
+          <div class="scan-key-row">
+            <input class="input" id="ce-apikey" type="password" placeholder="Claude API key (sk-ant-…)" value="${esc(savedKey)}" autocomplete="off">
+          </div>
+          <button class="scan-btn" id="scan-btn" onclick="document.getElementById('scan-file').click()">
+            📷 Scan Scorecard Image
+          </button>
+          <input type="file" id="scan-file" accept="image/*" capture="environment" style="display:none" onchange="handleScanImage(event)">
+          ${scanMsg ? `<div class="scan-status" style="color:${scanMsgColor}">${esc(scanMsg)}</div>` : '<div class="scan-status"></div>'}
+        </div>
+
+        <span class="lbl">Holes — Par ${totalPar}</span>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:4px">SI = Stroke Index · 1 is the hardest hole</p>
+        ${holeSection}
+
+        <div style="display:flex;gap:8px;margin-top:20px">
+          <button class="btn btn-green" style="flex:2" onclick="submitCourse()">Save Course</button>
+          <button class="btn btn-outline" style="flex:1;padding:15px 8px" onclick="cancelCourseEdit()">Cancel</button>
+        </div>
+        ${!isNew && isPresetCourse(ce.id) ? `
+          <button class="btn btn-outline" style="margin-top:8px;color:#c84b11;border-color:#c84b11"
+            onclick="resetCourse('${ce.id}')">Reset to Default</button>` : ''}
+      </div>
+    </div>`;
+    return;
+  }
+
+  const list = courses.map(co => {
+    const modified = isModifiedPreset(co.id);
+    const isCustom = !isPresetCourse(co.id);
+    const parTot   = co.pars.reduce((a,b)=>a+b,0);
+    const crInfo   = co.courseRating ? `CR ${co.courseRating}` : '';
+    const srInfo   = co.slopeRating  ? `Slope ${co.slopeRating}` : '';
+    const meta     = [co.club, `${co.holes}H Par ${parTot}`, crInfo, srInfo].filter(Boolean).join(' · ');
+    return `<div class="course-item">
+      <div class="course-item-top">
+        <div class="course-item-info">
+          <div class="course-item-name">${esc(co.name)}${modified?'<span class="modified-tag">edited</span>':''}</div>
+          <div class="course-item-meta">${esc(meta)}</div>
+        </div>
+        <div class="course-item-actions">
+          <button class="icon-btn icon-btn-edit" onclick="editCourse('${co.id}')">&#9998;</button>
+          ${isCustom ? `<button class="icon-btn icon-btn-del" onclick="confirmDeleteCourse('${co.id}')">&#10005;</button>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  c.innerHTML = `<div id="view-courses">
+    ${list}
+    <button class="btn btn-green" style="margin-top:4px" onclick="newCourse()">+ Add Custom Course</button>
+  </div>`;
+}
+
+function newCourse() {
+  S.courseEdit = 'new';
+  S.ce = { id: 'cc'+Date.now(), name:'', club:'', holes:18,
+            courseRating:'', slopeRating:'113',
+            pars:[...DEFAULT_PARS_18], si:[...DEFAULT_SI_18] };
+  renderCourses(document.getElementById('main'));
+}
+
+function editCourse(id) {
+  const co = loadCourses().find(c => c.id === id);
+  if (!co) return;
+  S.courseEdit = id;
+  S.ce = { ...co, pars:[...co.pars], si:[...co.si] };
+  renderCourses(document.getElementById('main'));
+}
+
+function cancelCourseEdit() {
+  S.courseEdit = null; S.ce = null;
+  renderCourses(document.getElementById('main'));
+}
+
+function clearScanMsg() {
+  if (S.ce) S.ce._scanMsg = '';
+}
+
+function adjCeHole(type, idx, delta) {
+  saveCeInputs();
+  if (type === 'par') {
+    S.ce.pars[idx] = Math.max(3, Math.min(6, S.ce.pars[idx] + delta));
+  } else {
+    S.ce.si[idx] = Math.max(1, Math.min(S.ce.holes, S.ce.si[idx] + delta));
+  }
+  renderCourses(document.getElementById('main'));
+}
+
+function setCeHoles(n) {
+  saveCeInputs();
+  S.ce.holes = n;
+  S.ce.pars  = n === 9 ? [...DEFAULT_PARS_9]  : [...DEFAULT_PARS_18];
+  S.ce.si    = n === 9 ? [...DEFAULT_SI_9]    : [...DEFAULT_SI_18];
+  renderCourses(document.getElementById('main'));
+}
+
+function saveCeInputs() {
+  if (!S.ce) return;
+  const name = document.getElementById('ce-name')?.value?.trim();
+  if (name !== undefined) S.ce.name = name || S.ce.name;
+  const club = document.getElementById('ce-club')?.value?.trim();
+  if (club !== undefined) S.ce.club = club;
+  const rating = document.getElementById('ce-rating')?.value;
+  if (rating !== undefined) S.ce.courseRating = rating;
+  const slope  = document.getElementById('ce-slope')?.value;
+  if (slope !== undefined) S.ce.slopeRating = slope;
+  for (let i = 0; i < S.ce.holes; i++) {
+    const parEl = document.getElementById(`ce-par-${i}`);
+    if (parEl) { const v = parseInt(parEl.value); if (v >= 3 && v <= 6) S.ce.pars[i] = v; }
+    const siEl  = document.getElementById(`ce-si-${i}`);
+    if (siEl)  { const v = parseInt(siEl.value);  if (v >= 1 && v <= 18) S.ce.si[i] = v; }
+  }
+}
+
+function submitCourse() {
+  saveCeInputs();
+  const name = S.ce.name;
+  if (!name) { alert('Please enter a course name.'); return; }
+  const course = {
+    id:           S.ce.id,
+    name,
+    club:         S.ce.club,
+    holes:        S.ce.holes,
+    courseRating: S.ce.courseRating !== '' ? parseFloat(S.ce.courseRating) : null,
+    slopeRating:  S.ce.slopeRating  !== '' ? parseInt(S.ce.slopeRating)   : 113,
+    pars:         [...S.ce.pars.slice(0, S.ce.holes)],
+    si:           [...S.ce.si.slice(0, S.ce.holes)],
+  };
+  saveCourseData(course);
+  S.courseEdit = null; S.ce = null;
+  renderCourses(document.getElementById('main'));
+}
+
+function confirmDeleteCourse(id) {
+  const co = loadCourses().find(c => c.id === id);
+  if (co && confirm(`Delete "${co.name}"?`)) {
+    deleteCourseData(id);
+    renderCourses(document.getElementById('main'));
+  }
+}
+
+function resetCourse(id) {
+  if (confirm('Reset this course to its default data?')) {
+    deleteCourseData(id);
+    S.courseEdit = null; S.ce = null;
+    renderCourses(document.getElementById('main'));
+  }
+}
+
+function handleScanImage(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  saveCeInputs();
+  const apiKey = document.getElementById('ce-apikey')?.value?.trim()
+    || localStorage.getItem('golf_claude_key') || '';
+  if (!apiKey) {
+    S.ce._scanMsg = 'Please enter a Claude API key above.';
+    renderCourses(document.getElementById('main'));
+    return;
+  }
+  localStorage.setItem('golf_claude_key', apiKey);
+
+  const btn = document.getElementById('scan-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
+  document.querySelector('.scan-status').textContent = '';
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const dataUrl   = e.target.result;
+      const [header, b64] = dataUrl.split(',');
+      const mediaType = header.match(/:(.*?);/)[1];
+
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 1024,
+          messages: [{
+            role: 'user',
+            content: [
+              { type:'image', source:{ type:'base64', media_type:mediaType, data:b64 } },
+              { type:'text', text:
+                'This is a golf scorecard or hole handicap (stroke index) table. ' +
+                'Extract hole-by-hole data. Return ONLY valid JSON, no other text:\n' +
+                '{"holes":[{"n":1,"par":4,"si":7},{"n":2,"par":3,"si":15},...]}\n' +
+                '"n" = hole number, "par" = par (3–5), "si" = stroke index / handicap (1–18 for 18-hole, 1–9 for 9-hole). ' +
+                'Include every hole shown in the image.'
+              }
+            ]
+          }]
+        })
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err?.error?.message || `HTTP ${resp.status}`);
+      }
+
+      const data   = await resp.json();
+      const text   = data.content?.[0]?.text || '';
+      const jsonStr = text.match(/\{[\s\S]*\}/)?.[0];
+      if (!jsonStr) throw new Error('No JSON found in response');
+      const parsed = JSON.parse(jsonStr);
+      if (!Array.isArray(parsed.holes)) throw new Error('Unexpected response format');
+
+      let filled = 0;
+      for (const h of parsed.holes) {
+        const idx = h.n - 1;
+        if (idx < 0 || idx >= S.ce.holes) continue;
+        if (h.par >= 3 && h.par <= 6)  { S.ce.pars[idx] = h.par; filled++; }
+        if (h.si  >= 1 && h.si  <= 18) { S.ce.si[idx]   = h.si;  }
+      }
+      S.ce._scanMsg = `✓ Filled ${filled} holes from image`;
+    } catch (err) {
+      S.ce._scanMsg = `Error: ${err.message}`;
+    }
+    renderCourses(document.getElementById('main'));
+  };
+  reader.readAsDataURL(file);
+  event.target.value = '';
+}
+
+// ═══════════════════════════════════════════
+// NEW ROUND
+// ═══════════════════════════════════════════
+// Tee color options per gender (generic; matched against course tee data by color name)
+const TEE_COLORS = {
+  karlar: [{color:'hvítir',label:'Hvítir'},{color:'gulir',label:'Gulir'},{color:'blár',label:'Blár'},{color:'rauður',label:'Rauður'}],
+  konur:  [{color:'blár',label:'Blár'},{color:'rauður',label:'Rauður'}],
+};
+function teeBtnsForGender(gender, selectedColor) {
+  return (TEE_COLORS[gender] || TEE_COLORS.karlar).map(t =>
+    `<button class="tee-btn${t.color===selectedColor?' active':''}" data-val="${t.color}" onclick="pfSetTee(this,'${t.color}')">${t.label}</button>`
+  ).join('');
+}
+function pfSetGender(btn, gender) {
+  btn.closest('.pf-gender-row').querySelectorAll('.tee-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const teeRow = document.getElementById('pf-tee-row');
+  if (teeRow) teeRow.innerHTML = teeBtnsForGender(gender, null);
+}
+function pfSetTee(btn) {
+  btn.closest('#pf-tee-row').querySelectorAll('.tee-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function renderNewRound(c) {
+  const nr         = S.nr;
+  const saved      = loadPlayers();
+  const totalPar   = nr.pars.slice(0, nr.holes).reduce((a,b)=>a+b, 0);
+  const selCount   = nr.selPids.length;
+  const guestCount = nr.guests.filter(g=>g.name.trim()).length;
+  const totalSel   = selCount + guestCount;
+  const remaining  = 4 - selCount;
+
+  // Course presets
+  const coursePresets = `<div class="course-scroll">
+    <button class="course-pill ${!nr.courseId?'active':''}" onclick="setCourse(null)">Custom</button>
+    ${loadCourses().map(co =>
+      `<button class="course-pill ${nr.courseId===co.id?'active':''}" onclick="setCourse('${co.id}')">
+        ${esc(co.name)}
+      </button>`
+    ).join('')}
+  </div>`;
+
+  // Player selector
+  const selGrid = saved.length
+    ? `<div class="psel-grid">${saved.map(p => {
+        const isSel = nr.selPids.includes(p.id);
+        const dim   = !isSel && totalSel >= 4;
+        const hcpTxt = p.handicapIndex != null ? `HCP ${p.handicapIndex}` : 'No HCP';
+        return `<button class="psel-item${isSel?' sel':''}${dim?' dim':''}" onclick="toggleSelPlayer('${p.id}')">
+          <div class="psel-chk">${isSel ? '&#10003;' : ''}</div>
+          <div class="psel-info">
+            <div class="psel-name">${esc(p.name)}</div>
+            <div class="psel-hcp">${hcpTxt}</div>
+          </div>
+        </button>`;
+      }).join('')}</div>`
+    : `<p style="font-size:13px;color:var(--muted);margin-bottom:8px">
+        No saved players. <button class="link-btn" onclick="nav('players')">Add players &#8594;</button>
+       </p>`;
+
+  // Guest rows
+  const guestRows = Array.from({ length: remaining }, (_, i) =>
+    `<div class="guest-row">
+      <input class="input" id="ng-n${i}" placeholder="Guest name" autocomplete="off" value="${esc(nr.guests[i]?.name||'')}">
+      <input class="input hcp" id="ng-h${i}" type="number" placeholder="HCP" step="0.1" min="0" max="54" value="${nr.guests[i]?.hcp||''}">
+    </div>`
+  ).join('');
+
+  // Format selector
+  const wolfDisabled = totalSel !== 4;
+  const fmts = [
+    { key:'stroke',     ico:'⛳', lbl:'Stroke' },
+    { key:'stableford', ico:'★',  lbl:'Stableford' },
+    { key:'wolf',       ico:'🐺', lbl:'Wolf', disabled: wolfDisabled },
+  ];
+  const fmtBtns = fmts.map(f =>
+    `<button class="fmt-btn${nr.format===f.key?' active':''}${f.disabled?' disabled':''}"
+      onclick="setFormat('${f.key}')">
+      <span class="fmt-ico">${f.ico}</span>${esc(f.lbl)}
+    </button>`
+  ).join('');
+  const wolfNote = wolfDisabled && nr.format !== 'wolf'
+    ? '' : wolfDisabled
+    ? `<p class="fmt-note">Wolf requires exactly 4 players (${totalSel} selected)</p>` : '';
+
+  const fmtDescriptions = {
+    stroke: {
+      title: 'Stroke Play',
+      lines: [
+        'Every stroke on every hole counts toward your total.',
+        'Lowest total score wins.',
+        'Handicap strokes are applied per hole based on Stroke Index (SI).',
+      ],
+    },
+    stableford: {
+      title: 'Stableford',
+      lines: [
+        'You earn points on each hole relative to par (adjusted for handicap):',
+        '&nbsp;&nbsp;Double bogey or worse → 0 pts',
+        '&nbsp;&nbsp;Bogey → 1 pt &nbsp;|&nbsp; Par → 2 pts',
+        '&nbsp;&nbsp;Birdie → 3 pts &nbsp;|&nbsp; Eagle → 4 pts &nbsp;|&nbsp; Albatross → 5 pts',
+        'Highest points total wins.',
+      ],
+    },
+    wolf: {
+      title: 'Wolf — how it works',
+      lines: [
+        'Requires exactly 4 players. One player is "Wolf" on each hole, rotating every hole in a fixed order (player 1 is Wolf on holes 1, 5, 9, 13, 17; player 2 on holes 2, 6, …).',
+        'After each drive the Wolf decides whether to take that player as a partner — it\'s decided one drive at a time, in playing order.',
+        'If the Wolf picks a partner: it\'s 2 v 2. The side with the lowest net score wins the hole.',
+        'If the Wolf takes no partner ("Lone Wolf"): Wolf plays 1 v 3. Win = +6 for Wolf, −2 each for the others. Lose = −6 for Wolf, +2 each for others.',
+        'With a partner: winning side earns +2, losing side −2.',
+        'Declare "Lone Wolf" before anyone tees off for a higher-risk / higher-reward option.',
+        'Most Wolf points after 18 holes wins.',
+      ],
+    },
+  };
+
+  const fd = fmtDescriptions[nr.format];
+  const fmtHelp = fd
+    ? `<div class="fmt-help">
+        <strong>${fd.title}</strong>
+        <ul>${fd.lines.map(l => `<li>${l}</li>`).join('')}</ul>
+       </div>`
+    : '';
+
+  // Hole settings table
+  const holeTbl = nr.showHoleSettings ? `<div class="hole-tbl-wrap">
+    <table class="hole-tbl">
+      <thead><tr>
+        <th></th>
+        ${Array.from({length:nr.holes},(_,i)=>`<th>${i+1}</th>`).join('')}
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td class="row-lbl">Par</td>
+          ${nr.pars.slice(0,nr.holes).map((v,i)=>`<td>
+            <div class="hc-ctrl">
+              <button class="hc-btn" onclick="adjHole('par',${i},-1)">&#8722;</button>
+              <span class="hc-val">${v}</span>
+              <button class="hc-btn" onclick="adjHole('par',${i},1)">+</button>
+            </div></td>`).join('')}
+        </tr>
+        <tr>
+          <td class="row-lbl">SI</td>
+          ${nr.si.slice(0,nr.holes).map((v,i)=>`<td>
+            <div class="hc-ctrl">
+              <button class="hc-btn" onclick="adjHole('si',${i},-1)">&#8722;</button>
+              <span class="hc-val">${v}</span>
+              <button class="hc-btn" onclick="adjHole('si',${i},1)">+</button>
+            </div></td>`).join('')}
+        </tr>
+      </tbody>
+    </table>
+    <p style="font-size:11px;color:var(--muted);margin-top:6px">SI = Stroke Index (1 = hardest hole)</p>
+  </div>` : '';
+
+  // Vallarforgjöf summary — read-only, shown when course has tee data
+  let teeSection = '';
+  if (nr.courseId) {
+    const co = loadCourses().find(c => c.id === nr.courseId);
+    if (co && co.tees) {
+      const savedRef = loadPlayers();
+      const rows = [];
+      for (const pid of nr.selPids) {
+        const p = savedRef.find(x => x.id === pid);
+        if (!p) continue;
+        const gender   = p.gender || 'karlar';
+        const teesArr  = co.tees[gender] || [];
+        const selTee   = teesArr.find(t => t.color === p.defaultTee) || null;
+        const ch       = selTee && p.handicapIndex != null ? calcTeeHcp(p.handicapIndex, selTee) : null;
+        const teeLabel = selTee ? selTee.label : '—';
+        const chTxt    = ch != null ? `CH ${ch}` : '—';
+        const gLbl     = gender === 'konur' ? 'Konur' : 'Karlar';
+        rows.push(`<div class="tee-player-row">
+          <div class="tee-player-name">${esc(p.name)}</div>
+          <div class="tee-controls">
+            <span class="tee-btn active" style="pointer-events:none">${gLbl}</span>
+            <span class="tee-btn${selTee?' active':''}" style="pointer-events:none">${teeLabel}</span>
+            <div class="tee-ch-result">${chTxt}</div>
+          </div>
+        </div>`);
+      }
+      if (rows.length) {
+        teeSection = `<div class="tee-section">
+          <div class="tee-section-title">VALLARFORGJÖF — ${esc(co.name)}</div>
+          ${rows.join('')}
+          <p style="font-size:11px;color:var(--muted);margin-top:8px">Set gender &amp; tee in player profile to update</p>
+        </div>`;
+      }
+    }
+  }
+
+  c.innerHTML = `<div id="view-new-round">
+
+    <span class="lbl">Course</span>
+    ${coursePresets}
+    <input class="input" id="nr-course" placeholder="Course name" autocomplete="off">
+
+    <span class="lbl">Course Rating &amp; Slope</span>
+    <div class="two-col">
+      <div class="input-wrap">
+        <span class="input-cap">Course Rating</span>
+        <input class="input" id="nr-rating" type="number" placeholder="${totalPar}.0" step="0.1" min="50" max="85">
+      </div>
+      <div class="input-wrap">
+        <span class="input-cap">Slope Rating</span>
+        <input class="input" id="nr-slope" type="number" placeholder="113" step="1" min="55" max="155">
+      </div>
+    </div>
+
+    <span class="lbl">Holes</span>
+    <div class="seg-row">
+      <button class="seg-btn ${nr.holes===9?'active':''}"  onclick="setHoles(9)">9 Holes</button>
+      <button class="seg-btn ${nr.holes===18?'active':''}" onclick="setHoles(18)">18 Holes</button>
+    </div>
+    ${(() => {
+      if (nr.holes !== 9) return '';
+      const co = nr.courseId ? loadCourses().find(c => c.id === nr.courseId) : null;
+      if (!co || co.holes !== 18) return '';
+      return `<div class="seg-row" style="margin-top:8px">
+        <button class="seg-btn ${(nr.nineStart||1)===1?'active':''}"  onclick="setNineStart(1)">Front 9 (1–9)</button>
+        <button class="seg-btn ${(nr.nineStart||1)===10?'active':''}" onclick="setNineStart(10)">Back 9 (10–18)</button>
+      </div>`;
+    })()}
+
+    <span class="lbl">Players${totalSel ? ` (${totalSel} selected)` : ''}</span>
+    ${selGrid}
+    ${remaining > 0 ? `<div style="margin-top:10px">
+      <p style="font-size:11px;color:var(--muted);margin-bottom:6px">Guest players (one-time, not saved)</p>
+      ${guestRows}
+    </div>` : ''}
+
+    ${teeSection}
+
+    <span class="lbl">Game Format</span>
+    <div class="fmt-row">${fmtBtns}</div>
+    ${wolfNote}
+    ${fmtHelp}
+
+    <div class="section-toggle" onclick="toggleHoleSettings()">
+      <span>Hole Settings (Par &amp; Stroke Index)</span>
+      <span class="toggle-badge">Par ${totalPar}</span>
+    </div>
+    ${holeTbl}
+
+    <button class="btn btn-green" style="margin-top:24px" onclick="startRound()">Start Round</button>
+  </div>`;
+}
+
+// ── New round interactions ──
+function preserveNrInputs() {
+  S.nr._course = document.getElementById('nr-course')?.value || '';
+  S.nr._rating = document.getElementById('nr-rating')?.value || '';
+  S.nr._slope  = document.getElementById('nr-slope')?.value  || '';
+  const remain = 4 - S.nr.selPids.length;
+  S.nr.guests  = Array.from({ length: 4 }, (_, i) => ({
+    name: i < remain ? (document.getElementById(`ng-n${i}`)?.value || '') : '',
+    hcp:  i < remain ? (document.getElementById(`ng-h${i}`)?.value || '') : '',
+  }));
+}
+
+function restoreNrInputs() {
+  const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+  set('nr-course', S.nr._course);
+  set('nr-rating', S.nr._rating);
+  set('nr-slope',  S.nr._slope);
+}
+
+function setCourse(id) {
+  preserveNrInputs();
+  S.nr.courseId = id;
+  if (id) {
+    const co = loadCourses().find(c => c.id === id);
+    if (co) {
+      S.nr.holes = co.holes;
+      S.nr.pars  = [...co.pars];
+      S.nr.si    = [...co.si];
+      S.nr._course = co.name;
+      S.nr._rating = String(co.courseRating);
+      S.nr._slope  = String(co.slopeRating);
+    }
+  }
+  render();
+}
+
+function setFormat(fmt) {
+  preserveNrInputs();
+  S.nr.format = fmt;
+  render();
+}
+
+function setHoles(n) {
+  preserveNrInputs();
+  const co = S.nr.courseId ? loadCourses().find(c => c.id === S.nr.courseId) : null;
+  S.nr.holes = n;
+  S.nr.nineStart = 1;
+  if (n === 9 && co && co.holes === 18) {
+    // Keep the course; default to front 9
+    S.nr.pars = co.pars.slice(0, 9);
+    S.nr.si   = co.si.slice(0, 9);
+  } else if (n === 18 && co && co.holes === 18) {
+    S.nr.pars = [...co.pars];
+    S.nr.si   = [...co.si];
+  } else {
+    S.nr.courseId = null;
+    S.nr.pars = n === 9 ? [...DEFAULT_PARS_9]  : [...DEFAULT_PARS_18];
+    S.nr.si   = n === 9 ? [...DEFAULT_SI_9]    : [...DEFAULT_SI_18];
+  }
+  render();
+}
+
+function setNineStart(n) {
+  preserveNrInputs();
+  S.nr.nineStart = n;
+  const co = S.nr.courseId ? loadCourses().find(c => c.id === S.nr.courseId) : null;
+  if (co && co.holes === 18) {
+    const off = n === 10 ? 9 : 0;
+    S.nr.pars = co.pars.slice(off, off + 9);
+    S.nr.si   = co.si.slice(off, off + 9);
+  }
+  render();
+}
+
+function toggleSelPlayer(pid) {
+  preserveNrInputs();
+  const idx = S.nr.selPids.indexOf(pid);
+  if (idx >= 0) {
+    S.nr.selPids.splice(idx, 1);
+  } else {
+    const guests = S.nr.guests.filter(g => g.name.trim()).length;
+    if (S.nr.selPids.length + guests < 4) S.nr.selPids.push(pid);
+  }
+  render();
+}
+
+function toggleHoleSettings() {
+  preserveNrInputs();
+  S.nr.showHoleSettings = !S.nr.showHoleSettings;
+  render();
+}
+
+function adjHole(type, idx, delta) {
+  preserveNrInputs();
+  if (type === 'par') {
+    S.nr.pars[idx] = Math.max(3, Math.min(6, S.nr.pars[idx] + delta));
+  } else {
+    S.nr.si[idx] = Math.max(1, Math.min(S.nr.holes, S.nr.si[idx] + delta));
+  }
+  render();
+}
+
+function startRound() {
+  const course = document.getElementById('nr-course')?.value?.trim();
+  if (!course) { alert('Please enter a course name.'); return; }
+
+  const saved  = loadPlayers();
+  const co     = S.nr.courseId ? loadCourses().find(c => c.id === S.nr.courseId) : null;
+
+  const selPl = S.nr.selPids
+    .map(id => saved.find(p => p.id === id)).filter(Boolean)
+    .map(p => {
+      const pl = { id:'rp'+p.id+Date.now(), name:p.name, handicapIndex:p.handicapIndex??null };
+      if (co && co.tees && p.gender && p.defaultTee) {
+        const teesArr = co.tees[p.gender] || [];
+        const selTee  = teesArr.find(t => t.color === p.defaultTee);
+        if (selTee && p.handicapIndex != null) {
+          pl.courseHcpOverride = calcTeeHcp(p.handicapIndex, selTee);
+          pl.teeLabel = selTee.label;
+          pl.gender   = p.gender;
+        }
+      }
+      return pl;
+    });
+
+  const remain  = 4 - selPl.length;
+  const guestPl = S.nr.guests.slice(0, remain)
+    .filter(g => g.name.trim())
+    .map((g, i) => ({
+      id: 'rg' + Date.now() + i,
+      name: g.name.trim(),
+      handicapIndex: g.hcp !== '' && !isNaN(g.hcp) ? parseFloat(g.hcp) : null,
+    }));
+
+  const players = [...selPl, ...guestPl];
+  if (!players.length) { alert('Please select or add at least one player.'); return; }
+  if (S.nr.format === 'wolf' && players.length !== 4) {
+    alert('Wolf requires exactly 4 players. Please add or remove players.');
+    return;
+  }
+
+  const nh        = S.nr.holes;
+  const nineStart = S.nr.nineStart || 1;
+  const holes = S.nr.pars.slice(0, nh).map((par, i) => ({ n: nineStart + i, par, si: S.nr.si[i] }));
+  const scores = {};
+  for (const p of players) scores[p.id] = {};
+
+  const ratingVal = document.getElementById('nr-rating')?.value;
+  const slopeVal  = document.getElementById('nr-slope')?.value;
+
+  const round = {
+    id: 'r' + Date.now(),
+    date: new Date().toISOString(),
+    course,
+    courseRating: ratingVal ? parseFloat(ratingVal) : null,
+    slopeRating:  slopeVal  ? parseInt(slopeVal)    : 113,
+    players, holes, scores, done: false,
+    format:    S.nr.format,
+    courseId:  S.nr.courseId,
+    wolfHoles: {},
+  };
+
+  saveRound(round);
+  S.nr = { holes:18, pars:[...DEFAULT_PARS_18], si:[...DEFAULT_SI_18],
+           courseRating:'', slopeRating:'113', showHoleSettings:false,
+           selPids:[], guests:[{name:'',hcp:''},{name:'',hcp:''},{name:'',hcp:''},{name:'',hcp:''}],
+           format:'stroke', courseId:null, nineStart:1 };
+  nav('scorecard', { roundId: round.id, hole: 1 });
+}
+
+// ═══════════════════════════════════════════
+// SCORECARD
+// ═══════════════════════════════════════════
+function renderScorecard(c) {
+  const round = byId(S.roundId);
+  if (!round) { nav('home'); return; }
+
+  const hole  = round.holes.find(h => h.n === S.hole) || round.holes[0];
+  const firstHole = round.holes[0].n;
+  const lastHole  = round.holes[round.holes.length - 1].n;
+  const rpar  = parSum(round);
+  const isWolf = round.format === 'wolf';
+  const isStbl = round.format === 'stableford';
+
+  const dots = round.holes.map(h => {
+    const done = round.players.every(p => round.scores[p.id]?.[h.n]?.s);
+    const cur  = h.n === S.hole;
+    return `<button class="dot ${done?'done':''} ${cur?'current':''}" onclick="gotoHole(${h.n})"></button>`;
+  }).join('');
+
+  // Wolf UI elements
+  let wolfBanner = '', wolfArea = '', wolfResult = '';
+  if (isWolf) {
+    const wolfPid    = wolfForHole(round, S.hole);
+    const wolfPlayer = round.players.find(p => p.id === wolfPid);
+    const wd         = round.wolfHoles?.[S.hole];
+    const nonWolf    = round.players.filter(p => p.id !== wolfPid);
+
+    wolfBanner = `<div class="wolf-banner">
+      🐺 <strong>${esc(wolfPlayer.name)}</strong>
+      <span class="wolf-banner-sub">is Wolf on hole ${S.hole}</span>
+    </div>`;
+
+    if (!wd || (!wd.isLone && !wd.partnerPid)) {
+      const btns = nonWolf.map(p =>
+        `<button class="wdb partner" onclick="setWolfDecision(${S.hole},'${p.id}')">
+          Partner: ${esc(p.name.split(' ')[0])}
+        </button>`
+      ).join('') +
+        `<button class="wdb lone" onclick="setWolfDecision(${S.hole},null)">Lone Wolf!</button>`;
+      wolfArea = `<div class="wolf-dec-area">
+        <div class="wolf-dec-lbl">Wolf picks a partner:</div>
+        <div class="wolf-dec-btns">${btns}</div>
+      </div>`;
+    } else {
+      const partnerName = wd.isLone ? null : round.players.find(p=>p.id===wd.partnerPid)?.name;
+      const teamStr = wd.isLone
+        ? `🐺 ${esc(wolfPlayer.name)} goes Lone Wolf`
+        : `🐺 ${esc(wolfPlayer.name)} + ${esc(partnerName)} vs others`;
+      wolfArea = `<div class="wolf-status-bar">
+        <div class="wolf-status-txt">${teamStr}</div>
+        <button class="wolf-change-lnk" onclick="clearWolfDecision(${S.hole})">change</button>
+      </div>`;
+
+      // Hole result
+      const allScored = round.players.every(p => round.scores[p.id]?.[S.hole]?.s);
+      if (allScored) {
+        const pts = wolfHolePoints(round, S.hole);
+        if (pts) {
+          const wolfPts = pts[wolfPid];
+          const cls = wolfPts > 0 ? 'w-win' : wolfPts < 0 ? 'w-lose' : 'w-tie';
+          const summary = round.players.map(p => {
+            const v = pts[p.id];
+            return `${esc(p.name.split(' ')[0])}: ${v>0?'+':''}${v}`;
+          }).join('  ·  ');
+          wolfResult = `<div class="wolf-result-bar ${cls}">${summary}</div>`;
+        }
+      }
+    }
+  }
+
+  // Player cards
+  const pCards = round.players.map(p => {
+    const g    = round.scores[p.id]?.[S.hole]?.s || 0;
+    const diff = g ? g - hole.par : null;
+    const col  = scoreColor(g, hole.par);
+    const run  = grossTotal(round, p.id);
+    const rd   = run - rpar;
+    const chcp = courseHcp(p, round);
+    const hs   = siStrokes(chcp, hole.si, round.holes.length);
+    const strokeBadge = hs > 0 ? `<span class="stroke-badge">+${hs} stroke${hs>1?'s':''}</span>` : '';
+    const net  = chcp > 0 ? netTotal(round, p.id) : null;
+    const netPar = parSum(round);
+
+    // Running line varies by format
+    let runLine, netLine = '';
+    const netDiff = net != null ? net - netPar : null;
+    const hcpLabel = p.teeLabel ? `CH ${chcp} (${p.teeLabel})` : `HCP ${chcp}`;
+    const netBracket = net != null && chcp > 0 && run > 0
+      ? `[${net} (${dStr(netDiff)}) net] &middot; ${hcpLabel}` : '';
+    if (isStbl) {
+      const stbTot = stablefordTotal(round, p.id);
+      runLine = stbTot ? `${stbTot} pts` : 'No scores yet';
+      netLine = netBracket;
+    } else if (isWolf) {
+      const wp = wolfTotalPts(round, p.id);
+      runLine = (wp !== 0 || run > 0) ? `${wp >= 0 ? '+' : ''}${wp} wolf pts` : 'No scores yet';
+      netLine = netBracket;
+    } else {
+      runLine = run ? `${run} (${dStr(rd)})` : 'No scores yet';
+      netLine = netBracket;
+    }
+
+    // Role badge for wolf
+    let roleBadge = '';
+    if (isWolf) {
+      const wolfPid = wolfForHole(round, S.hole);
+      const wd      = round.wolfHoles?.[S.hole];
+      if (p.id === wolfPid) {
+        roleBadge = '<span class="role-badge rb-wolf">Wolf</span>';
+      } else if (wd?.partnerPid === p.id) {
+        roleBadge = '<span class="role-badge rb-partner">Partner</span>';
+      } else if (wd) {
+        roleBadge = '<span class="role-badge rb-opp">Opp</span>';
+      }
+    }
+
+    // Stableford pts bubble
+    let ptsBubble = '';
+    if (isStbl) {
+      const pts = stablefordPts(g, hole.par, hs);
+      ptsBubble = `<div class="pts-wrap${pts===null?' nil':''}">
+        <span class="pts-val">${pts !== null ? pts : '&#8722;'}</span>
+        <span class="pts-lbl">PTS</span>
+      </div>`;
+    }
+
+    return `<div class="p-card">
+      <div style="flex:1;min-width:0">
+        <div class="p-name">${esc(p.name)}${roleBadge}${strokeBadge}</div>
+        <div class="p-running">${runLine}</div>
+        ${netLine ? `<div class="p-net">${netLine}</div>` : ''}
+      </div>
+      <div class="score-ctrl">
+        <button class="sc-btn" onclick="adjScore('${p.id}',-1)">&#8722;</button>
+        <div class="sc-circle" style="border-color:${col}" onclick="openNumpad('${p.id}')">
+          <span class="sc-val" style="color:${g?col:'#ccc'}">${g||'&#8722;'}</span>
+          ${diff!==null?`<span class="sc-sub" style="color:${col}">${diff===0?'E':diff>0?'+'+diff:diff}</span>`:''}
+        </div>
+        <button class="sc-btn" onclick="adjScore('${p.id}',1)">+</button>
+        ${ptsBubble}
+      </div>
+    </div>`;
+  }).join('');
+
+  const foot = S.hole < lastHole
+    ? `<button class="btn btn-green" onclick="gotoHole(${S.hole+1})">Next Hole &#8594;</button>`
+    : `<button class="btn btn-red" onclick="finishRound()">Finish Round</button>`;
+
+  const numpadPlayer = S.numpadPid ? round.players.find(p => p.id === S.numpadPid) : null;
+  const numpad = numpadPlayer ? `
+    <div class="numpad-dim" onclick="closeNumpad()"></div>
+    <div class="numpad-sheet">
+      <div class="numpad-hdr">${esc(numpadPlayer.name.split(' ')[0])} — Hole ${S.hole}</div>
+      <div class="numpad-grid">
+        ${[1,2,3,4,5,6,7,8,9,10,11,12].map(n =>
+          `<button class="np-btn" onclick="setScoreNumpad('${S.numpadPid}',${n})">${n}</button>`
+        ).join('')}
+        <button class="np-btn np-cancel" onclick="closeNumpad()">✕ Cancel</button>
+      </div>
+    </div>` : '';
+
+  c.innerHTML = `<div id="view-scorecard">
+    <div class="hole-hdr">
+      <button class="nav-btn" onclick="gotoHole(${S.hole-1})" ${S.hole===firstHole?'disabled':''}>&#8249;</button>
+      <div class="hole-mid">
+        <div class="hole-lbl">HOLE</div>
+        <div class="hole-num">${S.hole}</div>
+        <div class="hole-meta">Par ${hole.par} <span>&nbsp;&middot;&nbsp;SI ${hole.si}</span></div>
+      </div>
+      <button class="nav-btn" onclick="gotoHole(${S.hole+1})" ${S.hole===lastHole?'disabled':''}>&#8250;</button>
+    </div>
+    <div class="dots-row">${dots}</div>
+    ${wolfBanner}
+    ${wolfArea}
+    <div class="players-scroll">${pCards}</div>
+    ${wolfResult}
+    <div class="sc-footer">${foot}</div>
+    ${numpad}
+  </div>`;
+}
+
+function gotoHole(n) {
+  const round = byId(S.roundId);
+  if (!round || n < 1 || n > round.holes.length) return;
+  S.hole = n;
+  renderScorecard(document.getElementById('main'));
+}
+
+function adjScore(pid, delta) {
+  const round = byId(S.roundId);
+  if (!round) return;
+  const cur = round.scores[pid]?.[S.hole]?.s || 0;
+  round.scores[pid][S.hole] = { s: Math.max(1, cur + delta) };
+  saveRound(round);
+  if (navigator.vibrate) navigator.vibrate(8);
+  renderScorecard(document.getElementById('main'));
+}
+
+function openNumpad(pid) {
+  S.numpadPid = pid;
+  renderScorecard(document.getElementById('main'));
+}
+
+function closeNumpad() {
+  S.numpadPid = null;
+  renderScorecard(document.getElementById('main'));
+}
+
+function setScoreNumpad(pid, score) {
+  const round = byId(S.roundId);
+  if (!round) return;
+  if (!round.scores[pid]) round.scores[pid] = {};
+  round.scores[pid][S.hole] = { s: score };
+  saveRound(round);
+  S.numpadPid = null;
+  if (navigator.vibrate) navigator.vibrate(8);
+  renderScorecard(document.getElementById('main'));
+}
+
+function setWolfDecision(holeN, partnerPid) {
+  const round = byId(S.roundId);
+  if (!round) return;
+  round.wolfHoles = round.wolfHoles || {};
+  round.wolfHoles[holeN] = partnerPid === null
+    ? { isLone: true, partnerPid: null }
+    : { isLone: false, partnerPid };
+  saveRound(round);
+  renderScorecard(document.getElementById('main'));
+}
+
+function clearWolfDecision(holeN) {
+  const round = byId(S.roundId);
+  if (!round) return;
+  if (round.wolfHoles) delete round.wolfHoles[holeN];
+  saveRound(round);
+  renderScorecard(document.getElementById('main'));
+}
+
+function finishRound() {
+  const round = byId(S.roundId);
+  if (!round) return;
+  const incomplete = round.players.some(p => round.holes.some(h => !round.scores[p.id]?.[h.n]?.s));
+  const go = () => { round.done = true; saveRound(round); nav('summary', { roundId: S.roundId }); };
+  if (incomplete) { if (confirm('Some holes have no scores. Finish anyway?')) go(); } else go();
+}
+
+// ═══════════════════════════════════════════
+// SUMMARY
+// ═══════════════════════════════════════════
+function renderSummary(c) {
+  const round = byId(S.roundId);
+  if (!round) { nav('home'); return; }
+
+  const nh   = round.holes.length;
+  const half = Math.floor(nh / 2);
+  const front = round.holes.filter(h => h.n <= half);
+  const back  = round.holes.filter(h => h.n > half);
+  const fpar  = parSum(round, 1, half);
+  const bpar  = parSum(round, half+1, nh);
+  const tpar  = fpar + bpar;
+
+  const dateStr = new Date(round.date).toLocaleDateString('en-US',
+    { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+  const crInfo = round.courseRating ? `Rating ${round.courseRating}` : '';
+  const srInfo = round.slopeRating  ? `Slope ${round.slopeRating}`   : '';
+  const courseInfo = [crInfo, srInfo].filter(Boolean).join(' &middot; ');
+
+  const isWolf = round.format === 'wolf';
+  const isStbl = round.format === 'stableford';
+
+  const fmtLabel = isStbl ? ' &middot; Stableford' : isWolf ? ' &middot; Wolf' : '';
+
+  // Score cell builder
+  function cell(s, par) {
+    if (!s) return `<span style="color:#ddd">-</span>`;
+    const d = s - par, col = scoreColor(s, par);
+    if (d <= -1) return `<span class="s-circle" style="border-color:${col};color:${col}">${s}</span>`;
+    if (d >= 1)  return `<span class="s-square"  style="border-color:${col};color:${col}">${s}</span>`;
+    return `<span style="color:${col};font-weight:700">${s}</span>`;
+  }
+
+  // Gross scorecard table
+  function buildGrossTable() {
+    const sorted = [...round.players].sort((a,b) => grossTotal(round,a.id) - grossTotal(round,b.id));
+    const winId  = sorted[0]?.id;
+
+    let thead = `<tr><th class="nc">Player</th>`;
+    for (const h of front) thead += `<th>${h.n}</th>`;
+    thead += `<th class="sc">${nh===18?'OUT':'F'}</th>`;
+    for (const h of back)  thead += `<th>${h.n}</th>`;
+    if (nh===18) thead += `<th class="sc">IN</th>`;
+    thead += `<th class="sc" style="color:var(--green-pale)">TOT</th></tr>`;
+
+    let parRow = `<tr class="par-row"><td class="nc">Par</td>`;
+    for (const h of front) parRow += `<td>${h.par}</td>`;
+    parRow += `<td class="sc">${fpar}</td>`;
+    for (const h of back)  parRow += `<td>${h.par}</td>`;
+    if (nh===18) parRow += `<td class="sc">${bpar}</td>`;
+    parRow += `<td class="sc"><strong>${tpar}</strong></td></tr>`;
+
+    let siRow = `<tr class="si-row"><td class="nc">SI</td>`;
+    for (const h of front) siRow += `<td>${h.si}</td>`;
+    siRow += `<td class="sc"></td>`;
+    for (const h of back)  siRow += `<td>${h.si}</td>`;
+    if (nh===18) siRow += `<td class="sc"></td>`;
+    siRow += `<td class="sc"></td></tr>`;
+
+    let pRows = '';
+    for (const p of round.players) {
+      const isW = p.id === winId && round.players.length > 1;
+      let f = 0, b = 0;
+      for (const h of front) f += round.scores[p.id]?.[h.n]?.s || 0;
+      for (const h of back)  b += round.scores[p.id]?.[h.n]?.s || 0;
+      const tot = f + b;
+      const d   = tot - tpar;
+      pRows += `<tr ${isW?'class="win-row"':''}>
+        <td class="nc" style="font-weight:700;color:${isW?'#8B6914':'#1a1a1a'}">${esc(p.name.split(' ')[0])}</td>`;
+      for (const h of front) {
+        const g = round.scores[p.id]?.[h.n]?.s || 0;
+        pRows += `<td>${cell(g, h.par)}</td>`;
+      }
+      pRows += `<td class="sc" style="font-weight:700">${f||'-'}</td>`;
+      for (const h of back) {
+        const g = round.scores[p.id]?.[h.n]?.s || 0;
+        pRows += `<td>${cell(g, h.par)}</td>`;
+      }
+      if (nh===18) pRows += `<td class="sc" style="font-weight:700">${b||'-'}</td>`;
+      pRows += `<td class="sc">
+        <strong style="color:${isW?'#8B6914':'#1a1a1a'}">${tot||'-'}</strong>
+        ${tot?`<br><span style="font-size:9px;color:${d<=0?'#e63946':'#888'}">${dStr(d)}</span>`:''}
+      </td></tr>`;
+    }
+    return `<div class="tbl-wrap"><table class="sc-tbl">
+      <thead>${thead}</thead>
+      <tbody>${parRow}${siRow}${pRows}</tbody>
+    </table></div>`;
+  }
+
+  // Stableford scorecard table
+  function buildStablefordTable() {
+    let thead = `<tr><th class="nc">Player</th>`;
+    for (const h of front) thead += `<th>${h.n}</th>`;
+    thead += `<th class="sc">${nh===18?'OUT':'F'}</th>`;
+    for (const h of back)  thead += `<th>${h.n}</th>`;
+    if (nh===18) thead += `<th class="sc">IN</th>`;
+    thead += `<th class="sc" style="color:var(--green-pale)">PTS</th></tr>`;
+
+    const sorted = [...round.players].sort((a,b) => stablefordTotal(round,b.id) - stablefordTotal(round,a.id));
+    const winId  = sorted[0]?.id;
+
+    let pRows = '';
+    for (const p of round.players) {
+      const chcp = courseHcp(p, round);
+      const isW  = p.id === winId && round.players.length > 1;
+      let f = 0, b = 0;
+      for (const h of front) {
+        const g  = round.scores[p.id]?.[h.n]?.s || 0;
+        const hs = siStrokes(chcp, h.si, nh);
+        f += stablefordPts(g, h.par, hs) || 0;
+      }
+      for (const h of back) {
+        const g  = round.scores[p.id]?.[h.n]?.s || 0;
+        const hs = siStrokes(chcp, h.si, nh);
+        b += stablefordPts(g, h.par, hs) || 0;
+      }
+      const tot = f + b;
+      const stblColor = (val) => {
+        if (val >= 4) return '#FFD700';
+        if (val === 3) return '#e63946';
+        if (val === 2) return '#2d6a4f';
+        if (val === 1) return '#888';
+        return '#ccc';
+      };
+      pRows += `<tr ${isW?'class="win-row"':''}>
+        <td class="nc" style="font-weight:700">${esc(p.name.split(' ')[0])}</td>`;
+      for (const h of front) {
+        const g  = round.scores[p.id]?.[h.n]?.s || 0;
+        const hs = siStrokes(chcp, h.si, nh);
+        const v  = stablefordPts(g, h.par, hs);
+        pRows += `<td>${v!==null?`<span style="font-weight:700;color:${stblColor(v)}">${v}</span>`:'-'}</td>`;
+      }
+      pRows += `<td class="sc" style="font-weight:700">${f||'-'}</td>`;
+      for (const h of back) {
+        const g  = round.scores[p.id]?.[h.n]?.s || 0;
+        const hs = siStrokes(chcp, h.si, nh);
+        const v  = stablefordPts(g, h.par, hs);
+        pRows += `<td>${v!==null?`<span style="font-weight:700;color:${stblColor(v)}">${v}</span>`:'-'}</td>`;
+      }
+      if (nh===18) pRows += `<td class="sc" style="font-weight:700">${b||'-'}</td>`;
+      pRows += `<td class="sc"><strong style="color:${isW?'#8B6914':'var(--green)'}">${tot||'-'}</strong></td></tr>`;
+    }
+    return `<div class="tbl-wrap"><table class="sc-tbl">
+      <thead>${thead}</thead>
+      <tbody>${pRows}</tbody>
+    </table></div>`;
+  }
+
+  // Wolf hole-by-hole table
+  function buildWolfTable() {
+    const rows = round.holes.map(h => {
+      const wolfPid    = wolfForHole(round, h.n);
+      const wolfPlayer = round.players.find(p => p.id === wolfPid);
+      const wd         = round.wolfHoles?.[h.n];
+      const pts        = wolfHolePoints(round, h.n);
+
+      const teamStr = !wd ? '-'
+        : wd.isLone ? 'Lone'
+        : `+${esc(round.players.find(p=>p.id===wd.partnerPid)?.name?.split(' ')[0]||'?')}`;
+
+      const ptsCells = pts
+        ? round.players.map(p => {
+            const v = pts[p.id];
+            const col = v > 0 ? 'color:#1a4731;font-weight:700' : v < 0 ? 'color:#c84b11;font-weight:700' : 'color:#aaa';
+            return `<td style="${col}">${v>0?'+':''}${v}</td>`;
+          }).join('')
+        : round.players.map(() => `<td style="color:#ddd">-</td>`).join('');
+
+      const hasWolfWon = pts && pts[wolfPid] > 0;
+      const rowCls = pts && pts[wolfPid] !== 0
+        ? (hasWolfWon ? 'win-row' : 'lose-row') : '';
+
+      return `<tr class="${rowCls}">
+        <td>${h.n}</td>
+        <td class="wolf-cell">${esc(wolfPlayer.name.split(' ')[0])}</td>
+        <td>${teamStr}</td>
+        ${ptsCells}
+      </tr>`;
+    }).join('');
+
+    const playerHeaders = round.players.map(p =>
+      `<th>${esc(p.name.split(' ')[0])}</th>`
+    ).join('');
+
+    return `<div class="tbl-wrap"><table class="wolf-hole-tbl">
+      <thead><tr>
+        <th>H</th><th>Wolf</th><th>Team</th>${playerHeaders}
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  }
+
+  // Gross leaderboard
+  function leaderboard(useNet) {
+    const players = [...round.players].sort((a,b) => {
+      const va = useNet ? netTotal(round,a.id) : grossTotal(round,a.id);
+      const vb = useNet ? netTotal(round,b.id) : grossTotal(round,b.id);
+      return va - vb;
+    });
+    return players.map((p, i) => {
+      const chcp = courseHcp(p, round);
+      const val  = useNet ? netTotal(round, p.id) : grossTotal(round, p.id);
+      const d    = val - tpar;
+      const hcpTag = useNet && chcp > 0 ? `<span style="font-size:11px;color:var(--muted)">HCP ${chcp}</span>` : '';
+      return `<div class="lb-row">
+        <div class="lb-rank ${i===0?'first':''}">${i+1}</div>
+        <div class="lb-name">${esc(p.name)}</div>
+        <div class="lb-right">
+          <div class="lb-score">${val||'-'}</div>
+          ${val?`<div class="lb-diff" style="color:${d<=0?'#e63946':'#888'}">${dStr(d)}</div>`:''}
+          ${hcpTag}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Stableford leaderboard
+  function stablefordLeaderboard() {
+    const players = [...round.players].sort((a,b) =>
+      stablefordTotal(round,b.id) - stablefordTotal(round,a.id)
+    );
+    return players.map((p, i) => {
+      const pts  = stablefordTotal(round, p.id);
+      const chcp = courseHcp(p, round);
+      return `<div class="lb-row">
+        <div class="lb-rank ${i===0?'first':''}">${i+1}</div>
+        <div class="lb-name">${esc(p.name)}</div>
+        <div class="lb-right">
+          <div class="lb-score" style="color:var(--green)">${pts}</div>
+          <div style="font-size:11px;color:var(--muted)">${pts===1?'pt':'pts'}${chcp>0?` &middot; HCP ${chcp}`:''}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Wolf leaderboard
+  function wolfLeaderboard() {
+    const players = [...round.players].sort((a,b) =>
+      wolfTotalPts(round,b.id) - wolfTotalPts(round,a.id)
+    );
+    return players.map((p, i) => {
+      const pts = wolfTotalPts(round, p.id);
+      const col = pts > 0 ? 'color:#1a4731' : pts < 0 ? 'color:#c84b11' : 'color:#888';
+      return `<div class="lb-row">
+        <div class="lb-rank ${i===0&&pts>0?'first':''}">${i+1}</div>
+        <div class="lb-name">${esc(p.name)}</div>
+        <div class="lb-right">
+          <div class="lb-score" style="${col}">${pts>0?'+':''}${pts}</div>
+          <div style="font-size:11px;color:var(--muted)">pts</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Winner card
+  let winHTML = '';
+  if (round.players.length > 1) {
+    let winName, winScore;
+    if (isStbl) {
+      const best = [...round.players].sort((a,b) => stablefordTotal(round,b.id) - stablefordTotal(round,a.id))[0];
+      winName  = best.name;
+      winScore = `${stablefordTotal(round, best.id)} pts`;
+    } else if (isWolf) {
+      const best = [...round.players].sort((a,b) => wolfTotalPts(round,b.id) - wolfTotalPts(round,a.id))[0];
+      const pts  = wolfTotalPts(round, best.id);
+      winName  = best.name;
+      winScore = `${pts>0?'+':''}${pts} pts`;
+    } else {
+      const best = [...round.players].sort((a,b) => grossTotal(round,a.id) - grossTotal(round,b.id))[0];
+      winName  = best.name;
+      winScore = `${grossTotal(round, best.id)} (${dStr(grossTotal(round,best.id)-tpar)})`;
+    }
+    winHTML = `<div class="winner-card">
+      <div class="wl">WINNER</div>
+      <div class="wn">${esc(winName)}</div>
+      <div class="ws">${winScore}</div>
+    </div>`;
+  }
+
+  const hasHcp = round.players.some(p => p.handicapIndex != null && p.handicapIndex > 0);
+
+  let mainContent = '';
+  if (isStbl) {
+    mainContent = `
+      ${winHTML}
+      <div class="sec">Stableford Scorecard</div>
+      ${buildStablefordTable()}
+      ${round.players.length > 1 ? `<div class="sec">Leaderboard</div>${stablefordLeaderboard()}` : ''}
+      <div class="sec">Gross Scorecard</div>
+      ${buildGrossTable()}
+    `;
+  } else if (isWolf) {
+    mainContent = `
+      ${winHTML}
+      <div class="sec">Wolf Points Leaderboard</div>
+      ${wolfLeaderboard()}
+      <div class="sec">Hole-by-Hole Wolf Results</div>
+      ${buildWolfTable()}
+      <div class="sec">Gross Scorecard</div>
+      ${buildGrossTable()}
+    `;
+  } else {
+    const sorted = [...round.players].sort((a,b) => grossTotal(round,a.id) - grossTotal(round,b.id));
+    const netSection = hasHcp ? `
+      <div class="sec">Net Leaderboard</div>
+      ${leaderboard(true)}
+    ` : '';
+    mainContent = `
+      ${winHTML}
+      <div class="sec">Gross Scorecard</div>
+      ${buildGrossTable()}
+      <div class="legend">
+        <div class="legend-item"><div class="lg-circle" style="color:#FFD700"></div> Eagle+</div>
+        <div class="legend-item"><div class="lg-circle" style="color:#e63946"></div> Birdie</div>
+        <div class="legend-item"><span style="font-size:12px;font-weight:700;color:#2d6a4f">4</span>&nbsp;Par</div>
+        <div class="legend-item"><div class="lg-square" style="color:#333"></div> Bogey</div>
+        <div class="legend-item"><div class="lg-square" style="color:#888"></div> Double+</div>
+      </div>
+      ${round.players.length > 1 ? `<div class="sec">Gross Leaderboard</div>${leaderboard(false)}` : ''}
+      ${netSection}
+    `;
+  }
+
+  // ── Per-player scorecard ────────────────────────────────────────
+  if (!S.summaryPlayer || !round.players.find(p => p.id === S.summaryPlayer)) {
+    S.summaryPlayer = round.players[0]?.id || null;
+  }
+  const selPid = S.summaryPlayer;
+  const selP   = round.players.find(p => p.id === selPid);
+
+  const playerPills = round.players.length > 1
+    ? `<div class="psc-pills">${round.players.map(p =>
+        `<button class="psc-pill ${p.id===selPid?'active':''}" onclick="setSummaryPlayer('${p.id}')">${esc(p.name.split(' ')[0])}</button>`
+      ).join('')}</div>` : '';
+
+  function buildPlayerScorecardHtml(p) {
+    const chcp = courseHcp(p, round);
+    const pid  = p.id;
+    const hcpTag = chcp > 0 ? ` &middot; CH ${chcp}` : (p.handicapIndex != null ? ` &middot; HCP ${p.handicapIndex}` : '');
+    let rows = '';
+    // Par row
+    let parCells = '', scoreCells = '', netCells = '';
+    let fGross = 0, bGross = 0;
+    for (const h of front) {
+      const g   = round.scores[pid]?.[h.n]?.s || 0;
+      const hs  = siStrokes(chcp, h.si, nh);
+      const netS = g > 0 ? Math.max(1, g - hs) : 0;
+      parCells   += `<td>${h.par}</td>`;
+      scoreCells += `<td>${g ? cell(g, h.par) : '<span style="color:#ddd">-</span>'}</td>`;
+      netCells   += `<td style="font-size:10px;color:#888">${netS||'-'}</td>`;
+      fGross += g;
+    }
+    parCells   += `<td class="sc">${fpar}</td>`;
+    scoreCells += `<td class="sc">${fGross||'-'}</td>`;
+    netCells   += `<td class="sc"></td>`;
+    for (const h of back) {
+      const g   = round.scores[pid]?.[h.n]?.s || 0;
+      const hs  = siStrokes(chcp, h.si, nh);
+      const netS = g > 0 ? Math.max(1, g - hs) : 0;
+      parCells   += `<td>${h.par}</td>`;
+      scoreCells += `<td>${g ? cell(g, h.par) : '<span style="color:#ddd">-</span>'}</td>`;
+      netCells   += `<td style="font-size:10px;color:#888">${netS||'-'}</td>`;
+      bGross += g;
+    }
+    if (nh === 18) { parCells += `<td class="sc">${bpar}</td>`; scoreCells += `<td class="sc">${bGross||'-'}</td>`; netCells += `<td class="sc"></td>`; }
+    const tGross = fGross + bGross;
+    const tNet   = netTotal(round, pid);
+    parCells   += `<td class="sc"><strong>${tpar}</strong></td>`;
+    scoreCells += `<td class="sc"><strong>${tGross||'-'}</strong>${tGross?`<br><span style="font-size:9px;color:${tGross-tpar<=0?'#e63946':'#888'}">${dStr(tGross-tpar)}</span>`:''}</td>`;
+    netCells   += `<td class="sc" style="font-size:10px;color:#888">${chcp>0&&tNet?`${tNet} (${dStr(tNet-tpar)})`:''}</td>`;
+
+    let thead = `<tr><th class="nc">${esc(p.name.split(' ')[0])}</th>`;
+    for (const h of front) thead += `<th>${h.n}</th>`;
+    thead += `<th class="sc">${nh===18?'OUT':'F'}</th>`;
+    for (const h of back)  thead += `<th>${h.n}</th>`;
+    if (nh===18) thead += `<th class="sc">IN</th>`;
+    thead += `<th class="sc" style="color:var(--green-pale)">TOT</th></tr>`;
+
+    const netRowLabel = chcp > 0 ? `Net${chcp>0?` (CH ${chcp})`:''}` : '';
+    const netRow = chcp > 0 ? `<tr><td class="nc" style="font-size:10px;color:#888">${netRowLabel}</td>${netCells}</tr>` : '';
+
+    return `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">${esc(p.name)}${hcpTag}</div>
+      <div class="tbl-wrap"><table class="sc-tbl">
+        <thead>${thead}</thead>
+        <tbody>
+          <tr class="par-row"><td class="nc">Par</td>${parCells}</tr>
+          <tr><td class="nc" style="font-weight:700;color:var(--green)">${esc(p.name.split(' ')[0])}</td>${scoreCells}</tr>
+          ${netRow}
+        </tbody>
+      </table></div>`;
+  }
+
+  const playerScorecardSection = selP ? `
+    <div class="sec">Player Scorecard</div>
+    ${playerPills}
+    ${buildPlayerScorecardHtml(selP)}
+    <button class="copy-btn" id="copy-sc-btn" onclick="copyPlayerScorecard()">📋 Copy Scorecard</button>
+  ` : '';
+
+  c.innerHTML = `<div id="view-summary">
+    <div class="banner">
+      <h2>${esc(round.course)}</h2>
+      <p>${dateStr}${fmtLabel}</p>
+      ${courseInfo ? `<p>${courseInfo}</p>` : ''}
+    </div>
+    ${mainContent}
+    ${playerScorecardSection}
+    <div class="act-row">
+      <button class="btn btn-outline" onclick="nav('stats')">Statistics</button>
+      <button class="btn btn-green"   onclick="nav('home')">Home</button>
+    </div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════
+// STATS
+// ═══════════════════════════════════════════
+// fmt = 'stroke' | 'stableford' | 'wolf'
+// includeWolf / includeStableford: when fmt='stroke', also count those rounds as stroke rounds
+function buildStats(rounds, name, fmt, includeWolf, includeStableford) {
+  fmt = fmt || 'stroke';
+  const s = {
+    name, fmt, rounds: 0,
+    bestDate: null, bestCourse: null, bestFmt: null,
+    totalHoles: 0, history: [],
+    sc: { holesInOne:0, albatrosses:0, eagles:0, birdies:0, pars:0, bogeys:0, doubleBogeys:0, triplePlus:0 },
+    avgNet: 0, avgNetToPar: 0, bestNet: Infinity, bestNetToPar: 0,
+    avgPts: 0, bestPts: -Infinity,
+  };
+  let ss = 0, ps = 0;
+  for (const r of rounds) {
+    const roundFmt = r.format || 'stroke';
+    const matches = roundFmt === fmt
+      || (fmt === 'stroke' && includeWolf        && roundFmt === 'wolf')
+      || (fmt === 'stroke' && includeStableford  && roundFmt === 'stableford');
+    if (!r.done || !matches) continue;
+    const p = r.players.find(pl => pl.name === name);
+    if (!p) continue;
+    const pid = p.id;
+    if (r.holes.filter(h => r.scores[pid]?.[h.n]?.s).length < r.holes.length) continue;
+    s.rounds++;
+    const chcp = courseHcp(p, r), nh = r.holes.length;
+    if (fmt === 'stableford') {
+      const pts = stablefordTotal(r, pid);
+      ss += pts;
+      if (pts > s.bestPts) { s.bestPts = pts; s.bestDate = r.date; s.bestCourse = r.course; }
+      s.history.push({ date: r.date, course: r.course, val: pts });
+      for (const h of r.holes) {
+        const g = r.scores[pid]?.[h.n]?.s; if (!g) continue;
+        s.totalHoles++;
+        const pt = stablefordPts(g, h.par, siStrokes(chcp, h.si, nh));
+        if      (pt >= 4) s.sc.eagles++;
+        else if (pt === 3) s.sc.birdies++;
+        else if (pt === 2) s.sc.pars++;
+        else if (pt === 1) s.sc.bogeys++;
+        else               s.sc.doubleBogeys++;
+      }
+    } else if (fmt === 'wolf') {
+      const pts = wolfTotalPts(r, pid);
+      ss += pts;
+      if (pts > s.bestPts) { s.bestPts = pts; s.bestDate = r.date; s.bestCourse = r.course; }
+      s.history.push({ date: r.date, course: r.course, val: pts });
+    } else {
+      const rpar = parSum(r), net = netTotal(r, pid);
+      ss += net; ps += rpar;
+      if (net < s.bestNet) { s.bestNet = net; s.bestNetToPar = net - rpar; s.bestDate = r.date; s.bestCourse = r.course; s.bestFmt = roundFmt === 'stroke' ? null : roundFmt; }
+      s.history.push({ date: r.date, course: r.course, val: net - rpar, net, srcFmt: roundFmt });
+      for (const h of r.holes) {
+        const g = r.scores[pid]?.[h.n]?.s; if (!g) continue;
+        s.totalHoles++;
+        const d = (g - siStrokes(chcp, h.si, nh)) - h.par;
+        if      (g === 1)   s.sc.holesInOne++;
+        else if (d <= -3)   s.sc.albatrosses++;
+        else if (d === -2)  s.sc.eagles++;
+        else if (d === -1)  s.sc.birdies++;
+        else if (d === 0)   s.sc.pars++;
+        else if (d === 1)   s.sc.bogeys++;
+        else if (d === 2)   s.sc.doubleBogeys++;
+        else if (d >= 3)    s.sc.triplePlus++;
+      }
+    }
+  }
+  if (s.rounds > 0) {
+    if (fmt === 'stroke') { s.avgNet = ss / s.rounds; s.avgNetToPar = (ss - ps) / s.rounds; }
+    else s.avgPts = ss / s.rounds;
+  }
+  if (s.bestNet === Infinity) s.bestNet = 0;
+  if (s.bestPts === -Infinity) s.bestPts = 0;
+  s.history.sort((a, b) => new Date(a.date) - new Date(b.date));
+  return s;
+}
+
+// refLine: value to draw as par/zero reference (null = none); refLabel: text for that line
+function buildProgressChart(history, refLine, refLabel) {
+  if (history.length < 2) return '';
+  const W = 320, H = 130;
+  const PL = 34, PR = 12, PT = 12, PB = 24;
+  const cW = W - PL - PR, cH = H - PT - PB;
+  const vals = history.map(h => h.val);
+  const anchor = refLine != null ? refLine : 0;
+  const minV = Math.min(...vals, anchor) - 1;
+  const maxV = Math.max(...vals, anchor) + 1;
+  const span = maxV - minV || 1;
+  const px = i => PL + (i / (history.length - 1)) * cW;
+  const py = v => PT + ((maxV - v) / span) * cH;
+  const step = span > 24 ? 6 : span > 12 ? 3 : span > 6 ? 2 : 1;
+  let ticks = '';
+  for (let v = Math.ceil(minV); v <= Math.floor(maxV); v++) {
+    if (v % step !== 0) continue;
+    const isRef = refLine != null && v === refLine;
+    const y = py(v);
+    ticks += `<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="${isRef?'#2d6a4f':'#ebebeb'}" stroke-width="${isRef?1.2:.5}" stroke-dasharray="${isRef?'4,3':''}"/>`;
+    const lbl = isRef && refLabel ? refLabel : (v > 0 ? '+' + v : String(v));
+    ticks += `<text x="${PL-5}" y="${y+3.5}" text-anchor="end" font-size="9" fill="${isRef?'#2d6a4f':'#ccc'}">${lbl}</text>`;
+  }
+  const pts = history.map((h, i) => `${px(i)},${py(h.val)}`).join(' ');
+  const showEvery = Math.max(1, Math.ceil((history.length - 1) / 5));
+  const higherBetter = refLine == null || refLabel !== 'E';
+  const hasWolf  = history.some(h => h.srcFmt === 'wolf');
+  const hasStabl = history.some(h => h.srcFmt === 'stableford');
+  let overlay = '';
+  history.forEach((h, i) => {
+    const x = px(i), y = py(h.val);
+    const good = higherBetter ? h.val > (refLine ?? 0) : h.val < (refLine ?? 0);
+    const even = refLine != null && h.val === refLine;
+    const clr = even ? '#2d6a4f' : good ? '#e63946' : '#888';
+    if (h.srcFmt === 'wolf') {
+      overlay += `<rect x="${x-4}" y="${y-4}" width="8" height="8" fill="${clr}" stroke="#fff" stroke-width="1.5" transform="rotate(45,${x},${y})"/>`;
+    } else if (h.srcFmt === 'stableford') {
+      overlay += `<rect x="${x-3.5}" y="${y-3.5}" width="7" height="7" fill="${clr}" stroke="#fff" stroke-width="1.5"/>`;
+    } else {
+      overlay += `<circle cx="${x}" cy="${y}" r="3.5" fill="${clr}" stroke="#fff" stroke-width="1.5"/>`;
+    }
+    if (i === 0 || i === history.length - 1 || i % showEvery === 0) {
+      const d = new Date(h.date);
+      overlay += `<text x="${x}" y="${H-5}" text-anchor="middle" font-size="8.5" fill="#bbb">${d.getDate()}/${d.getMonth()+1}</text>`;
+    }
+  });
+  const legendItems = ['<span><svg width="9" height="9" style="vertical-align:middle"><circle cx="4.5" cy="4.5" r="3.5" fill="#888"/></svg> Stroke</span>'];
+  if (hasWolf)  legendItems.push('<span><svg width="9" height="9" style="vertical-align:middle"><rect x="0.5" y="0.5" width="8" height="8" fill="#888" transform="rotate(45,4.5,4.5)"/></svg> Wolf</span>');
+  if (hasStabl) legendItems.push('<span><svg width="9" height="9" style="vertical-align:middle"><rect x="1" y="1" width="7" height="7" fill="#888"/></svg> Stableford</span>');
+  const legend = (hasWolf || hasStabl) ? `<div style="display:flex;gap:12px;font-size:10px;color:#aaa;padding:2px 4px 0;justify-content:flex-end">${legendItems.join('')}</div>` : '';
+  return `<svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block">
+    ${ticks}
+    <polyline points="${pts}" fill="none" stroke="#1a4731" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${overlay}
+  </svg>${legend}`;
+}
+
+function renderStats(c) {
+  const rounds = loadRounds().filter(r => r.done);
+  const nameSet = new Set();
+  for (const r of rounds) for (const p of r.players) nameSet.add(p.name);
+  const allNames = Array.from(nameSet);
+  if (!allNames.length) {
+    c.innerHTML = `<div id="view-stats"><div class="no-stats"><h2>No Statistics Yet</h2><p>Complete at least one full round to see statistics here.</p></div></div>`;
+    return;
+  }
+
+  const fmtSet = new Set(rounds.map(r => r.format || 'stroke'));
+  const hasWolfRounds       = fmtSet.has('wolf');
+  const hasStablefordRounds = fmtSet.has('stableford');
+
+  const qname = n => JSON.stringify(n).replace(/"/g, '&quot;');
+
+  // Build all three format stats for every player simultaneously
+  const allPlayerStats = allNames.map(name => ({
+    name,
+    stroke:     buildStats(rounds, name, 'stroke',     S.statsIncludeWolf, S.statsIncludeStableford),
+    stableford: buildStats(rounds, name, 'stableford', false, false),
+    wolf:       buildStats(rounds, name, 'wolf',       false, false),
+  })).filter(ps => ps.stroke.rounds > 0 || ps.stableford.rounds > 0 || ps.wolf.rounds > 0);
+
+  if (!allPlayerStats.length) {
+    c.innerHTML = `<div id="view-stats"><div class="no-stats"><h2>No Statistics Yet</h2><p>Complete at least one full round to see statistics here.</p></div></div>`;
+    return;
+  }
+
+  // Sort by stroke avg if available, else by total rounds
+  allPlayerStats.sort((a, b) => {
+    if (a.stroke.rounds > 0 && b.stroke.rounds > 0) return a.stroke.avgNetToPar - b.stroke.avgNetToPar;
+    if (a.stroke.rounds > 0) return -1;
+    if (b.stroke.rounds > 0) return 1;
+    return (b.stableford.rounds + b.wolf.rounds) - (a.stableford.rounds + a.wolf.rounds);
+  });
+
+  if (!S.statsPlayer || !allPlayerStats.find(ps => ps.name === S.statsPlayer)) {
+    S.statsPlayer = allPlayerStats[0].name;
+  }
+  const selPs = allPlayerStats.find(ps => ps.name === S.statsPlayer);
+
+  // Total unique rounds for this player
+  const totalUniqueRounds = rounds.filter(r => r.players.some(p => p.name === selPs.name)).length;
+
+  // Player pills
+  const pills = allPlayerStats.length > 1 ? `<div style="background:var(--green);padding-bottom:12px">
+    <div class="nav-pills">${allPlayerStats.map(ps =>
+      `<button class="nav-pill ${ps.name===S.statsPlayer?'active':''}" onclick="selStatsPlayer(${qname(ps.name)})">${esc(ps.name)}</button>`
+    ).join('')}</div>
+  </div>` : '';
+
+  // ── Helper: best-round sub-text for inside a stat box ───────────
+  const bestSubHtml = (sel, extraTag) => {
+    if (!sel.bestDate) return '';
+    const ds = new Date(sel.bestDate).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
+    return `<div class="sb-sub" style="margin-top:5px">${ds}${extraTag||''}</div><div class="sb-sub" style="font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%">${esc(sel.bestCourse)}</div>`;
+  };
+
+  // ── Helper: scoring distribution card ───────────────────────────
+  const bdCard = (sel, rows) => {
+    const html = rows.map(({ key, label, color }) => {
+      const n   = sel.sc[key] || 0;
+      const pct = sel.totalHoles > 0 ? (n / sel.totalHoles * 100) : 0;
+      return `<div class="bd-row">
+        <div class="bd-dot" style="background:${color}"></div>
+        <div class="bd-lbl">${label}</div>
+        <div class="bd-bar"><div class="bd-fill" style="width:${pct}%;background:${color}"></div></div>
+        <div class="bd-n">${n}</div><div class="bd-pct">${pct.toFixed(0)}%</div>
+      </div>`;
+    }).join('');
+    return `<div class="bd-card">${html}<div class="bd-foot">${sel.totalHoles} holes scored</div></div>`;
+  };
+
+  // ── Helper: progress chart card ─────────────────────────────────
+  const chartCard = (sel, title, refLine, refLabel) => {
+    if (sel.history.length < 2) return '';
+    return `<div class="chart-card"><div class="chart-title">${title}</div>${buildProgressChart(sel.history, refLine, refLabel)}</div>`;
+  };
+
+  // ── Helper: leaderboard section ─────────────────────────────────
+  const lbSection = (players, title, scoreHtml, bestHtml) => {
+    if (players.length < 2) return '';
+    return `<div style="margin-top:24px"><div class="sec">${title}</div>
+      ${players.map((ps, i) => `<div class="lb-row" style="cursor:pointer" onclick="selStatsPlayer(${qname(ps.name)})">
+        <div class="lb-rank ${i===0?'first':''}">${i+1}</div>
+        <div class="lb-name">${esc(ps.name)}</div>
+        <div class="lb-right">
+          <div class="lb-score" style="font-size:14px">${scoreHtml(ps)}</div>
+          <div class="lb-hcp">${bestHtml(ps)}</div>
+        </div>
+      </div>`).join('')}
+    </div>`;
+  };
+
+  // ═══════════════════════════════════════════
+  // STROKE SECTION
+  // ═══════════════════════════════════════════
+  let strokeSection = '';
+  if (selPs.stroke.rounds > 0) {
+    const sel = selPs.stroke;
+
+    const checkStyle = 'width:15px;height:15px;accent-color:#52b788;cursor:pointer';
+    const lblStyle   = 'display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--green);cursor:pointer;user-select:none';
+    const mixToggles = (hasWolfRounds || hasStablefordRounds)
+      ? `<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding:10px 14px;background:#f0f7f4;border-radius:10px;border-left:3px solid var(--green-mid)">
+          <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;width:100%;margin-bottom:2px">Include in stroke stats:</span>
+          ${hasWolfRounds       ? `<label style="${lblStyle}"><input type="checkbox" ${S.statsIncludeWolf?'checked':''}       onchange="toggleStatsIncludeWolf()"       style="${checkStyle}"> 🐺 Wolf rounds</label>` : ''}
+          ${hasStablefordRounds ? `<label style="${lblStyle}"><input type="checkbox" ${S.statsIncludeStableford?'checked':''} onchange="toggleStatsIncludeStableford()" style="${checkStyle}"> ★ Stableford rounds</label>` : ''}
+         </div>`
+      : '';
+
+    const mixedIn = [];
+    if (sel.history.some(h => h.srcFmt === 'wolf'))       mixedIn.push('🐺 Wolf');
+    if (sel.history.some(h => h.srcFmt === 'stableford')) mixedIn.push('★ Stableford');
+    const mixNote = mixedIn.length ? ` <span style="font-size:11px;color:var(--muted)">(incl. ${mixedIn.join(' + ')})</span>` : '';
+
+    const fmtTag = sel.bestFmt
+      ? ` &middot; ${{ wolf:'<span class="badge-fmt badge-wolf">🐺 Wolf</span>', stableford:'<span class="badge-fmt badge-stableford">★ Stableford</span>' }[sel.bestFmt] || ''}`
+      : '';
+
+    strokeSection = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <div class="sec" style="margin:0">⛳ Stroke Play</div>
+        <span style="font-size:11px;color:var(--muted)">${sel.rounds} round${sel.rounds!==1?'s':''}${mixNote}</span>
+      </div>
+      ${mixToggles}
+      <div class="stat-grid">
+        <div class="stat-box"><div class="sb-val">${sel.avgNet.toFixed(1)}</div><div class="sb-lbl">Avg Net Strokes</div></div>
+        <div class="stat-box"><div class="sb-val" style="${sel.avgNetToPar<0?'color:#e63946':''}">${(sel.avgNetToPar>=0?'+':'')+sel.avgNetToPar.toFixed(1)}</div><div class="sb-lbl">Avg vs Par</div></div>
+        <div class="stat-box"><div class="sb-val">${sel.bestNet>0?String(sel.bestNet):'-'}</div><div class="sb-lbl">Best Net Strokes</div>${bestSubHtml(sel, fmtTag)}</div>
+        <div class="stat-box"><div class="sb-val" style="${sel.bestNetToPar<0?'color:#e63946':''}">${sel.bestNet>0?dStr(sel.bestNetToPar):'-'}</div><div class="sb-lbl">Best vs Par</div></div>
+      </div>
+      ${chartCard(sel, 'Net Strokes vs Par — Progress', 0, 'E')}
+      <div class="sec" style="margin-top:0;margin-bottom:10px">Scoring Distribution (Net)</div>
+      ${bdCard(sel, SCORE_TYPES)}
+    `;
+  }
+
+  // ═══════════════════════════════════════════
+  // STABLEFORD SECTION
+  // ═══════════════════════════════════════════
+  let stablefordSection = '';
+  if (selPs.stableford.rounds > 0) {
+    const sel = selPs.stableford;
+    stablefordSection = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;margin-top:28px">
+        <div class="sec" style="margin:0">★ Stableford</div>
+        <span style="font-size:11px;color:var(--muted)">${sel.rounds} round${sel.rounds!==1?'s':''}</span>
+      </div>
+      <div class="stat-grid-2">
+        <div class="stat-box"><div class="sb-val">${sel.avgPts.toFixed(1)}</div><div class="sb-lbl">Avg Points</div></div>
+        <div class="stat-box"><div class="sb-val">${sel.bestPts>0?String(sel.bestPts):'-'}</div><div class="sb-lbl">Best Points</div>${bestSubHtml(sel, '')}</div>
+      </div>
+      ${chartCard(sel, 'Stableford Points — Progress', null, null)}
+      <div class="sec" style="margin-top:0;margin-bottom:10px">Points Distribution</div>
+      ${bdCard(sel, [
+        { key:'eagles',       label:'Eagle+ (4 pts)',  color:'#FFD700' },
+        { key:'birdies',      label:'Birdie (3 pts)',   color:'#e63946' },
+        { key:'pars',         label:'Par (2 pts)',      color:'#2d6a4f' },
+        { key:'bogeys',       label:'Bogey (1 pt)',     color:'#555'    },
+        { key:'doubleBogeys', label:'Double+ (0 pts)',  color:'#bbb'    },
+      ])}
+    `;
+  }
+
+  // ═══════════════════════════════════════════
+  // WOLF SECTION
+  // ═══════════════════════════════════════════
+  let wolfSection = '';
+  if (selPs.wolf.rounds > 0) {
+    const sel = selPs.wolf;
+    wolfSection = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;margin-top:28px">
+        <div class="sec" style="margin:0">🐺 Wolf</div>
+        <span style="font-size:11px;color:var(--muted)">${sel.rounds} round${sel.rounds!==1?'s':''}</span>
+      </div>
+      <div class="stat-grid-2">
+        <div class="stat-box"><div class="sb-val">${sel.avgPts.toFixed(1)}</div><div class="sb-lbl">Avg Wolf Points</div></div>
+        <div class="stat-box"><div class="sb-val">${sel.bestPts>0?String(sel.bestPts):'-'}</div><div class="sb-lbl">Best Wolf Points</div>${bestSubHtml(sel, '')}</div>
+      </div>
+      ${chartCard(sel, 'Wolf Points — Progress', 0, '0')}
+    `;
+  }
+
+  // ═══════════════════════════════════════════
+  // LEADERBOARDS (one per format, all players)
+  // ═══════════════════════════════════════════
+  const strokeLb = lbSection(
+    [...allPlayerStats].filter(ps => ps.stroke.rounds > 0).sort((a,b) => a.stroke.avgNetToPar - b.stroke.avgNetToPar),
+    '⛳ Stroke Play — All Players',
+    ps => `${(ps.stroke.avgNetToPar>=0?'+':'')+ps.stroke.avgNetToPar.toFixed(1)} avg`,
+    ps => ps.stroke.bestNet > 0 ? 'best '+dStr(ps.stroke.bestNetToPar) : ''
+  );
+  const sbLb = lbSection(
+    [...allPlayerStats].filter(ps => ps.stableford.rounds > 0).sort((a,b) => b.stableford.avgPts - a.stableford.avgPts),
+    '★ Stableford — All Players',
+    ps => `${ps.stableford.avgPts.toFixed(1)} avg pts`,
+    ps => ps.stableford.bestPts > 0 ? 'best '+ps.stableford.bestPts+' pts' : ''
+  );
+  const wolfLb = lbSection(
+    [...allPlayerStats].filter(ps => ps.wolf.rounds > 0).sort((a,b) => b.wolf.avgPts - a.wolf.avgPts),
+    '🐺 Wolf — All Players',
+    ps => `${ps.wolf.avgPts.toFixed(1)} avg pts`,
+    ps => ps.wolf.bestPts > 0 ? 'best '+ps.wolf.bestPts+' pts' : ''
+  );
+
+  c.innerHTML = `<div id="view-stats">
+    <div style="background:var(--green)">
+      ${pills}
+    </div>
+    <div style="padding:14px;padding-bottom:48px">
+      <div class="banner" style="margin-bottom:16px">
+        <h2>${esc(selPs.name)}</h2>
+        <p>${totalUniqueRounds} round${totalUniqueRounds!==1?'s':''} completed</p>
+      </div>
+      ${strokeSection}
+      ${stablefordSection}
+      ${wolfSection}
+      ${strokeLb}${sbLb}${wolfLb}
+    </div>
+  </div>`;
+}
+
+function setSummaryPlayer(pid) {
+  S.summaryPlayer = pid;
+  renderSummary(document.getElementById('main'));
+}
+
+function copyPlayerScorecard() {
+  const round = byId(S.roundId);
+  const p     = round?.players.find(x => x.id === S.summaryPlayer);
+  if (!round || !p) return;
+
+  const nh    = round.holes.length;
+  const half  = Math.floor(nh / 2);
+  const front = round.holes.filter(h => h.n <= round.holes[half-1].n);
+  const back  = round.holes.filter(h => h.n > round.holes[half-1].n);
+  const fpar  = front.reduce((s,h) => s+h.par, 0);
+  const bpar  = back.reduce((s,h)  => s+h.par, 0);
+  const tpar  = fpar + bpar;
+
+  const chcp  = courseHcp(p, round);
+  const pid   = p.id;
+  const pad   = (v, w=3) => String(v).padStart(w);
+  const fmt   = { stroke:'Stroke Play', stableford:'Stableford', wolf:'Wolf' }[round.format||'stroke'];
+  const crStr = round.courseRating ? `CR ${round.courseRating}` : '';
+  const slStr = round.slopeRating  ? `Slope ${round.slopeRating}` : '';
+  const info  = [crStr, slStr].filter(Boolean).join(' · ');
+  const ds    = new Date(round.date).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+
+  const hcpLine = [
+    p.handicapIndex != null ? `HCP ${p.handicapIndex}` : '',
+    chcp > 0 ? `Course HCP ${chcp}` : '',
+  ].filter(Boolean).join(' · ');
+
+  const rowStr = (label, vals, totals) => {
+    const lpad = label.padEnd(7);
+    const cells = vals.map(v => pad(v)).join(' ');
+    return `${lpad}| ${cells} | ${totals.map(v => pad(v,4)).join(' ')}`;
+  };
+
+  const holeNums  = h => pad(h.n);
+  const fHoles    = front.map(holeNums).join(' ');
+  const bHoles    = back.map(holeNums).join(' ');
+
+  let fGross = 0, bGross = 0;
+  const fScores = front.map(h => { const g = round.scores[pid]?.[h.n]?.s||0; fGross+=g; return g||'-'; });
+  const bScores = back.map(h  => { const g = round.scores[pid]?.[h.n]?.s||0; bGross+=g; return g||'-'; });
+  const tGross  = fGross + bGross;
+  const tNet    = chcp > 0 ? netTotal(round, pid) : null;
+
+  const diffStr = n => n===0 ? 'E' : n>0 ? `+${n}` : `${n}`;
+
+  let lines = [
+    `⛳ ${round.course.toUpperCase()} — ${ds}`,
+    info ? `${fmt}  |  ${info}` : fmt,
+    '',
+    p.name.toUpperCase() + (hcpLine ? `  |  ${hcpLine}` : ''),
+    '',
+    `       | ${fHoles} | OUT`,
+    `Par    | ${front.map(h=>pad(h.par)).join(' ')} | ${pad(fpar,4)}`,
+    `${p.name.split(' ')[0].padEnd(6)} | ${fScores.map(v=>pad(v)).join(' ')} | ${pad(fGross||'-',4)}`,
+  ];
+  if (nh === 18) {
+    lines.push('');
+    lines.push(`       | ${bHoles} |  IN   TOT`);
+    lines.push(`Par    | ${back.map(h=>pad(h.par)).join(' ')} | ${pad(bpar,4)}  ${pad(tpar,4)}`);
+    lines.push(`${p.name.split(' ')[0].padEnd(6)} | ${bScores.map(v=>pad(v)).join(' ')} | ${pad(bGross||'-',4)}  ${pad(tGross||'-',4)} (${diffStr(tGross-tpar)})`);
+  } else {
+    lines[lines.length-1] += `  TOT: ${tGross||'-'} (${diffStr(tGross-tpar)})`;
+  }
+  if (tNet != null && chcp > 0) {
+    lines.push('');
+    lines.push(`Net: ${tNet} strokes (${diffStr(tNet-tpar)})  ·  ${chcp} handicap strokes applied`);
+  }
+  lines.push('');
+  lines.push('Recorded with Golf Scorecard');
+
+  const text = lines.join('\n');
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copy-sc-btn');
+    if (btn) { btn.textContent = '✓ Copied!'; btn.classList.add('copied'); setTimeout(() => { btn.textContent = '📋 Copy Scorecard'; btn.classList.remove('copied'); }, 2500); }
+  }).catch(() => { alert('Could not copy. Please copy manually.'); });
+}
+
+function selStatsPlayer(name) {
+  S.statsPlayer = name;
+  renderStats(document.getElementById('main'));
+}
+
+function toggleStatsIncludeWolf() {
+  S.statsIncludeWolf = !S.statsIncludeWolf;
+  renderStats(document.getElementById('main'));
+}
+
+function toggleStatsIncludeStableford() {
+  S.statsIncludeStableford = !S.statsIncludeStableford;
+  renderStats(document.getElementById('main'));
+}
+
+// ═══════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════
+render();
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
