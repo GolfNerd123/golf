@@ -1287,7 +1287,7 @@ function editPlayerForm(id)     { S.playerEdit = id;    renderPlayers(document.g
 function cancelPlayerEdit()     { S.playerEdit = null;  renderPlayers(document.getElementById('main')); }
 function confirmDeletePlayer(id) {
   const p = loadPlayers().find(x => x.id === id);
-  if (p && confirm(`Delete "${p.name}"?`)) { deletePlayer(id); renderPlayers(document.getElementById('main')); }
+  if (p && confirm(`Delete "${p.name}"?`)) { deletePlayer(id); render(); }
 }
 function submitPlayer(editId) {
   const name = document.getElementById('pf-name')?.value?.trim();
@@ -1296,6 +1296,7 @@ function submitPlayer(editId) {
   const clubVal   = document.getElementById('pf-club')?.value?.trim() || '';
   const genderBtn = document.querySelector('.pf-gender-row .tee-btn.active');
   const teeBtn    = document.querySelector('#pf-tee-row .tee-btn.active');
+  S.playerEdit = null;
   upsertPlayer({
     id: editId || ('pl' + Date.now()),
     name,
@@ -1304,8 +1305,7 @@ function submitPlayer(editId) {
     gender:     genderBtn?.dataset.val || 'karlar',
     defaultTee: teeBtn?.dataset.val    || null,
   });
-  S.playerEdit = null;
-  renderPlayers(document.getElementById('main'));
+  render();
 }
 
 // ═══════════════════════════════════════════
@@ -3254,7 +3254,7 @@ function toggleStatsIncludeStableford() {
     if (!snap.exists) return;
     _players = snap.data().list || [];
     localStorage.setItem(PLAYERS_KEY, JSON.stringify(_players));
-    if (S.view === 'players' || S.view === 'newRound') render();
+    if ((S.view === 'players' && !S.playerEdit) || S.view === 'newRound') render();
   });
 })();
 
