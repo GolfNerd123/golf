@@ -490,6 +490,35 @@
   }
   .sc-val { font-size: 22px; font-weight: 800; color: #ccc; line-height: 1; }
   .sc-sub { font-size: 10px; font-weight: 700; margin-top: 1px; }
+  .score-help-row { display:flex; justify-content:flex-end; margin-bottom:4px; }
+  .score-help-btn {
+    width:22px; height:22px; border-radius:50%;
+    background:#d0d0c8; border:none;
+    font-size:12px; font-weight:700; color:#555;
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+    touch-action:manipulation; line-height:1; flex-shrink:0;
+  }
+  .sg-overlay {
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,.45);
+    z-index:200; align-items:center; justify-content:center; padding:20px;
+  }
+  .sg-overlay.open { display:flex; }
+  .sg-box {
+    background:#fff; border-radius:16px; padding:20px; max-width:320px; width:100%;
+    box-shadow:0 8px 32px rgba(0,0,0,.2);
+  }
+  .sg-title { font-size:16px; font-weight:800; margin-bottom:14px; color:var(--text); }
+  .sg-section { margin-bottom:12px; }
+  .sg-lbl { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin-bottom:5px; }
+  .sg-text { font-size:13px; color:#444; line-height:1.5; }
+  .sg-colours { display:flex; flex-direction:column; gap:4px; margin-top:4px; }
+  .sg-colour { display:flex; align-items:center; gap:8px; font-size:12px; color:#444; }
+  .sg-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .sg-close {
+    width:100%; margin-top:14px; padding:12px; background:var(--green);
+    border:none; border-radius:10px; color:#fff; font-size:14px; font-weight:700;
+    cursor:pointer; touch-action:manipulation;
+  }
 
   .sc-footer {
     position: fixed; bottom: 0; left: 0; right: 0;
@@ -675,6 +704,30 @@
 </head>
 <body>
 <div id="app">
+<div id="score-guide-overlay" class="sg-overlay" onclick="hideScoreGuide()">
+  <div class="sg-box" onclick="event.stopPropagation()">
+    <div class="sg-title">Score Guide</div>
+    <div class="sg-section">
+      <div class="sg-lbl">Below your name</div>
+      <div class="sg-text">"85 (+5)" — total strokes with how far from par in brackets. Negative is under par, positive is over.</div>
+    </div>
+    <div class="sg-section">
+      <div class="sg-lbl">In the circle</div>
+      <div class="sg-text">The big number is your strokes for this hole. Below it: <strong>E</strong> = par &nbsp;·&nbsp; <strong>+1</strong> = bogey &nbsp;·&nbsp; <strong>−1</strong> = birdie.</div>
+    </div>
+    <div class="sg-section">
+      <div class="sg-lbl">Colour coding</div>
+      <div class="sg-colours">
+        <div class="sg-colour"><div class="sg-dot" style="background:#f0b429"></div>Eagle or better</div>
+        <div class="sg-colour"><div class="sg-dot" style="background:#e63946"></div>Birdie</div>
+        <div class="sg-colour"><div class="sg-dot" style="background:#2d6a4f"></div>Par</div>
+        <div class="sg-colour"><div class="sg-dot" style="background:#1a1a1a"></div>Bogey</div>
+        <div class="sg-colour"><div class="sg-dot" style="background:#888"></div>Double bogey or worse</div>
+      </div>
+    </div>
+    <button class="sg-close" onclick="hideScoreGuide()">Got it</button>
+  </div>
+</div>
   <header id="hdr">
     <button id="back-btn" onclick="goBack()">&#8592;</button>
     <h1 id="hdr-title">Golf Scorecard</h1>
@@ -2213,7 +2266,12 @@ function renderScorecard(c) {
     <div class="dots-row">${dots}</div>
     ${wolfBanner}
     ${wolfArea}
-    <div class="players-scroll">${pCards}</div>
+    <div class="players-scroll">
+      <div class="score-help-row">
+        <button class="score-help-btn" onclick="showScoreGuide()">?</button>
+      </div>
+      ${pCards}
+    </div>
     ${wolfResult}
     <div class="sc-footer">${foot}</div>
     ${numpad}
@@ -2226,6 +2284,9 @@ function gotoHole(n) {
   S.hole = n;
   renderScorecard(document.getElementById('main'));
 }
+
+function showScoreGuide() { document.getElementById('score-guide-overlay').classList.add('open'); }
+function hideScoreGuide() { document.getElementById('score-guide-overlay').classList.remove('open'); }
 
 function adjScore(pid, delta) {
   const round = byId(S.roundId);
