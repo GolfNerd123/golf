@@ -808,6 +808,7 @@ function saveRound(r) {
   const i = all.findIndex(x => x.id === r.id);
   if (i >= 0) all[i] = r; else all.unshift(r);
   persistRounds(all);
+  if (r.done) downloadRoundBackup(r);
 }
 function byId(id) { return loadRounds().find(r => r.id === id) || null; }
 function removeRound(id) { persistRounds(loadRounds().filter(r => r.id !== id)); }
@@ -2285,7 +2286,7 @@ function finishRound() {
   const round = byId(S.roundId);
   if (!round) return;
   const incomplete = round.players.some(p => round.holes.some(h => !round.scores[p.id]?.[h.n]?.s));
-  const go = () => { round.done = true; saveRound(round); downloadRoundBackup(round); nav('summary', { roundId: S.roundId }); };
+  const go = () => { round.done = true; saveRound(round); nav('summary', { roundId: S.roundId }); };
   if (incomplete) { if (confirm('Some holes have no scores. Finish anyway?')) go(); } else go();
 }
 
