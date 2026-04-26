@@ -825,7 +825,7 @@ function saveRound(r) {
   if (i >= 0) _rounds[i] = r; else _rounds.unshift(r);
   localStorage.setItem(ROUNDS_KEY, JSON.stringify(_rounds));
   _db.collection('rounds').doc(r.id).set(r).catch(() => {});
-  if (r.done) downloadRoundBackup(r);
+  if (r.done) { try { downloadRoundBackup(r); } catch(e) {} }
 }
 
 function byId(id) { return _rounds.find(r => r.id === id) || null; }
