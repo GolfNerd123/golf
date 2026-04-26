@@ -843,8 +843,14 @@ const SCORE_TYPES = [
 ];
 
 // ── Team rivalry configuration ───────────────────────────────────────────────
-const RIVALRY_TEAM_A = ['sigurjón', 'michael'];
-const RIVALRY_TEAM_B = ['carlos', 'ingibjörg'];
+// Names are matched accent-insensitively, so "Sigurjón" == "Sigurjon", etc.
+const RIVALRY_TEAM_A = ['sigurjon', 'michael'];
+const RIVALRY_TEAM_B = ['carlos', 'ingibjorg'];
+
+// Strip diacritics and lowercase for fuzzy name matching
+function normName(s) {
+  return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
 
 // Icelandic courses within ~100 km of Reykjavik.
 // Grafarholt back-9 par/SI from public scorecards; all other data estimated.
@@ -3007,14 +3013,14 @@ function buildProgressChart(history, refLine, refLabel) {
 // ─── Team rivalry helpers ────────────────────────────────────────────────────
 function computeRivalry(rounds) {
   const allFour = [...RIVALRY_TEAM_A, ...RIVALRY_TEAM_B];
-  const findPid = (r, nl) => r.players.find(p => p.name.toLowerCase() === nl)?.id;
+  const findPid = (r, nn) => r.players.find(p => normName(p.name) === nn)?.id;
 
   let aWins = 0, bWins = 0, ties = 0;
   const history = [];
 
   for (const r of rounds) {
     if (!r.done) continue;
-    const names = r.players.map(p => p.name.toLowerCase());
+    const names = r.players.map(p => normName(p.name));
     if (!allFour.every(n => names.includes(n))) continue;
 
     const aPids = RIVALRY_TEAM_A.map(n => findPid(r, n)).filter(Boolean);
@@ -3039,8 +3045,8 @@ function rivalryNameMap(rounds) {
   const map = {};
   const allFour = [...RIVALRY_TEAM_A, ...RIVALRY_TEAM_B];
   for (const r of rounds) for (const p of r.players) {
-    const nl = p.name.toLowerCase();
-    if (allFour.includes(nl)) map[nl] = p.name;
+    const nn = normName(p.name);
+    if (allFour.includes(nn)) map[nn] = p.name;
   }
   return map;
 }
@@ -3050,9 +3056,9 @@ function rivalryBannerHtml(roundId, rounds) {
   const r = rounds.find(x => x.id === roundId);
   if (!r) return '';
   const allFour = [...RIVALRY_TEAM_A, ...RIVALRY_TEAM_B];
-  const names = r.players.map(p => p.name.toLowerCase());
+  const names = r.players.map(p => normName(p.name));
   if (!allFour.every(n => names.includes(n))) return '';
-  const findPid = nl => r.players.find(p => p.name.toLowerCase() === nl)?.id;
+  const findPid = nn => r.players.find(p => normName(p.name) === nn)?.id;
   const aPids = RIVALRY_TEAM_A.map(findPid).filter(Boolean);
   const bPids = RIVALRY_TEAM_B.map(findPid).filter(Boolean);
   if (aPids.length !== 2 || bPids.length !== 2) return '';
