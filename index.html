@@ -533,6 +533,30 @@
   #view-scorecard.compact .wolf-dec-area { padding: 6px 14px; }
   #view-scorecard.compact .wolf-status-bar { padding: 5px 14px; }
 
+  .action-overlay {
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,.45);
+    z-index:200; align-items:flex-end; justify-content:center;
+  }
+  .action-overlay.open { display:flex; }
+  .action-sheet {
+    background:#fff; border-radius:16px 16px 0 0; padding:16px;
+    width:100%; max-width:480px;
+    padding-bottom:max(24px, env(safe-area-inset-bottom));
+  }
+  .action-title {
+    font-size:12px; font-weight:700; color:var(--muted); text-align:center;
+    text-transform:uppercase; letter-spacing:.5px; margin-bottom:14px;
+  }
+  .action-btn {
+    width:100%; padding:14px; border:none; border-radius:12px;
+    font-size:15px; font-weight:600; cursor:pointer; margin-bottom:8px;
+    touch-action:manipulation; text-align:center; display:block;
+  }
+  .action-btn:last-child { margin-bottom:0; }
+  .ab-edit   { background:#f0f7f4; color:var(--green); }
+  .ab-delete { background:#fdf0f0; color:#c0392b; }
+  .ab-cancel { background:#f0f0ea; color:#666; }
+
   .sc-footer {
     position: fixed; bottom: 0; left: 0; right: 0;
     padding: 12px 16px;
@@ -741,6 +765,16 @@
     <button class="sg-close" onclick="hideScoreGuide()">Got it</button>
   </div>
 </div>
+
+<div id="round-action-overlay" class="action-overlay" onclick="closeRoundActions()">
+  <div class="action-sheet" onclick="event.stopPropagation()">
+    <div class="action-title" id="round-action-title"></div>
+    <button class="action-btn ab-edit"   onclick="editRound()">Edit scores</button>
+    <button class="action-btn ab-delete" onclick="confirmDeleteRound()">Delete round</button>
+    <button class="action-btn ab-cancel" onclick="closeRoundActions()">Cancel</button>
+  </div>
+</div>
+
   <header id="hdr">
     <button id="back-btn" onclick="goBack()">&#8592;</button>
     <h1 id="hdr-title">Golf Scorecard</h1>
@@ -1174,7 +1208,7 @@ function renderHome(c) {
       <p>Tap "+ New Round" to get started</p>
     </div>`;
   } else {
-    list += '<p class="hint">Long-press a round to delete it</p>';
+    list += '<p class="hint">Long-press a round to edit or delete</p>';
     for (const r of rounds) {
       const tp   = parSum(r);
       const date = new Date(r.date).toLocaleDateString('en-US',{ month:'short', day:'numeric', year:'numeric' });
@@ -1247,10 +1281,10 @@ function renderHome(c) {
     const id = card.dataset.id;
     card.addEventListener('click', () => openRound(id));
     let t;
-    card.addEventListener('touchstart', () => { t = setTimeout(() => { if(confirm('Delete this round?')){ removeRound(id); render(); } }, 600); }, {passive:true});
+    card.addEventListener('touchstart', () => { t = setTimeout(() => showRoundActions(id), 600); }, {passive:true});
     card.addEventListener('touchend',  () => clearTimeout(t), {passive:true});
     card.addEventListener('touchmove', () => clearTimeout(t), {passive:true});
-    card.addEventListener('contextmenu', e => { e.preventDefault(); if(confirm('Delete this round?')){ removeRound(id); render(); } });
+    card.addEventListener('contextmenu', e => { e.preventDefault(); showRoundActions(id); });
   });
 }
 
@@ -2386,7 +2420,7 @@ function finishRound() {
   const round = byId(S.roundId);
   if (!round) return;
   const incomplete = round.players.some(p => round.holes.some(h => !round.scores[p.id]?.[h.n]?.s));
-  const go = () => { round.done = true; saveRound(round); nav('summary', { roundId: S.roundId }); };
+  const go = () => { round.done = true; saveRound(round); nav('stats'); };
   if (incomplete) { if (confirm('Some holes have no scores. Finish anyway?')) go(); } else go();
 }
 
@@ -3255,6 +3289,38 @@ function copyPlayerScorecard() {
 function selStatsPlayer(name) {
   S.statsPlayer = name;
   renderStats(document.getElementById('main'));
+}
+
+let _actionRoundId = null;
+function showRoundActions(id) {
+  const r = byId(id);
+  if (!r) return;
+  _actionRoundId = id;
+  const date = new Date(r.date).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
+  document.getElementById('round-action-title').textContent = r.course + ' · ' + date;
+  document.getElementById('round-action-overlay').classList.add('open');
+}
+function closeRoundActions() {
+  document.getElementById('round-action-overlay').classList.remove('open');
+  _actionRoundId = null;
+}
+function editRound() {
+  const id = _actionRoundId;
+  closeRoundActions();
+  const r = byId(id);
+  if (!r) return;
+  r.done = false;
+  saveRound(r);
+  let start = r.holes[0]?.n || 1;
+  for (const h of r.holes) {
+    if (!r.players.every(p => r.scores[p.id]?.[h.n]?.s)) { start = h.n; break; }
+  }
+  nav('scorecard', { roundId: id, hole: start });
+}
+function confirmDeleteRound() {
+  const id = _actionRoundId;
+  closeRoundActions();
+  if (confirm('Delete this round?')) { removeRound(id); render(); }
 }
 
 function toggleStatsIncludeStroke() {
