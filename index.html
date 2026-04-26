@@ -672,7 +672,7 @@
   .no-stats h2 { font-size: 20px; color: var(--green); margin-bottom: 10px; }
   .no-stats p  { font-size: 14px; color: var(--muted); line-height: 1.5; }
 
-  .nav-pills { display: flex; gap: 8px; padding: 0 14px 14px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .nav-pills { display: flex; align-items: center; gap: 8px; padding: 12px 14px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .nav-pill {
     padding: 6px 14px; border-radius: 16px; background: rgba(255,255,255,.15); border: none;
     color: rgba(255,255,255,.7); font-size: 13px; font-weight: 600;
@@ -3215,7 +3215,7 @@ function renderStats(c) {
   const totalUniqueRounds = rounds.filter(r => r.players.some(p => p.name === selPs.name)).length;
 
   // Player pills
-  const pills = allPlayerStats.length > 1 ? `<div style="background:var(--green);padding-bottom:12px">
+  const pills = allPlayerStats.length > 1 ? `<div style="background:var(--green)">
     <div class="nav-pills">${allPlayerStats.map(ps =>
       `<button class="nav-pill ${ps.name===S.statsPlayer?'active':''}" onclick="selStatsPlayer(${qname(ps.name)})">${esc(ps.name)}</button>`
     ).join('')}</div>
