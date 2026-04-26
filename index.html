@@ -2930,8 +2930,9 @@ function buildProgressChart(history, refLine, refLabel) {
 
 function renderStats(c) {
   const rounds = loadRounds().filter(r => r.done);
+  const currentNames = new Set(loadPlayers().map(p => p.name));
   const nameSet = new Set();
-  for (const r of rounds) for (const p of r.players) nameSet.add(p.name);
+  for (const r of rounds) for (const p of r.players) if (currentNames.has(p.name)) nameSet.add(p.name);
   const allNames = Array.from(nameSet);
   if (!allNames.length) {
     c.innerHTML = `<div id="view-stats"><div class="no-stats"><h2>No Statistics Yet</h2><p>Complete at least one full round to see statistics here.</p></div></div>`;
