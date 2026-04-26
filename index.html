@@ -2167,20 +2167,18 @@ function renderScorecard(c) {
     const g    = round.scores[p.id]?.[S.hole]?.s || 0;
     const diff = g ? g - hole.par : null;
     const col  = scoreColor(g, hole.par);
-    const run  = grossTotal(round, p.id);
-    const rd   = run - rpar;
+    const run    = grossTotal(round, p.id);
+    const runPar = round.holes.filter(h => round.scores[p.id]?.[h.n]?.s).reduce((s,h) => s+h.par, 0);
+    const rd     = run ? run - runPar : 0;
     const chcp = courseHcp(p, round);
     const hs   = siStrokes(chcp, hole.si, round.holes.length);
     const strokeBadge = hs > 0 ? `<span class="stroke-badge">+${hs} stroke${hs>1?'s':''}</span>` : '';
-    const net  = chcp > 0 ? netTotal(round, p.id) : null;
-    const netPar = parSum(round);
 
     // Running line varies by format
     let runLine, netLine = '';
-    const netDiff = net != null ? net - netPar : null;
     const hcpLabel = p.teeLabel ? `CH ${chcp} (${p.teeLabel})` : `HCP ${chcp}`;
-    const netBracket = net != null && chcp > 0 && run > 0
-      ? `[${net} (${dStr(netDiff)}) net] &middot; ${hcpLabel}` : '';
+    const netBracket = chcp > 0 && run > 0
+      ? `[${run} (${dStr(rd)})] &middot; ${hcpLabel}` : (chcp > 0 && !run ? hcpLabel : '');
     if (isStbl) {
       const stbTot = stablefordTotal(round, p.id);
       runLine = stbTot ? `${stbTot} pts` : 'No scores yet';
