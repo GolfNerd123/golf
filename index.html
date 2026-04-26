@@ -3278,22 +3278,6 @@ function renderStats(c) {
       ${chartCard(sel, 'Net Strokes vs Par — Progress', 0, 'E')}
       <div class="sec" style="margin-top:0;margin-bottom:10px">Scoring Distribution (Net)</div>
       ${bdCard(sel, SCORE_TYPES)}
-      <button onclick="toggleStatsRaw()" style="width:100%;margin-top:14px;padding:11px 14px;background:#f5f5f0;border:1px solid var(--border);border-radius:10px;font-size:13px;font-weight:600;color:#555;cursor:pointer;display:flex;align-items:center;justify-content:space-between;touch-action:manipulation">
-        <span>Without handicap</span>
-        <span style="font-size:16px">${S.statsShowRaw ? '▲' : '▼'}</span>
-      </button>
-      ${S.statsShowRaw ? (() => { const raw = selPs.strokeRaw; return `
-      <div style="background:#fafaf8;border:1px solid var(--border);border-top:none;border-radius:0 0 10px 10px;padding:14px">
-        <div class="stat-grid">
-          <div class="stat-box"><div class="sb-val">${raw.avgNet.toFixed(1)}</div><div class="sb-lbl">Avg Gross Strokes</div></div>
-          <div class="stat-box"><div class="sb-val" style="${raw.avgNetToPar<0?'color:#e63946':''}">${(raw.avgNetToPar>=0?'+':'')+raw.avgNetToPar.toFixed(1)}</div><div class="sb-lbl">Avg vs Par (Gross)</div></div>
-          <div class="stat-box"><div class="sb-val">${raw.bestNet>0?String(raw.bestNet):'-'}</div><div class="sb-lbl">Best Gross Strokes</div>${bestSubHtml(raw,'')}</div>
-          <div class="stat-box"><div class="sb-val" style="${raw.bestNetToPar<0?'color:#e63946':''}">${raw.bestNet>0?dStr(raw.bestNetToPar):'-'}</div><div class="sb-lbl">Best vs Par (Gross)</div></div>
-        </div>
-        ${chartCard(raw, 'Gross Strokes vs Par — Progress', 0, 'E')}
-        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px">Scoring Distribution (Gross)</div>
-        ${bdCard(raw, SCORE_TYPES)}
-      </div>` ; })() : ''}
     `;
   }
 
@@ -3348,26 +3332,50 @@ function renderStats(c) {
   // ═══════════════════════════════════════════
   const strokeLb = lbSection(
     [...allPlayerStats].filter(ps => ps.stroke.rounds > 0).sort((a,b) => a.stroke.avgNetToPar - b.stroke.avgNetToPar),
-    '⛳ Stroke Play — All Players',
+    '⛳ Stroke Play — All Players — with handicap',
     ps => `${(ps.stroke.avgNetToPar>=0?'+':'')+ps.stroke.avgNetToPar.toFixed(1)} avg`,
     ps => ps.stroke.bestNet > 0 ? 'best '+dStr(ps.stroke.bestNetToPar) : ''
   );
   const sbLb = lbSection(
     [...allPlayerStats].filter(ps => ps.stableford.rounds > 0).sort((a,b) => b.stableford.avgPts - a.stableford.avgPts),
-    '★ Stableford — All Players',
+    '★ Stableford — All Players — with handicap',
     ps => `${ps.stableford.avgPts.toFixed(1)} avg pts`,
     ps => ps.stableford.bestPts > 0 ? 'best '+ps.stableford.bestPts+' pts' : ''
   );
   const wolfLb = lbSection(
     [...allPlayerStats].filter(ps => ps.wolf.rounds > 0).sort((a,b) => b.wolf.avgPts - a.wolf.avgPts),
-    '🐺 Wolf — All Players',
+    '🐺 Wolf — All Players — with handicap',
     ps => `${ps.wolf.avgPts.toFixed(1)} avg pts`,
     ps => ps.wolf.bestPts > 0 ? 'best '+ps.wolf.bestPts+' pts' : ''
   );
 
+  // ── Without handicap (raw) collapsible ──────────────────────────────────────
+  let rawSection = '';
+  if (selPs.stroke.rounds > 0) {
+    const raw = selPs.strokeRaw;
+    rawSection = `
+      <button onclick="toggleStatsRaw()" style="width:100%;margin-top:24px;padding:11px 14px;background:#f5f5f0;border:1px solid var(--border);border-radius:${S.statsShowRaw?'10px 10px 0 0':'10px'};font-size:13px;font-weight:600;color:#555;cursor:pointer;display:flex;align-items:center;justify-content:space-between;touch-action:manipulation">
+        <span>⛳ Gross stats — without handicap</span>
+        <span style="font-size:16px">${S.statsShowRaw ? '▲' : '▼'}</span>
+      </button>
+      ${S.statsShowRaw ? `
+      <div style="background:#fafaf8;border:1px solid var(--border);border-top:none;border-radius:0 0 10px 10px;padding:14px">
+        <div class="stat-grid">
+          <div class="stat-box"><div class="sb-val">${raw.avgNet.toFixed(1)}</div><div class="sb-lbl">Avg Gross Strokes</div></div>
+          <div class="stat-box"><div class="sb-val" style="${raw.avgNetToPar<0?'color:#e63946':''}">${(raw.avgNetToPar>=0?'+':'')+raw.avgNetToPar.toFixed(1)}</div><div class="sb-lbl">Avg vs Par (Gross)</div></div>
+          <div class="stat-box"><div class="sb-val">${raw.bestNet>0?String(raw.bestNet):'-'}</div><div class="sb-lbl">Best Gross Strokes</div>${bestSubHtml(raw,'')}</div>
+          <div class="stat-box"><div class="sb-val" style="${raw.bestNetToPar<0?'color:#e63946':''}">${raw.bestNet>0?dStr(raw.bestNetToPar):'-'}</div><div class="sb-lbl">Best vs Par (Gross)</div></div>
+        </div>
+        ${chartCard(raw, 'Gross Strokes vs Par — Progress', 0, 'E')}
+        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px">Scoring Distribution (Gross)</div>
+        ${bdCard(raw, SCORE_TYPES)}
+      </div>` : ''}
+    `;
+  }
+
   // All completed rounds (not filtered by currentNames) needed for rivalry
   const allRounds = loadRounds().filter(r => r.done);
-  const finishBanner  = rivalryBannerHtml(S.justFinishedRoundId, allRounds);
+  const finishBanner   = rivalryBannerHtml(S.justFinishedRoundId, allRounds);
   const rivalrySection = rivalrySectionHtml(allRounds);
 
   c.innerHTML = `<div id="view-stats">
@@ -3384,6 +3392,7 @@ function renderStats(c) {
       ${stablefordSection}
       ${wolfSection}
       ${strokeLb}${sbLb}${wolfLb}
+      ${rawSection}
       ${rivalrySection}
     </div>
   </div>`;
