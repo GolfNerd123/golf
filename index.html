@@ -1093,7 +1093,9 @@ function saveCourseData(course) {
     const i = overrides.findIndex(o => o.id === course.id);
     if (i >= 0) overrides[i] = course; else overrides.push(course);
     localStorage.setItem(COURSES_KEY, JSON.stringify(overrides));
-  } catch {}
+  } catch (e) {
+    alert('Could not save course — storage is full. Try removing unused courses or images.');
+  }
 }
 function deleteCourseData(id) {
   try {
@@ -2251,6 +2253,25 @@ function toggleHoleDetails() {
   render();
 }
 
+// Compress an image data URL to JPEG ≤1000px at 78% quality before storing
+function compressImage(dataUrl, callback) {
+  const img = new Image();
+  img.onload = () => {
+    const MAX = 1000;
+    let w = img.width, h = img.height;
+    if (w > MAX || h > MAX) {
+      if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+      else        { w = Math.round(w * MAX / h); h = MAX; }
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+    callback(canvas.toDataURL('image/jpeg', 0.78));
+  };
+  img.onerror = () => callback(dataUrl); // fallback: store as-is
+  img.src = dataUrl;
+}
+
 let _pendingImgIdx = null;
 function pickHoleImg(idx) {
   preserveNrInputs();
@@ -2263,8 +2284,10 @@ function pickHoleImg(idx) {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = re => {
-      S.nr.holeDetails[_pendingImgIdx].img = re.result;
-      render();
+      compressImage(re.result, compressed => {
+        S.nr.holeDetails[_pendingImgIdx].img = compressed;
+        render();
+      });
     };
     reader.readAsDataURL(file);
   };
@@ -2289,9 +2312,11 @@ function pickCeHoleImg(idx) {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = re => {
-      if (!S.ce.imgs) S.ce.imgs = Array(18).fill('');
-      S.ce.imgs[_pendingCeImgIdx] = re.result;
-      renderCourses(document.getElementById('main'));
+      compressImage(re.result, compressed => {
+        if (!S.ce.imgs) S.ce.imgs = Array(18).fill('');
+        S.ce.imgs[_pendingCeImgIdx] = compressed;
+        renderCourses(document.getElementById('main'));
+      });
     };
     reader.readAsDataURL(file);
   };
@@ -2408,6 +2433,14 @@ function renderScorecard(c) {
   const firstHole = round.holes[0].n;
   const lastHole  = round.holes[round.holes.length - 1].n;
   const rpar  = parSum(round);
+
+  // Look up description and image from the course record so they work even
+  // for rounds started before the images were added, and without duplicating
+  // large image data inside every round.
+  const holeIdx  = round.holes.indexOf(hole);
+  const courseRec = round.courseId ? loadCourses().find(co => co.id === round.courseId) : null;
+  const holeDesc = hole.desc || (courseRec?.descriptions?.[holeIdx]) || '';
+  const holeImg  = hole.img  || (courseRec?.imgs?.[holeIdx])         || '';
   const isWolf = round.format === 'wolf';
   const isStbl = round.format === 'stableford';
 
@@ -2559,12 +2592,12 @@ function renderScorecard(c) {
 
   const isCompact = round.players.length >= 3;
 
-  const layoutModal = S.showLayout && (hole.desc || hole.img) ? `
+  const layoutModal = S.showLayout && (holeDesc || holeImg) ? `
     <div class="layout-dim" onclick="closeHoleLayout()">
       <div class="layout-card" onclick="event.stopPropagation()">
         <div class="layout-title">Hole ${S.hole} &mdash; Par ${hole.par}</div>
-        ${hole.desc ? `<div class="layout-desc">${esc(hole.desc)}</div>` : ''}
-        ${hole.img  ? `<img class="layout-img" src="${hole.img}">` : ''}
+        ${holeDesc ? `<div class="layout-desc">${esc(holeDesc)}</div>` : ''}
+        ${holeImg  ? `<img class="layout-img" src="${holeImg}">` : ''}
         <button class="layout-close" onclick="closeHoleLayout()">Close</button>
       </div>
     </div>` : '';
@@ -2576,7 +2609,7 @@ function renderScorecard(c) {
         <div class="hole-lbl">HOLE</div>
         <div class="hole-num">${S.hole}</div>
         <div class="hole-meta">Par ${hole.par} <span>&nbsp;&middot;&nbsp;SI ${hole.si}</span></div>
-        ${(hole.desc || hole.img) ? `<button class="hole-info-btn" onclick="openHoleLayout()">Hole Info</button>` : ''}
+        ${(holeDesc || holeImg) ? `<button class="hole-info-btn" onclick="openHoleLayout()">Hole Info</button>` : ''}
       </div>
       <button class="nav-btn" onclick="gotoHole(${S.hole+1})" ${S.hole===lastHole?'disabled':''}>&#8250;</button>
     </div>
