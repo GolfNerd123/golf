@@ -481,6 +481,11 @@
     font-family: inherit; touch-action: manipulation;
   }
   .hd-img-btn:active { opacity: .75; }
+  .img-ck-badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    color: #1a4731; font-size: 12px; font-weight: 700;
+    background: #d8f3e3; border-radius: 8px; padding: 3px 8px; flex-shrink: 0;
+  }
   .has-img-dot {
     display: inline-block; width: 8px; height: 8px; border-radius: 50%;
     background: #52b788; margin-left: 5px; vertical-align: middle; flex-shrink: 0;
@@ -849,6 +854,7 @@
   .copy-btn.copied { background: #f0f7f4; border-color: var(--green-mid); color: var(--green-mid); }
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 </head>
 <body>
@@ -919,7 +925,8 @@ const _fbConfig = {
   appId: "1:374005827667:web:83a870bddf7b2f21fa5ea6"
 };
 firebase.initializeApp(_fbConfig);
-const _db = firebase.firestore();
+const _db      = firebase.firestore();
+const _storage = firebase.storage();
 _db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 
 let _rounds          = [];
@@ -1114,7 +1121,13 @@ function loadCourses() {
   try {
     const overrides = _courseOverrides;
     const presetIds = COURSES.map(c => c.id);
-    const merge = co => ({ ...co, imgs: loadCourseImgs(co.id, co.holes || 18) });
+    const merge = co => {
+      const n = co.holes || 18;
+      const fsImgs = co.imgs || [];           // Storage URLs from Firestore
+      const lsImgs = loadCourseImgs(co.id, n); // base64 fallback from localStorage
+      const imgs = Array.from({ length: n }, (_, i) => fsImgs[i] || lsImgs[i] || '');
+      return { ...co, imgs };
+    };
     const result = COURSES.map(c => merge(overrides.find(o => o.id === c.id) || c));
     overrides.filter(o => !presetIds.includes(o.id)).forEach(o => result.push(merge(o)));
     return result;
@@ -1126,10 +1139,12 @@ function _persistCoursesToFirestore() {
 function saveCourseData(course) {
   try {
     const { imgs, ...meta } = course;
+    // Only Storage URLs go to Firestore — never base64 blobs
+    meta.imgs = (imgs || []).map(img => (img && img.startsWith('http')) ? img : '');
     const i = _courseOverrides.findIndex(o => o.id === meta.id);
     if (i >= 0) _courseOverrides[i] = meta; else _courseOverrides.push(meta);
     try { localStorage.setItem(COURSES_KEY, JSON.stringify(_courseOverrides)); } catch {}
-    if (imgs) saveCourseImgs(meta.id, imgs);
+    if (imgs) saveCourseImgs(meta.id, imgs); // keep base64 in localStorage as local fallback
     _persistCoursesToFirestore();
   } catch (e) {
     alert('Could not save course — storage is full. Try removing unused courses.');
@@ -1603,13 +1618,12 @@ function renderCourses(c) {
         </div>
         <textarea class="hc-desc" id="ce-desc-${i}" rows="2" placeholder="Description (optional)…">${esc(desc)}</textarea>
         <div class="hd-img-row">
-          ${img
-            ? `<div class="hd-thumb-wrap">
-                 <img class="hd-thumb-lg" src="${img}" onclick="pickCeHoleImg(${i})" title="Tap to replace">
-                 <button class="hd-rm-btn" onclick="removeCeHoleImg(${i})">&#10005;</button>
-               </div>`
-            : `<button class="hd-img-btn" onclick="pickCeHoleImg(${i})">&#128247; Add Layout Image</button>`
-          }
+          <button class="hd-img-btn" onclick="pickCeHoleImg(${i})">&#128247; Add Layout Image</button>
+          ${img ? `<span class="img-ck-badge">&#10003; Uploaded</span>` : ''}
+          ${img ? `<div class="hd-thumb-wrap" style="margin-left:auto">
+                     <img class="hd-thumb" src="${img}">
+                     <button class="hd-rm-btn" onclick="removeCeHoleImg(${i})">&#10005;</button>
+                   </div>` : ''}
         </div>
       </div>`;
     }
@@ -2298,10 +2312,24 @@ function pickCeHoleImg(idx) {
       compressImage(re.result, compressed => {
         if (!S.ce.imgs) S.ce.imgs = Array(18).fill('');
         const i = _pendingCeImgIdx;
+        const courseId = S.ce.id;
+        // Show preview immediately with base64
         S.ce.imgs[i] = compressed;
-        // Persist immediately — don't wait for "Save Course"
-        try { localStorage.setItem(COURSE_IMG_PFX + S.ce.id + '_' + i, compressed); } catch {}
+        try { localStorage.setItem(COURSE_IMG_PFX + courseId + '_' + i, compressed); } catch {}
         renderCourses(document.getElementById('main'));
+        // Upload to Firebase Storage → get permanent URL → save to Firestore
+        const ref = _storage.ref('courseImages/' + courseId + '/' + i);
+        ref.putString(compressed, 'data_url')
+          .then(() => ref.getDownloadURL())
+          .then(url => {
+            S.ce.imgs[i] = url;
+            try { localStorage.setItem(COURSE_IMG_PFX + courseId + '_' + i, url); } catch {}
+            // Persist URL to Firestore immediately without waiting for "Save Course"
+            const co = loadCourses().find(c => c.id === courseId);
+            if (co) { co.imgs[i] = url; saveCourseData(co); }
+            renderCourses(document.getElementById('main'));
+          })
+          .catch(() => { /* Upload failed — base64 stays in localStorage as local fallback */ });
       });
     };
     reader.readAsDataURL(file);
@@ -2312,8 +2340,14 @@ function pickCeHoleImg(idx) {
 function removeCeHoleImg(idx) {
   saveCeInputs();
   if (!S.ce.imgs) S.ce.imgs = Array(18).fill('');
+  const courseId = S.ce.id;
+  const existing = S.ce.imgs[idx];
   S.ce.imgs[idx] = '';
-  localStorage.removeItem(COURSE_IMG_PFX + S.ce.id + '_' + idx);
+  localStorage.removeItem(COURSE_IMG_PFX + courseId + '_' + idx);
+  // Delete from Firebase Storage if it's a cloud URL
+  if (existing && existing.startsWith('http')) {
+    _storage.ref('courseImages/' + courseId + '/' + idx).delete().catch(() => {});
+  }
   renderCourses(document.getElementById('main'));
 }
 
