@@ -316,13 +316,20 @@
   .hole-list { display: flex; flex-direction: column; gap: 6px; }
   .hole-row {
     background: #fff; border: 1.5px solid var(--border); border-radius: 12px;
-    padding: 10px 14px; display: flex; align-items: center; gap: 14px;
+    padding: 10px 14px; display: flex; flex-direction: column; gap: 8px;
   }
+  .hole-row-top { display: flex; align-items: center; gap: 14px; }
   .hole-row-num {
     font-size: 15px; font-weight: 800; color: var(--green);
     min-width: 32px; text-align: center;
   }
   .hole-row-fields { display: flex; gap: 18px; flex: 1; }
+  .hc-desc {
+    width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 13px; font-family: inherit; color: var(--text); background: #f8f8f5;
+    resize: none; outline: none; box-sizing: border-box;
+  }
+  .hc-desc:focus { border-color: var(--green-mid); }
   .hole-row-field { display: flex; align-items: center; gap: 5px; }
   .hole-row-lbl { font-size: 11px; font-weight: 700; color: var(--muted); min-width: 18px; }
   .hc-input {
@@ -399,6 +406,66 @@
   .hole-num   { font-size: 38px; font-weight: 800; line-height: 1; }
   .hole-meta  { font-size: 12px; font-weight: 600; color: var(--green-pale); }
   .hole-meta span { font-size: 11px; font-weight: 400; opacity: .8; }
+  .hole-desc {
+    font-size: 12px; color: rgba(255,255,255,.72); margin-top: 3px;
+    padding: 0 4px; line-height: 1.4; max-width: 220px;
+    overflow: hidden; display: -webkit-box;
+    -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .hole-layout-btn {
+    margin-top: 6px; background: rgba(255,255,255,.15);
+    border: 1px solid rgba(255,255,255,.3); border-radius: 14px;
+    color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .3px;
+    padding: 4px 13px; cursor: pointer; font-family: inherit;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  }
+  .hole-layout-btn:active { background: rgba(255,255,255,.25); }
+
+  /* Layout image modal */
+  .layout-dim {
+    position: fixed; inset: 0; background: rgba(0,0,0,.85); z-index: 199;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px; touch-action: none;
+  }
+  .layout-card { background: #1a4731; border-radius: 22px; padding: 18px; width: 100%; max-width: 440px; }
+  .layout-title {
+    color: var(--green-pale); font-size: 12px; font-weight: 800;
+    letter-spacing: 1.5px; text-transform: uppercase; text-align: center; margin-bottom: 12px;
+  }
+  .layout-img { width: 100%; max-height: 340px; border-radius: 12px; object-fit: contain; background: #0d2b1e; display: block; }
+  .layout-close {
+    display: block; margin: 14px auto 0; background: rgba(255,255,255,.15);
+    border: none; border-radius: 20px; color: #fff; font-size: 14px; font-weight: 700;
+    padding: 9px 32px; cursor: pointer; font-family: inherit; touch-action: manipulation;
+  }
+
+  /* Hole details in new round */
+  .hd-list { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .hd-row { background: #fff; border-radius: 12px; padding: 12px 14px; border: 1px solid var(--border); }
+  .hd-num { font-size: 11px; font-weight: 700; color: var(--green); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .hd-desc {
+    width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px;
+    font-size: 14px; font-family: inherit; color: var(--text); background: #f8f8f5;
+    resize: none; outline: none; min-height: 52px; box-sizing: border-box;
+  }
+  .hd-desc:focus { border-color: var(--green-mid); }
+  .hd-img-row { margin-top: 8px; display: flex; align-items: center; gap: 10px; }
+  .hd-img-btn {
+    display: flex; align-items: center; gap: 5px; padding: 7px 13px;
+    background: #f0f7f4; border: 1px dashed #74b89a; border-radius: 10px;
+    cursor: pointer; font-size: 12px; font-weight: 600; color: var(--green);
+    font-family: inherit; touch-action: manipulation;
+  }
+  .hd-img-btn:active { opacity: .75; }
+  .hd-thumb-wrap { position: relative; }
+  .hd-thumb { width: 80px; height: 56px; border-radius: 8px; object-fit: cover; display: block; }
+  .hd-rm-btn {
+    position: absolute; top: -6px; right: -6px; width: 18px; height: 18px;
+    border-radius: 50%; background: #c84b11; border: none; color: #fff;
+    font-size: 10px; font-weight: 700; cursor: pointer; display: flex;
+    align-items: center; justify-content: center; padding: 0; line-height: 1;
+    touch-action: manipulation;
+  }
 
   .dots-row {
     background: var(--green);
@@ -932,6 +999,7 @@ const S = {
   ce: null,
   summaryPlayer: null,
   numpadPid: null,
+  showLayout: false,
 
   nr: {
     holes: 18,
@@ -940,6 +1008,8 @@ const S = {
     courseRating: '',
     slopeRating:  '113',
     showHoleSettings: false,
+    showHoleDetails: false,
+    holeDetails: Array.from({ length: 18 }, () => ({ desc: '', img: '' })),
     selPids: [],
     guests: [{ name:'', hcp:'' }, { name:'', hcp:'' },
              { name:'', hcp:'' }, { name:'', hcp:'' }],
@@ -1457,21 +1527,35 @@ function renderCourses(c) {
     const totalPar = frontPar + backPar;
 
     function holeRow(i) {
+      const desc = ce.descriptions?.[i] || '';
+      const img  = ce.imgs?.[i] || '';
       return `<div class="hole-row">
-        <div class="hole-row-num">H${i+1}</div>
-        <div class="hole-row-fields">
-          <div class="hole-row-field">
-            <span class="hole-row-lbl">Par</span>
-            <button class="hc-btn" onclick="adjCeHole('par',${i},-1)">&#8722;</button>
-            <input type="number" class="hc-input" id="ce-par-${i}" value="${ce.pars[i]}" min="3" max="6">
-            <button class="hc-btn" onclick="adjCeHole('par',${i},1)">+</button>
+        <div class="hole-row-top">
+          <div class="hole-row-num">H${i+1}</div>
+          <div class="hole-row-fields">
+            <div class="hole-row-field">
+              <span class="hole-row-lbl">Par</span>
+              <button class="hc-btn" onclick="adjCeHole('par',${i},-1)">&#8722;</button>
+              <input type="number" class="hc-input" id="ce-par-${i}" value="${ce.pars[i]}" min="3" max="6">
+              <button class="hc-btn" onclick="adjCeHole('par',${i},1)">+</button>
+            </div>
+            <div class="hole-row-field">
+              <span class="hole-row-lbl">SI</span>
+              <button class="hc-btn" onclick="adjCeHole('si',${i},-1)">&#8722;</button>
+              <input type="number" class="hc-input" id="ce-si-${i}" value="${ce.si[i]}" min="1" max="${ce.holes}">
+              <button class="hc-btn" onclick="adjCeHole('si',${i},1)">+</button>
+            </div>
           </div>
-          <div class="hole-row-field">
-            <span class="hole-row-lbl">SI</span>
-            <button class="hc-btn" onclick="adjCeHole('si',${i},-1)">&#8722;</button>
-            <input type="number" class="hc-input" id="ce-si-${i}" value="${ce.si[i]}" min="1" max="${ce.holes}">
-            <button class="hc-btn" onclick="adjCeHole('si',${i},1)">+</button>
-          </div>
+        </div>
+        <textarea class="hc-desc" id="ce-desc-${i}" rows="2" placeholder="Description (optional)…">${esc(desc)}</textarea>
+        <div class="hd-img-row">
+          ${img
+            ? `<div class="hd-thumb-wrap">
+                 <img class="hd-thumb" src="${img}">
+                 <button class="hd-rm-btn" onclick="removeCeHoleImg(${i})">&#10005;</button>
+               </div>`
+            : `<button class="hd-img-btn" onclick="pickCeHoleImg(${i})">&#9971; Add Layout Image</button>`
+          }
         </div>
       </div>`;
     }
@@ -1579,7 +1663,8 @@ function newCourse() {
   S.courseEdit = 'new';
   S.ce = { id: 'cc'+Date.now(), name:'', club:'', holes:18,
             courseRating:'', slopeRating:'113',
-            pars:[...DEFAULT_PARS_18], si:[...DEFAULT_SI_18] };
+            pars:[...DEFAULT_PARS_18], si:[...DEFAULT_SI_18],
+            descriptions: Array(18).fill(''), imgs: Array(18).fill('') };
   renderCourses(document.getElementById('main'));
 }
 
@@ -1587,7 +1672,9 @@ function editCourse(id) {
   const co = loadCourses().find(c => c.id === id);
   if (!co) return;
   S.courseEdit = id;
-  S.ce = { ...co, pars:[...co.pars], si:[...co.si] };
+  S.ce = { ...co, pars:[...co.pars], si:[...co.si],
+            descriptions:[...(co.descriptions || Array(18).fill(''))],
+            imgs:[...(co.imgs || Array(18).fill(''))] };
   renderCourses(document.getElementById('main'));
 }
 
@@ -1628,11 +1715,15 @@ function saveCeInputs() {
   if (rating !== undefined) S.ce.courseRating = rating;
   const slope  = document.getElementById('ce-slope')?.value;
   if (slope !== undefined) S.ce.slopeRating = slope;
+  if (!S.ce.descriptions) S.ce.descriptions = Array(18).fill('');
+  if (!S.ce.imgs)         S.ce.imgs         = Array(18).fill('');
   for (let i = 0; i < S.ce.holes; i++) {
-    const parEl = document.getElementById(`ce-par-${i}`);
-    if (parEl) { const v = parseInt(parEl.value); if (v >= 3 && v <= 6) S.ce.pars[i] = v; }
-    const siEl  = document.getElementById(`ce-si-${i}`);
-    if (siEl)  { const v = parseInt(siEl.value);  if (v >= 1 && v <= 18) S.ce.si[i] = v; }
+    const parEl  = document.getElementById(`ce-par-${i}`);
+    if (parEl)  { const v = parseInt(parEl.value);  if (v >= 3 && v <= 6)           S.ce.pars[i]          = v; }
+    const siEl   = document.getElementById(`ce-si-${i}`);
+    if (siEl)   { const v = parseInt(siEl.value);   if (v >= 1 && v <= 18)          S.ce.si[i]            = v; }
+    const descEl = document.getElementById(`ce-desc-${i}`);
+    if (descEl) S.ce.descriptions[i] = descEl.value;
   }
 }
 
@@ -1640,17 +1731,32 @@ function submitCourse() {
   saveCeInputs();
   const name = S.ce.name;
   if (!name) { alert('Please enter a course name.'); return; }
+  const nh = S.ce.holes;
   const course = {
     id:           S.ce.id,
     name,
     club:         S.ce.club,
-    holes:        S.ce.holes,
+    holes:        nh,
     courseRating: S.ce.courseRating !== '' ? parseFloat(S.ce.courseRating) : null,
     slopeRating:  S.ce.slopeRating  !== '' ? parseInt(S.ce.slopeRating)   : 113,
-    pars:         [...S.ce.pars.slice(0, S.ce.holes)],
-    si:           [...S.ce.si.slice(0, S.ce.holes)],
+    pars:         [...S.ce.pars.slice(0, nh)],
+    si:           [...S.ce.si.slice(0, nh)],
+    descriptions: [...(S.ce.descriptions || []).slice(0, nh)],
+    imgs:         [...(S.ce.imgs         || []).slice(0, nh)],
   };
   saveCourseData(course);
+  // If this course is currently selected in New Round, refresh it so pars show immediately
+  if (S.nr.courseId === course.id) {
+    S.nr.pars  = [...course.pars];
+    S.nr.si    = [...course.si];
+    S.nr._course = course.name;
+    S.nr._rating = String(course.courseRating || '');
+    S.nr._slope  = String(course.slopeRating  || '');
+    S.nr.holeDetails = Array.from({ length: 18 }, (_, i) => ({
+      desc: course.descriptions[i] || '',
+      img:  course.imgs[i]         || '',
+    }));
+  }
   S.courseEdit = null; S.ce = null;
   renderCourses(document.getElementById('main'));
 }
@@ -1999,6 +2105,27 @@ function renderNewRound(c) {
     </div>
     ${holeTbl}
 
+    <div class="section-toggle" onclick="toggleHoleDetails()">
+      <span>Hole Details (Description &amp; Layout)</span>
+      <span class="toggle-badge">${nr.holeDetails.filter(d => d.desc || d.img).length || 'Optional'}</span>
+    </div>
+    ${nr.showHoleDetails ? `<div class="hd-list">
+      ${nr.holeDetails.slice(0, nr.holes).map((d, i) => `
+        <div class="hd-row">
+          <div class="hd-num">Hole ${(nr.nineStart || 1) + i}</div>
+          <textarea class="hd-desc" id="hd-desc-${i}" rows="2" placeholder="Add a description…">${d.desc}</textarea>
+          <div class="hd-img-row">
+            ${d.img
+              ? `<div class="hd-thumb-wrap">
+                   <img class="hd-thumb" src="${d.img}">
+                   <button class="hd-rm-btn" onclick="removeHoleImg(${i})">✕</button>
+                 </div>`
+              : `<button class="hd-img-btn" onclick="pickHoleImg(${i})">⛳ Add Layout Image</button>`
+            }
+          </div>
+        </div>`).join('')}
+    </div>` : ''}
+
     <button class="btn btn-green" style="margin-top:24px" onclick="startRound()">Start Round</button>
   </div>`;
 }
@@ -2012,6 +2139,10 @@ function preserveNrInputs() {
   S.nr.guests  = Array.from({ length: 4 }, (_, i) => ({
     name: i < remain ? (document.getElementById(`ng-n${i}`)?.value || '') : '',
     hcp:  i < remain ? (document.getElementById(`ng-h${i}`)?.value || '') : '',
+  }));
+  S.nr.holeDetails = S.nr.holeDetails.map((d, i) => ({
+    desc: document.getElementById(`hd-desc-${i}`)?.value ?? d.desc,
+    img:  d.img,
   }));
 }
 
@@ -2034,6 +2165,10 @@ function setCourse(id) {
       S.nr._course = co.name;
       S.nr._rating = String(co.courseRating);
       S.nr._slope  = String(co.slopeRating);
+      S.nr.holeDetails = Array.from({ length: 18 }, (_, i) => ({
+        desc: (co.descriptions && co.descriptions[i]) || '',
+        img:  (co.imgs         && co.imgs[i])         || '',
+      }));
     }
   }
   render();
@@ -2095,6 +2230,76 @@ function toggleHoleSettings() {
   render();
 }
 
+function toggleHoleDetails() {
+  preserveNrInputs();
+  S.nr.showHoleDetails = !S.nr.showHoleDetails;
+  render();
+}
+
+let _pendingImgIdx = null;
+function pickHoleImg(idx) {
+  preserveNrInputs();
+  _pendingImgIdx = idx;
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/*';
+  inp.onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = re => {
+      S.nr.holeDetails[_pendingImgIdx].img = re.result;
+      render();
+    };
+    reader.readAsDataURL(file);
+  };
+  inp.click();
+}
+
+function removeHoleImg(idx) {
+  preserveNrInputs();
+  S.nr.holeDetails[idx].img = '';
+  render();
+}
+
+let _pendingCeImgIdx = null;
+function pickCeHoleImg(idx) {
+  saveCeInputs();
+  _pendingCeImgIdx = idx;
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/*';
+  inp.onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = re => {
+      if (!S.ce.imgs) S.ce.imgs = Array(18).fill('');
+      S.ce.imgs[_pendingCeImgIdx] = re.result;
+      renderCourses(document.getElementById('main'));
+    };
+    reader.readAsDataURL(file);
+  };
+  inp.click();
+}
+
+function removeCeHoleImg(idx) {
+  saveCeInputs();
+  if (!S.ce.imgs) S.ce.imgs = Array(18).fill('');
+  S.ce.imgs[idx] = '';
+  renderCourses(document.getElementById('main'));
+}
+
+function openHoleLayout() {
+  S.showLayout = true;
+  render();
+}
+
+function closeHoleLayout() {
+  S.showLayout = false;
+  render();
+}
+
 function adjHole(type, idx, delta) {
   preserveNrInputs();
   if (type === 'par') {
@@ -2146,7 +2351,10 @@ function startRound() {
 
   const nh        = S.nr.holes;
   const nineStart = S.nr.nineStart || 1;
-  const holes = S.nr.pars.slice(0, nh).map((par, i) => ({ n: nineStart + i, par, si: S.nr.si[i] }));
+  const holes = S.nr.pars.slice(0, nh).map((par, i) => {
+    const d = S.nr.holeDetails[i] || {};
+    return { n: nineStart + i, par, si: S.nr.si[i], desc: d.desc || '', img: d.img || '' };
+  });
   const scores = {};
   for (const p of players) scores[p.id] = {};
 
@@ -2168,6 +2376,7 @@ function startRound() {
   saveRound(round);
   S.nr = { holes:18, pars:[...DEFAULT_PARS_18], si:[...DEFAULT_SI_18],
            courseRating:'', slopeRating:'113', showHoleSettings:false,
+           showHoleDetails:false, holeDetails:Array.from({length:18},()=>({desc:'',img:''})),
            selPids:[], guests:[{name:'',hcp:''},{name:'',hcp:''},{name:'',hcp:''},{name:'',hcp:''}],
            format:'stroke', courseId:null, nineStart:1 };
   nav('scorecard', { roundId: round.id, hole: 1 });
@@ -2334,6 +2543,16 @@ function renderScorecard(c) {
     </div>` : '';
 
   const isCompact = round.players.length >= 3;
+
+  const layoutModal = S.showLayout && hole.img ? `
+    <div class="layout-dim" onclick="closeHoleLayout()">
+      <div class="layout-card" onclick="event.stopPropagation()">
+        <div class="layout-title">Hole ${S.hole} &mdash; Layout</div>
+        <img class="layout-img" src="${hole.img}">
+        <button class="layout-close" onclick="closeHoleLayout()">Close</button>
+      </div>
+    </div>` : '';
+
   c.innerHTML = `<div id="view-scorecard"${isCompact ? ' class="compact"' : ''}>
     <div class="hole-hdr">
       <button class="nav-btn" onclick="gotoHole(${S.hole-1})" ${S.hole===firstHole?'disabled':''}>&#8249;</button>
@@ -2341,6 +2560,8 @@ function renderScorecard(c) {
         <div class="hole-lbl">HOLE</div>
         <div class="hole-num">${S.hole}</div>
         <div class="hole-meta">Par ${hole.par} <span>&nbsp;&middot;&nbsp;SI ${hole.si}</span></div>
+        ${hole.desc ? `<div class="hole-desc">${esc(hole.desc)}</div>` : ''}
+        ${hole.img  ? `<button class="hole-layout-btn" onclick="openHoleLayout()">View Layout ⛳</button>` : ''}
       </div>
       <button class="nav-btn" onclick="gotoHole(${S.hole+1})" ${S.hole===lastHole?'disabled':''}>&#8250;</button>
     </div>
@@ -2356,6 +2577,7 @@ function renderScorecard(c) {
     ${wolfResult}
     <div class="sc-footer">${foot}</div>
     ${numpad}
+    ${layoutModal}
   </div>`;
 }
 
@@ -2363,6 +2585,7 @@ function gotoHole(n) {
   const round = byId(S.roundId);
   if (!round || n < 1 || n > round.holes.length) return;
   S.hole = n;
+  S.showLayout = false;
   renderScorecard(document.getElementById('main'));
 }
 
