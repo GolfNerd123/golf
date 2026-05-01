@@ -15,14 +15,14 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  // Network-first: always try the network, update cache, fall back to cache if offline
   e.respondWith(
-    caches.match(e.request).then(cached => {
-      if (cached) return cached;
-      return fetch(e.request).then(res => {
+    fetch(e.request)
+      .then(res => {
         const clone = res.clone();
         caches.open(CACHE).then(c => c.put(e.request, clone));
         return res;
-      }).catch(() => caches.match('./index.html'));
-    })
+      })
+      .catch(() => caches.match(e.request).then(r => r || caches.match('./index.html')))
   );
 });
