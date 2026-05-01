@@ -268,6 +268,15 @@
   .psel-info { flex: 1; min-width: 0; }
   .psel-name { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .psel-hcp  { font-size: 11px; color: var(--muted); }
+  .psel-ch   { display: flex; flex-direction: column; align-items: center; gap: 2px; flex-shrink: 0; }
+  .psel-ch-lbl { font-size: 9px; font-weight: 700; color: var(--green); text-transform: uppercase; letter-spacing: 0.5px; }
+  .psel-ch-inp {
+    width: 46px; padding: 5px 4px; text-align: center;
+    border: 1.5px solid var(--border); border-radius: 8px;
+    font-size: 14px; font-weight: 700; background: #fff; color: var(--text);
+    -webkit-appearance: none; outline: none; font-family: inherit;
+  }
+  .psel-ch-inp:focus { border-color: var(--green-mid); }
 
   .guest-row { display: flex; gap: 8px; margin-bottom: 8px; }
   .guest-row .input { flex: 1; }
@@ -789,12 +798,6 @@
     padding: 16px; margin-bottom: 16px;
   }
   .course-edit-title { font-size: 14px; font-weight: 700; color: var(--green); margin-bottom: 14px; }
-  .modified-tag {
-    display: inline-block; font-size: 10px; font-weight: 700; background: #fff4e6;
-    color: #e67e22; border: 1px solid #ffd399; border-radius: 5px;
-    padding: 2px 6px; margin-left: 8px; vertical-align: middle;
-  }
-
   /* Stroke-index badge on player cards */
   .stroke-badge {
     display: inline-block; font-size: 9px; font-weight: 800;
@@ -899,9 +902,10 @@ const DEFAULT_PARS_18 = [4,4,3,4,5,3,4,4,5,4,3,4,5,4,3,4,5,4];
 const DEFAULT_PARS_9  = [4,4,3,4,5,3,4,4,5];
 const DEFAULT_SI_18   = [1,9,17,11,3,13,7,5,15,10,18,14,2,12,16,4,6,8];
 const DEFAULT_SI_9    = [1,9,17,11,3,13,7,5,15];
-const ROUNDS_KEY  = 'golf_rounds_v2';
-const PLAYERS_KEY = 'golf_players_v1';
-const COURSES_KEY = 'golf_courses_v1';
+const ROUNDS_KEY      = 'golf_rounds_v2';
+const PLAYERS_KEY     = 'golf_players_v1';
+const COURSES_KEY     = 'golf_courses_v1';
+const COURSE_IMG_PFX  = 'golf_img_v1_';
 
 // ═══════════════════════════════════════════
 // FIREBASE
@@ -1037,6 +1041,7 @@ const S = {
     format:   'stroke',
     courseId: null,
     nineStart: 1,   // 1 = front 9, 10 = back 9
+    chcp: {},       // per-player course handicap override: { [profileId]: '12' }
   },
 };
 
@@ -1084,38 +1089,66 @@ function deletePlayer(id) { persistPlayers(loadPlayers().filter(p => p.id !== id
 // ═══════════════════════════════════════════
 // STORAGE — COURSES
 // ═══════════════════════════════════════════
+function saveCourseImgs(courseId, imgs) {
+  for (let i = 0; i < imgs.length; i++) {
+    const key = COURSE_IMG_PFX + courseId + '_' + i;
+    if (imgs[i]) {
+      try { localStorage.setItem(key, imgs[i]); } catch {}
+    } else {
+      localStorage.removeItem(key);
+    }
+  }
+}
+function loadCourseImgs(courseId, n) {
+  const imgs = [];
+  for (let i = 0; i < n; i++) {
+    imgs.push(localStorage.getItem(COURSE_IMG_PFX + courseId + '_' + i) || '');
+  }
+  return imgs;
+}
+function deleteCourseImgs(courseId) {
+  for (let i = 0; i < 18; i++) localStorage.removeItem(COURSE_IMG_PFX + courseId + '_' + i);
+}
 function loadCourses() {
   try {
     const overrides = JSON.parse(localStorage.getItem(COURSES_KEY) || '[]');
+    // Migrate: if a course in the JSON still has imgs[] embedded, move them to separate keys
+    let dirty = false;
+    for (const o of overrides) {
+      if (o.imgs && o.imgs.some(Boolean)) {
+        saveCourseImgs(o.id, o.imgs);
+        delete o.imgs;
+        dirty = true;
+      }
+    }
+    if (dirty) try { localStorage.setItem(COURSES_KEY, JSON.stringify(overrides)); } catch {}
     const presetIds = COURSES.map(c => c.id);
-    const result = COURSES.map(c => overrides.find(o => o.id === c.id) || c);
-    overrides.filter(o => !presetIds.includes(o.id)).forEach(o => result.push(o));
+    const merge = co => ({ ...co, imgs: loadCourseImgs(co.id, co.holes || 18) });
+    const result = COURSES.map(c => merge(overrides.find(o => o.id === c.id) || c));
+    overrides.filter(o => !presetIds.includes(o.id)).forEach(o => result.push(merge(o)));
     return result;
   } catch { return [...COURSES]; }
 }
 function saveCourseData(course) {
   try {
+    const { imgs, ...meta } = course;
     const overrides = JSON.parse(localStorage.getItem(COURSES_KEY) || '[]');
-    const i = overrides.findIndex(o => o.id === course.id);
-    if (i >= 0) overrides[i] = course; else overrides.push(course);
+    const i = overrides.findIndex(o => o.id === meta.id);
+    if (i >= 0) overrides[i] = meta; else overrides.push(meta);
     localStorage.setItem(COURSES_KEY, JSON.stringify(overrides));
+    if (imgs) saveCourseImgs(meta.id, imgs);
   } catch (e) {
-    alert('Could not save course — storage is full. Try removing unused courses or images.');
+    alert('Could not save course — storage is full. Try removing unused courses.');
   }
 }
 function deleteCourseData(id) {
   try {
     const overrides = JSON.parse(localStorage.getItem(COURSES_KEY) || '[]');
     localStorage.setItem(COURSES_KEY, JSON.stringify(overrides.filter(o => o.id !== id)));
+    deleteCourseImgs(id);
   } catch {}
 }
 function isPresetCourse(id) { return COURSES.some(c => c.id === id); }
-function isModifiedPreset(id) {
-  try {
-    const overrides = JSON.parse(localStorage.getItem(COURSES_KEY) || '[]');
-    return isPresetCourse(id) && overrides.some(o => o.id === id);
-  } catch { return false; }
-}
 
 // ═══════════════════════════════════════════
 // SCORING HELPERS
@@ -1650,16 +1683,12 @@ function renderCourses(c) {
           <button class="btn btn-green" style="flex:2" onclick="submitCourse()">Save Course</button>
           <button class="btn btn-outline" style="flex:1;padding:15px 8px" onclick="cancelCourseEdit()">Cancel</button>
         </div>
-        ${!isNew && isPresetCourse(ce.id) ? `
-          <button class="btn btn-outline" style="margin-top:8px;color:#c84b11;border-color:#c84b11"
-            onclick="resetCourse('${ce.id}')">Reset to Default</button>` : ''}
       </div>
     </div>`;
     return;
   }
 
   const list = courses.map(co => {
-    const modified = isModifiedPreset(co.id);
     const isCustom = !isPresetCourse(co.id);
     const parTot   = co.pars.reduce((a,b)=>a+b,0);
     const crInfo   = co.courseRating ? `CR ${co.courseRating}` : '';
@@ -1668,7 +1697,7 @@ function renderCourses(c) {
     return `<div class="course-item">
       <div class="course-item-top">
         <div class="course-item-info">
-          <div class="course-item-name">${esc(co.name)}${modified?'<span class="modified-tag">edited</span>':''}</div>
+          <div class="course-item-name">${esc(co.name)}</div>
           <div class="course-item-meta">${esc(meta)}</div>
         </div>
         <div class="course-item-actions">
@@ -1787,14 +1816,6 @@ function confirmDeleteCourse(id) {
   const co = loadCourses().find(c => c.id === id);
   if (co && confirm(`Delete "${co.name}"?`)) {
     deleteCourseData(id);
-    renderCourses(document.getElementById('main'));
-  }
-}
-
-function resetCourse(id) {
-  if (confirm('Reset this course to its default data?')) {
-    deleteCourseData(id);
-    S.courseEdit = null; S.ce = null;
     renderCourses(document.getElementById('main'));
   }
 }
@@ -1929,13 +1950,23 @@ function renderNewRound(c) {
         const isSel = nr.selPids.includes(p.id);
         const dim   = !isSel && totalSel >= 4;
         const hcpTxt = p.handicapIndex != null ? `HCP ${p.handicapIndex}` : 'No HCP';
-        return `<button class="psel-item${isSel?' sel':''}${dim?' dim':''}" onclick="toggleSelPlayer('${p.id}')">
+        const safeId = p.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const chVal  = nr.chcp?.[p.id] ?? '';
+        const chInput = isSel
+          ? `<div class="psel-ch" onclick="event.stopPropagation()">
+               <span class="psel-ch-lbl">CH</span>
+               <input class="psel-ch-inp" type="number" id="nr-ch-${safeId}"
+                 placeholder="—" min="0" max="72" step="1" value="${esc(String(chVal))}">
+             </div>`
+          : '';
+        return `<div class="psel-item${isSel?' sel':''}${dim?' dim':''}" onclick="toggleSelPlayer('${p.id}')">
           <div class="psel-chk">${isSel ? '&#10003;' : ''}</div>
           <div class="psel-info">
             <div class="psel-name">${esc(p.name)}</div>
             <div class="psel-hcp">${hcpTxt}</div>
           </div>
-        </button>`;
+          ${chInput}
+        </div>`;
       }).join('')}</div>`
     : `<p style="font-size:13px;color:var(--muted);margin-bottom:8px">
         No saved players. <button class="link-btn" onclick="nav('players')">Add players &#8594;</button>
@@ -1945,7 +1976,10 @@ function renderNewRound(c) {
   const guestRows = Array.from({ length: remaining }, (_, i) =>
     `<div class="guest-row">
       <input class="input" id="ng-n${i}" placeholder="Guest name" autocomplete="off" value="${esc(nr.guests[i]?.name||'')}">
-      <input class="input hcp" id="ng-h${i}" type="number" placeholder="HCP" step="0.1" min="0" max="54" value="${nr.guests[i]?.hcp||''}">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex-shrink:0">
+        <span style="font-size:9px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:0.5px">CH</span>
+        <input class="input hcp" id="ng-h${i}" type="number" placeholder="—" step="1" min="0" max="72" value="${nr.guests[i]?.hcp||''}">
+      </div>
     </div>`
   ).join('');
 
@@ -2141,6 +2175,12 @@ function preserveNrInputs() {
     name: i < remain ? (document.getElementById(`ng-n${i}`)?.value || '') : '',
     hcp:  i < remain ? (document.getElementById(`ng-h${i}`)?.value || '') : '',
   }));
+  if (!S.nr.chcp) S.nr.chcp = {};
+  for (const pid of S.nr.selPids) {
+    const safeId = pid.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const el = document.getElementById('nr-ch-' + safeId);
+    if (el) S.nr.chcp[pid] = el.value;
+  }
 }
 
 function restoreNrInputs() {
@@ -2312,17 +2352,25 @@ function startRound() {
           pl.gender   = p.gender;
         }
       }
+      // Manual CH override from the new-round form takes precedence
+      const safeId = p.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const chEl  = document.getElementById('nr-ch-' + safeId);
+      const chVal = chEl?.value?.trim();
+      if (chVal !== undefined && chVal !== '' && !isNaN(chVal)) {
+        pl.courseHcpOverride = parseInt(chVal, 10);
+        delete pl.teeLabel;
+      }
       return pl;
     });
 
   const remain  = 4 - selPl.length;
   const guestPl = S.nr.guests.slice(0, remain)
     .filter(g => g.name.trim())
-    .map((g, i) => ({
-      id: 'rg' + Date.now() + i,
-      name: g.name.trim(),
-      handicapIndex: g.hcp !== '' && !isNaN(g.hcp) ? parseFloat(g.hcp) : null,
-    }));
+    .map((g, i) => {
+      const pl = { id: 'rg' + Date.now() + i, name: g.name.trim() };
+      if (g.hcp !== '' && !isNaN(g.hcp)) pl.courseHcpOverride = parseInt(g.hcp, 10);
+      return pl;
+    });
 
   const players = [...selPl, ...guestPl];
   if (!players.length) { alert('Please select or add at least one player.'); return; }
@@ -2356,7 +2404,7 @@ function startRound() {
   S.nr = { holes:18, pars:[...DEFAULT_PARS_18], si:[...DEFAULT_SI_18],
            courseRating:'', slopeRating:'113', showHoleSettings:false,
            selPids:[], guests:[{name:'',hcp:''},{name:'',hcp:''},{name:'',hcp:''},{name:'',hcp:''}],
-           format:'stroke', courseId:null, nineStart:1 };
+           format:'stroke', courseId:null, nineStart:1, chcp:{} };
   nav('scorecard', { roundId: round.id, hole: 1 });
 }
 
