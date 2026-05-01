@@ -427,17 +427,32 @@
     display: flex; align-items: center; justify-content: center;
     padding: 24px; touch-action: none;
   }
-  .layout-card { background: #1a4731; border-radius: 22px; padding: 18px; width: 100%; max-width: 440px; }
+  .layout-card {
+    background: #1a4731; border-radius: 22px; padding: 20px; width: 100%; max-width: 440px;
+    max-height: 80vh; display: flex; flex-direction: column; gap: 14px; overflow: hidden;
+  }
   .layout-title {
     color: var(--green-pale); font-size: 12px; font-weight: 800;
-    letter-spacing: 1.5px; text-transform: uppercase; text-align: center; margin-bottom: 12px;
+    letter-spacing: 1.5px; text-transform: uppercase; text-align: center; flex-shrink: 0;
   }
-  .layout-img { width: 100%; max-height: 340px; border-radius: 12px; object-fit: contain; background: #0d2b1e; display: block; }
+  .layout-desc {
+    color: rgba(255,255,255,.88); font-size: 14px; line-height: 1.55;
+    overflow-y: auto; flex-shrink: 1; white-space: pre-wrap;
+  }
+  .layout-img { width: 100%; max-height: 300px; border-radius: 12px; object-fit: contain; background: #0d2b1e; display: block; flex-shrink: 0; }
   .layout-close {
-    display: block; margin: 14px auto 0; background: rgba(255,255,255,.15);
+    display: block; flex-shrink: 0; background: rgba(255,255,255,.15);
     border: none; border-radius: 20px; color: #fff; font-size: 14px; font-weight: 700;
-    padding: 9px 32px; cursor: pointer; font-family: inherit; touch-action: manipulation;
+    padding: 9px 32px; cursor: pointer; font-family: inherit; touch-action: manipulation; width: 100%;
   }
+  .hole-info-btn {
+    margin-top: 7px; background: rgba(255,255,255,.15);
+    border: 1px solid rgba(255,255,255,.3); border-radius: 14px;
+    color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .3px;
+    padding: 4px 13px; cursor: pointer; font-family: inherit;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  }
+  .hole-info-btn:active { background: rgba(255,255,255,.25); }
 
   /* Hole details in new round */
   .hd-list { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
@@ -2544,11 +2559,12 @@ function renderScorecard(c) {
 
   const isCompact = round.players.length >= 3;
 
-  const layoutModal = S.showLayout && hole.img ? `
+  const layoutModal = S.showLayout && (hole.desc || hole.img) ? `
     <div class="layout-dim" onclick="closeHoleLayout()">
       <div class="layout-card" onclick="event.stopPropagation()">
-        <div class="layout-title">Hole ${S.hole} &mdash; Layout</div>
-        <img class="layout-img" src="${hole.img}">
+        <div class="layout-title">Hole ${S.hole} &mdash; Par ${hole.par}</div>
+        ${hole.desc ? `<div class="layout-desc">${esc(hole.desc)}</div>` : ''}
+        ${hole.img  ? `<img class="layout-img" src="${hole.img}">` : ''}
         <button class="layout-close" onclick="closeHoleLayout()">Close</button>
       </div>
     </div>` : '';
@@ -2560,8 +2576,7 @@ function renderScorecard(c) {
         <div class="hole-lbl">HOLE</div>
         <div class="hole-num">${S.hole}</div>
         <div class="hole-meta">Par ${hole.par} <span>&nbsp;&middot;&nbsp;SI ${hole.si}</span></div>
-        ${hole.desc ? `<div class="hole-desc">${esc(hole.desc)}</div>` : ''}
-        ${hole.img  ? `<button class="hole-layout-btn" onclick="openHoleLayout()">View Layout ⛳</button>` : ''}
+        ${(hole.desc || hole.img) ? `<button class="hole-info-btn" onclick="openHoleLayout()">Hole Info</button>` : ''}
       </div>
       <button class="nav-btn" onclick="gotoHole(${S.hole+1})" ${S.hole===lastHole?'disabled':''}>&#8250;</button>
     </div>
