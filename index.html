@@ -1031,8 +1031,6 @@ const S = {
     courseRating: '',
     slopeRating:  '113',
     showHoleSettings: false,
-    showHoleDetails: false,
-    holeDetails: Array.from({ length: 18 }, () => ({ desc: '', img: '' })),
     selPids: [],
     guests: [{ name:'', hcp:'' }, { name:'', hcp:'' },
              { name:'', hcp:'' }, { name:'', hcp:'' }],
@@ -1780,10 +1778,6 @@ function submitCourse() {
     S.nr._course = course.name;
     S.nr._rating = String(course.courseRating || '');
     S.nr._slope  = String(course.slopeRating  || '');
-    S.nr.holeDetails = Array.from({ length: 18 }, (_, i) => ({
-      desc: course.descriptions[i] || '',
-      img:  course.imgs[i]         || '',
-    }));
   }
   S.courseEdit = null; S.ce = null;
   renderCourses(document.getElementById('main'));
@@ -2133,27 +2127,6 @@ function renderNewRound(c) {
     </div>
     ${holeTbl}
 
-    <div class="section-toggle" onclick="toggleHoleDetails()">
-      <span>Hole Details (Description &amp; Layout)</span>
-      <span class="toggle-badge">${nr.holeDetails.filter(d => d.desc || d.img).length || 'Optional'}</span>
-    </div>
-    ${nr.showHoleDetails ? `<div class="hd-list">
-      ${nr.holeDetails.slice(0, nr.holes).map((d, i) => `
-        <div class="hd-row">
-          <div class="hd-num">Hole ${(nr.nineStart || 1) + i}</div>
-          <textarea class="hd-desc" id="hd-desc-${i}" rows="2" placeholder="Add a description…">${d.desc}</textarea>
-          <div class="hd-img-row">
-            ${d.img
-              ? `<div class="hd-thumb-wrap">
-                   <img class="hd-thumb" src="${d.img}">
-                   <button class="hd-rm-btn" onclick="removeHoleImg(${i})">✕</button>
-                 </div>`
-              : `<button class="hd-img-btn" onclick="pickHoleImg(${i})">⛳ Add Layout Image</button>`
-            }
-          </div>
-        </div>`).join('')}
-    </div>` : ''}
-
     <button class="btn btn-green" style="margin-top:24px" onclick="startRound()">Start Round</button>
   </div>`;
 }
@@ -2167,10 +2140,6 @@ function preserveNrInputs() {
   S.nr.guests  = Array.from({ length: 4 }, (_, i) => ({
     name: i < remain ? (document.getElementById(`ng-n${i}`)?.value || '') : '',
     hcp:  i < remain ? (document.getElementById(`ng-h${i}`)?.value || '') : '',
-  }));
-  S.nr.holeDetails = S.nr.holeDetails.map((d, i) => ({
-    desc: document.getElementById(`hd-desc-${i}`)?.value ?? d.desc,
-    img:  d.img,
   }));
 }
 
@@ -2193,10 +2162,6 @@ function setCourse(id) {
       S.nr._course = co.name;
       S.nr._rating = String(co.courseRating);
       S.nr._slope  = String(co.slopeRating);
-      S.nr.holeDetails = Array.from({ length: 18 }, (_, i) => ({
-        desc: (co.descriptions && co.descriptions[i]) || '',
-        img:  (co.imgs         && co.imgs[i])         || '',
-      }));
     }
   }
   render();
@@ -2258,12 +2223,6 @@ function toggleHoleSettings() {
   render();
 }
 
-function toggleHoleDetails() {
-  preserveNrInputs();
-  S.nr.showHoleDetails = !S.nr.showHoleDetails;
-  render();
-}
-
 // Compress an image data URL to JPEG ≤1000px at 78% quality before storing
 function compressImage(dataUrl, callback) {
   const img = new Image();
@@ -2281,34 +2240,6 @@ function compressImage(dataUrl, callback) {
   };
   img.onerror = () => callback(dataUrl); // fallback: store as-is
   img.src = dataUrl;
-}
-
-let _pendingImgIdx = null;
-function pickHoleImg(idx) {
-  preserveNrInputs();
-  _pendingImgIdx = idx;
-  const inp = document.createElement('input');
-  inp.type = 'file';
-  inp.accept = 'image/*';
-  inp.onchange = e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = re => {
-      compressImage(re.result, compressed => {
-        S.nr.holeDetails[_pendingImgIdx].img = compressed;
-        render();
-      });
-    };
-    reader.readAsDataURL(file);
-  };
-  inp.click();
-}
-
-function removeHoleImg(idx) {
-  preserveNrInputs();
-  S.nr.holeDetails[idx].img = '';
-  render();
 }
 
 let _pendingCeImgIdx = null;
@@ -2402,10 +2333,7 @@ function startRound() {
 
   const nh        = S.nr.holes;
   const nineStart = S.nr.nineStart || 1;
-  const holes = S.nr.pars.slice(0, nh).map((par, i) => {
-    const d = S.nr.holeDetails[i] || {};
-    return { n: nineStart + i, par, si: S.nr.si[i], desc: d.desc || '', img: d.img || '' };
-  });
+  const holes = S.nr.pars.slice(0, nh).map((par, i) => ({ n: nineStart + i, par, si: S.nr.si[i] }));
   const scores = {};
   for (const p of players) scores[p.id] = {};
 
@@ -2427,7 +2355,6 @@ function startRound() {
   saveRound(round);
   S.nr = { holes:18, pars:[...DEFAULT_PARS_18], si:[...DEFAULT_SI_18],
            courseRating:'', slopeRating:'113', showHoleSettings:false,
-           showHoleDetails:false, holeDetails:Array.from({length:18},()=>({desc:'',img:''})),
            selPids:[], guests:[{name:'',hcp:''},{name:'',hcp:''},{name:'',hcp:''},{name:'',hcp:''}],
            format:'stroke', courseId:null, nineStart:1 };
   nav('scorecard', { roundId: round.id, hole: 1 });
