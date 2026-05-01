@@ -472,8 +472,16 @@
     font-family: inherit; touch-action: manipulation;
   }
   .hd-img-btn:active { opacity: .75; }
-  .hd-thumb-wrap { position: relative; }
+  .has-img-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: #52b788; margin-left: 5px; vertical-align: middle; flex-shrink: 0;
+  }
+  .hd-thumb-wrap { position: relative; display: inline-block; }
   .hd-thumb { width: 80px; height: 56px; border-radius: 8px; object-fit: cover; display: block; }
+  .hd-thumb-lg {
+    width: 100%; max-height: 160px; border-radius: 10px; object-fit: contain;
+    display: block; background: #f0f7f4; cursor: pointer;
+  }
   .hd-rm-btn {
     position: absolute; top: -6px; right: -6px; width: 18px; height: 18px;
     border-radius: 50%; background: #c84b11; border: none; color: #fff;
@@ -1548,7 +1556,10 @@ function renderCourses(c) {
       const img  = ce.imgs?.[i] || '';
       return `<div class="hole-row">
         <div class="hole-row-top">
-          <div class="hole-row-num">H${i+1}</div>
+          <div class="hole-row-num">
+            H${i+1}
+            ${img ? '<span class="has-img-dot" title="Layout image added"></span>' : ''}
+          </div>
           <div class="hole-row-fields">
             <div class="hole-row-field">
               <span class="hole-row-lbl">Par</span>
@@ -1568,10 +1579,10 @@ function renderCourses(c) {
         <div class="hd-img-row">
           ${img
             ? `<div class="hd-thumb-wrap">
-                 <img class="hd-thumb" src="${img}">
+                 <img class="hd-thumb-lg" src="${img}" onclick="pickCeHoleImg(${i})" title="Tap to replace">
                  <button class="hd-rm-btn" onclick="removeCeHoleImg(${i})">&#10005;</button>
                </div>`
-            : `<button class="hd-img-btn" onclick="pickCeHoleImg(${i})">&#9971; Add Layout Image</button>`
+            : `<button class="hd-img-btn" onclick="pickCeHoleImg(${i})">&#128247; Add Layout Image</button>`
           }
         </div>
       </div>`;
@@ -2435,12 +2446,12 @@ function renderScorecard(c) {
   const rpar  = parSum(round);
 
   // Look up description and image from the course record so they work even
-  // for rounds started before the images were added, and without duplicating
-  // large image data inside every round.
-  const holeIdx  = round.holes.indexOf(hole);
+  // for rounds started before the images were added. Use hole.n - 1 as the
+  // index so back-9 rounds (holes 10-18) map correctly to course imgs[9-17].
   const courseRec = round.courseId ? loadCourses().find(co => co.id === round.courseId) : null;
-  const holeDesc = hole.desc || (courseRec?.descriptions?.[holeIdx]) || '';
-  const holeImg  = hole.img  || (courseRec?.imgs?.[holeIdx])         || '';
+  const ci        = hole.n - 1;
+  const holeDesc  = hole.desc || (courseRec?.descriptions?.[ci]) || '';
+  const holeImg   = hole.img  || (courseRec?.imgs?.[ci])         || '';
   const isWolf = round.format === 'wolf';
   const isStbl = round.format === 'stableford';
 
