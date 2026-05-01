@@ -1693,7 +1693,9 @@ function renderCourses(c) {
     const parTot   = co.pars.reduce((a,b)=>a+b,0);
     const crInfo   = co.courseRating ? `CR ${co.courseRating}` : '';
     const srInfo   = co.slopeRating  ? `Slope ${co.slopeRating}` : '';
-    const meta     = [co.club, `${co.holes}H Par ${parTot}`, crInfo, srInfo].filter(Boolean).join(' · ');
+    const imgCount = (co.imgs || []).filter(Boolean).length;
+    const imgInfo  = imgCount > 0 ? `${imgCount} layout image${imgCount > 1 ? 's' : ''}` : '';
+    const meta     = [co.club, `${co.holes}H Par ${parTot}`, crInfo, srInfo, imgInfo].filter(Boolean).join(' · ');
     return `<div class="course-item">
       <div class="course-item-top">
         <div class="course-item-info">
@@ -2289,14 +2291,21 @@ function pickCeHoleImg(idx) {
   const inp = document.createElement('input');
   inp.type = 'file';
   inp.accept = 'image/*';
+  // Must be in the DOM before .click() — iOS Safari silently drops it otherwise
+  inp.style.cssText = 'position:fixed;top:-200px;left:-200px;opacity:0';
+  document.body.appendChild(inp);
   inp.onchange = e => {
+    document.body.removeChild(inp);
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = re => {
       compressImage(re.result, compressed => {
         if (!S.ce.imgs) S.ce.imgs = Array(18).fill('');
-        S.ce.imgs[_pendingCeImgIdx] = compressed;
+        const i = _pendingCeImgIdx;
+        S.ce.imgs[i] = compressed;
+        // Persist immediately — don't wait for "Save Course"
+        try { localStorage.setItem(COURSE_IMG_PFX + S.ce.id + '_' + i, compressed); } catch {}
         renderCourses(document.getElementById('main'));
       });
     };
@@ -2309,6 +2318,7 @@ function removeCeHoleImg(idx) {
   saveCeInputs();
   if (!S.ce.imgs) S.ce.imgs = Array(18).fill('');
   S.ce.imgs[idx] = '';
+  localStorage.removeItem(COURSE_IMG_PFX + S.ce.id + '_' + idx);
   renderCourses(document.getElementById('main'));
 }
 
@@ -2578,12 +2588,13 @@ function renderScorecard(c) {
 
   const isCompact = round.players.length >= 3;
 
-  const layoutModal = S.showLayout && (holeDesc || holeImg) ? `
+  const layoutModal = S.showLayout ? `
     <div class="layout-dim" onclick="closeHoleLayout()">
       <div class="layout-card" onclick="event.stopPropagation()">
-        <div class="layout-title">Hole ${S.hole} &mdash; Par ${hole.par}</div>
+        <div class="layout-title">Hole ${S.hole} &mdash; Par ${hole.par} &middot; SI ${hole.si}</div>
         ${holeDesc ? `<div class="layout-desc">${esc(holeDesc)}</div>` : ''}
         ${holeImg  ? `<img class="layout-img" src="${holeImg}">` : ''}
+        ${!holeDesc && !holeImg ? `<div class="layout-desc" style="color:var(--muted)">No description or layout image added for this hole yet. Add one in Courses → Edit.</div>` : ''}
         <button class="layout-close" onclick="closeHoleLayout()">Close</button>
       </div>
     </div>` : '';
@@ -2595,7 +2606,7 @@ function renderScorecard(c) {
         <div class="hole-lbl">HOLE</div>
         <div class="hole-num">${S.hole}</div>
         <div class="hole-meta">Par ${hole.par} <span>&nbsp;&middot;&nbsp;SI ${hole.si}</span></div>
-        ${(holeDesc || holeImg) ? `<button class="hole-info-btn" onclick="openHoleLayout()">Hole Info</button>` : ''}
+        <button class="hole-info-btn" onclick="openHoleLayout()">Hole Info</button>
       </div>
       <button class="nav-btn" onclick="gotoHole(${S.hole+1})" ${S.hole===lastHole?'disabled':''}>&#8250;</button>
     </div>
