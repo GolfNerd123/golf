@@ -922,8 +922,9 @@ firebase.initializeApp(_fbConfig);
 const _db = firebase.firestore();
 _db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 
-let _rounds  = [];
-let _players = [];
+let _rounds          = [];
+let _players         = [];
+let _courseOverrides = [];
 
 const SCORE_TYPES = [
   { key:'holesInOne',   label:'Hole in One',  color:'#FFD700' },
@@ -1111,17 +1112,7 @@ function deleteCourseImgs(courseId) {
 }
 function loadCourses() {
   try {
-    const overrides = JSON.parse(localStorage.getItem(COURSES_KEY) || '[]');
-    // Migrate: if a course in the JSON still has imgs[] embedded, move them to separate keys
-    let dirty = false;
-    for (const o of overrides) {
-      if (o.imgs && o.imgs.some(Boolean)) {
-        saveCourseImgs(o.id, o.imgs);
-        delete o.imgs;
-        dirty = true;
-      }
-    }
-    if (dirty) try { localStorage.setItem(COURSES_KEY, JSON.stringify(overrides)); } catch {}
+    const overrides = _courseOverrides;
     const presetIds = COURSES.map(c => c.id);
     const merge = co => ({ ...co, imgs: loadCourseImgs(co.id, co.holes || 18) });
     const result = COURSES.map(c => merge(overrides.find(o => o.id === c.id) || c));
@@ -1132,20 +1123,21 @@ function loadCourses() {
 function saveCourseData(course) {
   try {
     const { imgs, ...meta } = course;
-    const overrides = JSON.parse(localStorage.getItem(COURSES_KEY) || '[]');
-    const i = overrides.findIndex(o => o.id === meta.id);
-    if (i >= 0) overrides[i] = meta; else overrides.push(meta);
-    localStorage.setItem(COURSES_KEY, JSON.stringify(overrides));
+    const i = _courseOverrides.findIndex(o => o.id === meta.id);
+    if (i >= 0) _courseOverrides[i] = meta; else _courseOverrides.push(meta);
+    try { localStorage.setItem(COURSES_KEY, JSON.stringify(_courseOverrides)); } catch {}
     if (imgs) saveCourseImgs(meta.id, imgs);
+    _db.collection('courses').doc(meta.id).set(meta).catch(() => {});
   } catch (e) {
     alert('Could not save course — storage is full. Try removing unused courses.');
   }
 }
 function deleteCourseData(id) {
   try {
-    const overrides = JSON.parse(localStorage.getItem(COURSES_KEY) || '[]');
-    localStorage.setItem(COURSES_KEY, JSON.stringify(overrides.filter(o => o.id !== id)));
+    _courseOverrides = _courseOverrides.filter(o => o.id !== id);
+    try { localStorage.setItem(COURSES_KEY, JSON.stringify(_courseOverrides)); } catch {}
     deleteCourseImgs(id);
+    _db.collection('courses').doc(id).delete().catch(() => {});
   } catch {}
 }
 function isPresetCourse(id) { return COURSES.some(c => c.id === id); }
@@ -3840,25 +3832,39 @@ function toggleStatsIncludeStableford() {
 // ═══════════════════════════════════════════
 (async function init() {
   // Seed from localStorage so the app is usable instantly
-  try { _rounds  = JSON.parse(localStorage.getItem(ROUNDS_KEY)  || '[]'); } catch {}
-  try { _players = JSON.parse(localStorage.getItem(PLAYERS_KEY) || '[]'); } catch {}
+  try { _rounds          = JSON.parse(localStorage.getItem(ROUNDS_KEY)   || '[]'); } catch {}
+  try { _players         = JSON.parse(localStorage.getItem(PLAYERS_KEY)  || '[]'); } catch {}
+  try { _courseOverrides = JSON.parse(localStorage.getItem(COURSES_KEY)  || '[]'); } catch {}
 
   render();
 
   // Load from Firestore — Firestore is the single source of truth
   try {
-    const [rSnap, pSnap] = await Promise.all([
+    const [rSnap, pSnap, cSnap] = await Promise.all([
       _db.collection('rounds').get(),
       _db.collection('meta').doc('players').get(),
+      _db.collection('courses').get(),
     ]);
 
     // Replace local data entirely with what Firestore has
     _rounds = rSnap.docs.map(d => d.data()).sort((a, b) => (b.date > a.date ? 1 : -1));
-
     if (pSnap.exists) _players = pSnap.data().list || [];
+
+    // Courses: merge localStorage overrides into Firestore
+    // Push any local-only overrides up to Firestore (one-time migration)
+    const fsById = {};
+    cSnap.docs.forEach(d => { fsById[d.id] = d.data(); });
+    for (const local of _courseOverrides) {
+      if (!fsById[local.id]) {
+        _db.collection('courses').doc(local.id).set(local).catch(() => {});
+        fsById[local.id] = local;
+      }
+    }
+    _courseOverrides = Object.values(fsById);
 
     localStorage.setItem(ROUNDS_KEY,  JSON.stringify(_rounds));
     localStorage.setItem(PLAYERS_KEY, JSON.stringify(_players));
+    try { localStorage.setItem(COURSES_KEY, JSON.stringify(_courseOverrides)); } catch {}
     render();
   } catch(e) { /* offline – local data already shown */ }
 
@@ -3884,6 +3890,20 @@ function toggleStatsIncludeStableford() {
     _players = snap.data().list || [];
     localStorage.setItem(PLAYERS_KEY, JSON.stringify(_players));
     if ((S.view === 'players' && !S.playerEdit) || S.view === 'newRound') render();
+  });
+
+  _db.collection('courses').onSnapshot(snap => {
+    snap.docChanges().forEach(ch => {
+      if (ch.type === 'added' || ch.type === 'modified') {
+        const co = ch.doc.data();
+        const i = _courseOverrides.findIndex(x => x.id === co.id);
+        if (i >= 0) _courseOverrides[i] = co; else _courseOverrides.push(co);
+      } else if (ch.type === 'removed') {
+        _courseOverrides = _courseOverrides.filter(x => x.id !== ch.doc.id);
+      }
+    });
+    try { localStorage.setItem(COURSES_KEY, JSON.stringify(_courseOverrides)); } catch {}
+    if (S.view === 'courses' || S.view === 'newRound') render();
   });
 })();
 
