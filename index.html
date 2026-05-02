@@ -912,6 +912,7 @@ const ROUNDS_KEY      = 'golf_rounds_v2';
 const PLAYERS_KEY     = 'golf_players_v1';
 const COURSES_KEY     = 'golf_courses_v1';
 const COURSE_IMG_PFX  = 'golf_img_v1_';
+const NAV_KEY         = 'golf_nav_v1';
 
 // ═══════════════════════════════════════════
 // FIREBASE
@@ -1323,6 +1324,11 @@ function nav(view, params) {
   if (params) Object.assign(S, params);
   S.view = view;
   history.pushState({ view, ...params }, '');
+  if (view === 'scorecard') {
+    try { localStorage.setItem(NAV_KEY, JSON.stringify({ roundId: S.roundId, hole: S.hole })); } catch {}
+  } else {
+    localStorage.removeItem(NAV_KEY);
+  }
   render();
 }
 function goBack() {
@@ -2660,6 +2666,7 @@ function gotoHole(n) {
   if (!round || n < 1 || n > round.holes.length) return;
   S.hole = n;
   S.showLayout = false;
+  try { localStorage.setItem(NAV_KEY, JSON.stringify({ roundId: S.roundId, hole: n })); } catch {}
   renderScorecard(document.getElementById('main'));
 }
 
@@ -3873,9 +3880,22 @@ function toggleStatsIncludeStableford() {
   try { _players         = JSON.parse(localStorage.getItem(PLAYERS_KEY)  || '[]'); } catch {}
   try { _courseOverrides = JSON.parse(localStorage.getItem(COURSES_KEY)  || '[]'); } catch {}
 
+  // Restore in-progress scorecard session so a phone lock/reload returns to the right hole
+  try {
+    const saved = JSON.parse(localStorage.getItem(NAV_KEY) || 'null');
+    if (saved?.roundId) {
+      const r = _rounds.find(x => x.id === saved.roundId);
+      if (r && !r.done) {
+        S.view = 'scorecard';
+        S.roundId = saved.roundId;
+        S.hole = saved.hole || 1;
+      }
+    }
+  } catch {}
+
   render();
 
-  // Load from Firestore — Firestore is the single source of truth
+  // Load from Firestore — merge with local data so offline-only saves are not lost
   try {
     const [rSnap, pSnap, cSnap] = await Promise.all([
       _db.collection('rounds').get(),
@@ -3883,9 +3903,25 @@ function toggleStatsIncludeStableford() {
       _db.collection('meta').doc('courses').get(),
     ]);
 
-    // Replace local data entirely with what Firestore has
-    _rounds = rSnap.docs.map(d => d.data()).sort((a, b) => (b.date > a.date ? 1 : -1));
-    if (pSnap.exists) _players = pSnap.data().list || [];
+    // Rounds: Firestore wins for rounds it knows about; keep and re-upload local-only rounds
+    const fsRounds = rSnap.docs.map(d => d.data());
+    const fsRoundIds = new Set(fsRounds.map(r => r.id));
+    const localOnlyRounds = _rounds.filter(r => !fsRoundIds.has(r.id));
+    _rounds = [...fsRounds, ...localOnlyRounds].sort((a, b) => (b.date > a.date ? 1 : -1));
+    for (const r of localOnlyRounds) {
+      _db.collection('rounds').doc(r.id).set(r).catch(() => {});
+    }
+
+    // Players: Firestore wins; re-upload any local-only players
+    if (pSnap.exists) {
+      const fsList = pSnap.data().list || [];
+      const fsPlayerIds = new Set(fsList.map(p => p.id));
+      const localOnlyPlayers = _players.filter(p => !fsPlayerIds.has(p.id));
+      _players = [...fsList, ...localOnlyPlayers];
+      if (localOnlyPlayers.length) {
+        _db.collection('meta').doc('players').set({ list: _players }).catch(() => {});
+      }
+    }
 
     // Courses: Firestore wins; migrate any local-only overrides up on first run
     const fsCourses = cSnap.exists ? (cSnap.data().list || []) : [];
