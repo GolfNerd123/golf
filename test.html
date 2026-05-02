@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Golf Scorecard — Test Suite</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace; background:#f8f8f8; margin:0; padding:16px; }
+  h1 { font-size:18px; margin:0 0 12px; }
+  .summary { padding:12px 16px; border-radius:8px; font-size:15px; font-weight:700; margin-bottom:16px; }
+  .all-pass { background:#d4edda; color:#155724; }
+  .has-failures { background:#f8d7da; color:#721c24; }
+  details { background:#fff; border:1px solid #e0e0e0; border-radius:6px; margin-bottom:6px; overflow:hidden; }
+  summary.suite-name { padding:10px 14px; cursor:pointer; font-weight:700; font-size:13px; list-style:none; display:flex; align-items:center; gap:8px; }
+  summary.suite-name::-webkit-details-marker { display:none; }
+  .suite-pass { color:#155724; background:#f0fff4; }
+  .suite-fail { color:#721c24; background:#fff5f5; }
+  ul { margin:0; padding:0 0 6px 0; list-style:none; }
+  li { padding:5px 14px 5px 28px; font-size:12px; border-top:1px solid #f0f0f0; }
+  li.pass { color:#2d6a4f; }
+  li.fail { color:#c84b11; }
+  .err { display:block; color:#888; font-size:11px; margin-top:2px; white-space:pre-wrap; word-break:break-word; }
+  .count { font-size:11px; margin-left:auto; color:#888; font-weight:400; }
+</style>
+</head>
+<body>
+<h1>Golf Scorecard — Test Suite</h1>
+<div id="results"></div>
+<script>
+// ═══════════════════════════════════════════
+// TEST RUNNER
+// ═══════════════════════════════════════════
+let _passed = 0, _failed = 0;
+const _suites = [];
+let _cur = null;
+
+function suite(name) {
+  _cur = { name, tests: [] };
+  _suites.push(_cur);
+}
+function test(name, fn) {
+  try { fn(); _passed++; _cur.tests.push({ name, ok: true }); }
+  catch(e) { _failed++; _cur.tests.push({ name, ok: false, msg: e.message }); }
+}
+function assert(cond, msg) { if (!cond) throw new Error(msg || 'assertion failed'); }
+function eq(a, b, msg) {
+  if (a !== b) throw new Error((msg ? msg + ': ' : '') + 'got ' + JSON.stringify(a) + ', want ' + JSON.stringify(b));
+}
+function deepEq(a, b, msg) {
+  const as = JSON.stringify(a), bs = JSON.stringify(b);
+  if (as !== bs) throw new Error((msg ? msg + ': ' : '') + 'got ' + as + ', want ' + bs);
+}
+
+// ═══════════════════════════════════════════
+// MOCK ENVIRONMENT
+// ═══════════════════════════════════════════
+
+// Storage keys — TEST_ prefixed so tests never touch real app data
+const ROUNDS_KEY  = 'TEST_golf_rounds';
+const PLAYERS_KEY = 'TEST_golf_players';
+const AUDIT_KEY   = 'TEST_golf_audit';
+const NAV_KEY     = 'TEST_golf_nav';
+const COURSE_IMG_PFX = 'TEST_golf_img_';
+
+// Mock localStorage (shadows the global — all copied functions use this)
+let _lsStore = {};
+const localStorage = {
+  getItem:    k      => Object.prototype.hasOwnProperty.call(_lsStore, k) ? _lsStore[k] : null,
+  setItem:    (k, v) => { _lsStore[k] = String(v); },
+  removeItem: k      => { delete _lsStore[k]; },
+  clear:      ()     => { _lsStore = {}; },
+};
+
+// Mock Firestore
+let _fsStore = {};
+const _db = {
+  collection: coll => ({
+    doc: id => ({
+      set:    data => { _fsStore[coll+'/'+id] = JSON.parse(JSON.stringify(data)); return Promise.resolve(); },
+      delete: ()   => { delete _fsStore[coll+'/'+id]; return Promise.resolve(); },
+      get:    ()   => { const d = _fsStore[coll+'/'+id]; return Promise.resolve({ exists:!!d, data:()=>d }); },
+    }),
+    get: () => {
+      const docs = Object.entries(_fsStore)
+        .filter(([k]) => k.startsWith(coll+'/'))
+        .map(([,v]) => ({ data:()=>v }));
+      return Promise.resolve({ docs });
+    },
+  }),
+};
+
+// Mock history, render, renderScorecard, downloadRoundBackup
+const history = { pushState: ()=>{}, go: ()=>{} };
+function render() {}
+function renderScorecard() {}
+function downloadRoundBackup() {}
+
+// Global mutable state
+let _rounds = [], _players = [], _courseOverrides = [], _auditFlushTimer = null;
+const S = { view:'home', roundId:null, hole:1, numpadPid:null, showLayout:false, nr:{}, playerEdit:null };
+
+function resetState() {
+  _rounds = []; _players = []; _courseOverrides = []; _auditFlushTimer = null;
+  _lsStore = {}; _fsStore = {};
+  S.view = 'home'; S.roundId = null; S.hole = 1; S.numpadPid = null;
+}
+
+// ═══════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════
+const DEFAULT_PARS_18 = [4,4,3,4,5,3,4,4,5,4,3,4,5,4,3,4,5,4];
+const DEFAULT_SI_18   = [1,9,17,11,3,13,7,5,15,10,18,14,2,12,16,4,6,8];
+const DEFAULT_PARS_9  = [4,4,3,4,5,3,4,4,5];
+const DEFAULT_SI_9    = [1,9,17,11,3,13,7,5,15];
+
+// ═══════════════════════════════════════════
+// PURE FUNCTIONS (copied verbatim from index.html)
+// ═══════════════════════════════════════════
+function normName(s) {
+  return String(s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim();
+}
+function firstNorm(s) { return normName(s).split(/\s+/)[0]; }
+function dStr(n) { return n===0?'E':n>0?'+'+n:''+n; }
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function scoreColor(strokes, par) {
+  if (!strokes) return '#ccc';
+  const d = strokes - par;
+  if (strokes===1 || d<=-2) return '#FFD700';
+  if (d===-1) return '#e63946';
+  if (d===0)  return '#2d6a4f';
+  if (d===1)  return '#333';
+  return '#888';
+}
+function grossTotal(round, pid, from, to) {
+  from = from||1; to = to||round.holes.length;
+  let t=0;
+  for (let n=from; n<=to; n++) t += round.scores[pid]?.[n]?.s||0;
+  return t;
+}
+function parSum(round, from, to) {
+  from = from||1; to = to||round.holes.length;
+  return round.holes.filter(h=>h.n>=from && h.n<=to).reduce((s,h)=>s+h.par,0);
+}
+function calcTeeHcp(hcpIndex, tee) {
+  const hci = parseFloat(hcpIndex)||0;
+  return Math.round(hci * tee.slope/113 + (tee.cr - tee.par));
+}
+function courseHcp(player, round) {
+  if (player.courseHcpOverride!=null) return player.courseHcpOverride;
+  const hci = parseFloat(player.handicapIndex)||0;
+  if (hci<=0) return 0;
+  const slope  = parseFloat(round.slopeRating)||113;
+  const par    = parSum(round);
+  const rating = parseFloat(round.courseRating)||par;
+  const adj    = round.holes.length===9 ? hci/2 : hci;
+  return Math.round(adj*(slope/113)+(rating-par));
+}
+function siStrokes(chcp, si, nh) {
+  if (chcp<=0) return 0;
+  const base=Math.floor(chcp/nh), extra=chcp%nh;
+  return base+(si<=extra?1:0);
+}
+function netTotal(round, pid) {
+  const player = round.players.find(p=>p.id===pid);
+  if (!player) return 0;
+  const chcp=courseHcp(player,round), nh=round.holes.length;
+  let net=0;
+  for (const hole of round.holes) {
+    const g=round.scores[pid]?.[hole.n]?.s||0;
+    if (!g) continue;
+    net += g - siStrokes(chcp,hole.si,nh);
+  }
+  return net;
+}
+function stablefordPts(strokes, par, hcpStrokes) {
+  if (!strokes) return null;
+  const net=strokes-hcpStrokes, d=net-par;
+  if (d<=-1) return Math.max(3,2-d);
+  if (d===0)  return 2;
+  if (d===1)  return 1;
+  return 0;
+}
+function stablefordTotal(round, pid) {
+  const player=round.players.find(p=>p.id===pid);
+  if (!player) return 0;
+  const chcp=courseHcp(player,round), nh=round.holes.length;
+  let total=0;
+  for (const hole of round.holes) {
+    const g=round.scores[pid]?.[hole.n]?.s;
+    if (!g) continue;
+    total += stablefordPts(g,hole.par,siStrokes(chcp,hole.si,nh))||0;
+  }
+  return total;
+}
+function wolfForHole(round, holeN) {
+  return round.players[(holeN-1)%round.players.length].id;
+}
+function wolfHolePoints(round, holeN) {
+  const wd=round.wolfHoles?.[holeN];
+  if (!wd||(!wd.isLone&&!wd.partnerPid)) return null;
+  const hole=round.holes[holeN-1], nh=round.holes.length, wolfPid=wolfForHole(round,holeN);
+  function netS(pid) {
+    const g=round.scores[pid]?.[holeN]?.s; if (!g) return 999;
+    const player=round.players.find(p=>p.id===pid);
+    return g-siStrokes(courseHcp(player,round),hole.si,nh);
+  }
+  const wolfTeam=wd.isLone?[wolfPid]:[wolfPid,wd.partnerPid];
+  const otherTeam=round.players.map(p=>p.id).filter(id=>!wolfTeam.includes(id));
+  const wolfBest=Math.min(...wolfTeam.map(netS)), otherBest=Math.min(...otherTeam.map(netS));
+  const pts={}; round.players.forEach(p=>{pts[p.id]=0;});
+  if (wolfBest===999||otherBest===999) return pts;
+  if (wolfBest===otherBest) return pts;
+  if (wd.isLone) {
+    if (wolfBest<otherBest) { pts[wolfPid]=6; otherTeam.forEach(id=>{pts[id]=-2;}); }
+    else { pts[wolfPid]=-6; otherTeam.forEach(id=>{pts[id]=2;}); }
+  } else {
+    if (wolfBest<otherBest) { wolfTeam.forEach(id=>{pts[id]=2;}); otherTeam.forEach(id=>{pts[id]=-2;}); }
+    else { wolfTeam.forEach(id=>{pts[id]=-2;}); otherTeam.forEach(id=>{pts[id]=2;}); }
+  }
+  return pts;
+}
+function wolfTotalPts(round, pid) {
+  let total=0;
+  for (const hole of round.holes) { const pts=wolfHolePoints(round,hole.n); if(pts) total+=pts[pid]||0; }
+  return total;
+}
+
+// ═══════════════════════════════════════════
+// STATEFUL FUNCTIONS (copied, use mock deps)
+// ═══════════════════════════════════════════
+function loadRounds()  { return _rounds; }
+function loadPlayers() { return _players; }
+function byId(id) { return _rounds.find(r=>r.id===id)||null; }
+
+function _writeAuditEntry(round, event) {
+  const entry = {
+    id: 'a'+Date.now()+Math.random().toString(36).slice(2,6),
+    roundId:round.id, course:round.course,
+    timestamp:new Date().toISOString(), event,
+    round:JSON.parse(JSON.stringify(round))
+  };
+  try {
+    const log=JSON.parse(localStorage.getItem(AUDIT_KEY)||'[]');
+    log.unshift(entry);
+    const cutoff=Date.now()-7*24*60*60*1000;
+    localStorage.setItem(AUDIT_KEY,JSON.stringify(
+      log.filter(e=>new Date(e.timestamp).getTime()>cutoff).slice(0,100)
+    ));
+  } catch {}
+  _db.collection('auditLog').doc(entry.id).set(entry).catch(()=>{});
+}
+function _scheduleAudit(round) {
+  clearTimeout(_auditFlushTimer);
+  _auditFlushTimer=setTimeout(()=>_writeAuditEntry(round,'scores_snapshot'),30000);
+}
+function _flushAudit(round, event) {
+  clearTimeout(_auditFlushTimer); _auditFlushTimer=null; _writeAuditEntry(round,event);
+}
+function saveRound(r, auditEvent) {
+  const i=_rounds.findIndex(x=>x.id===r.id);
+  if (i>=0) _rounds[i]=r; else _rounds.unshift(r);
+  localStorage.setItem(ROUNDS_KEY,JSON.stringify(_rounds));
+  _db.collection('rounds').doc(r.id).set(r).catch(()=>{});
+  if (auditEvent||r.done) { _flushAudit(r,auditEvent||'round_finished'); }
+  else { _scheduleAudit(r); }
+  if (r.done) { try { downloadRoundBackup(r); } catch(e) {} }
+}
+function removeRound(id) {
+  _rounds=_rounds.filter(r=>r.id!==id);
+  localStorage.setItem(ROUNDS_KEY,JSON.stringify(_rounds));
+  _db.collection('rounds').doc(id).delete().catch(()=>{});
+}
+function persistPlayers(arr) {
+  _players=arr;
+  localStorage.setItem(PLAYERS_KEY,JSON.stringify(arr));
+  _db.collection('meta').doc('players').set({list:arr}).catch(()=>{});
+}
+function upsertPlayer(p) {
+  const all=loadPlayers(), i=all.findIndex(x=>x.id===p.id);
+  if (i>=0) all[i]=p; else all.push(p);
+  persistPlayers(all);
+}
+function deletePlayer(id) { persistPlayers(loadPlayers().filter(p=>p.id!==id)); }
+
+function nav(view, params) {
+  if (params) Object.assign(S,params);
+  S.view=view;
+  history.pushState({view,...params},'');
+  if (view==='scorecard') {
+    try { localStorage.setItem(NAV_KEY,JSON.stringify({roundId:S.roundId,hole:S.hole})); } catch {}
+  } else { localStorage.removeItem(NAV_KEY); }
+  render();
+}
+function gotoHole(n) {
+  const round=byId(S.roundId);
+  if (!round||n<1||n>round.holes.length) return;
+  _flushAudit(round,'hole_'+n);
+  S.hole=n; S.showLayout=false;
+  try { localStorage.setItem(NAV_KEY,JSON.stringify({roundId:S.roundId,hole:n})); } catch {}
+  renderScorecard();
+}
+function adjScore(pid, delta) {
+  const round=byId(S.roundId); if (!round) return;
+  const cur=round.scores[pid]?.[S.hole]?.s||0;
+  round.scores[pid][S.hole]={s:Math.max(1,cur+delta)};
+  saveRound(round); renderScorecard();
+}
+function setScoreNumpad(pid, score) {
+  const round=byId(S.roundId); if (!round) return;
+  if (!round.scores[pid]) round.scores[pid]={};
+  round.scores[pid][S.hole]={s:score};
+  saveRound(round); S.numpadPid=null; renderScorecard();
+}
+
+// ═══════════════════════════════════════════
+// MERGE / RECOVERY HELPERS (extracted from init)
+// ═══════════════════════════════════════════
+function mergeRounds(fsRounds, localRounds) {
+  const fsIds=new Set(fsRounds.map(r=>r.id));
+  const localOnly=localRounds.filter(r=>!fsIds.has(r.id));
+  return [...fsRounds,...localOnly].sort((a,b)=>(b.date>a.date?1:-1));
+}
+function tryRecoverRound(rounds, navState, auditLog) {
+  if (!navState?.roundId) return rounds;
+  const r=rounds.find(x=>x.id===navState.roundId);
+  if (!r||r.done) return rounds;
+  const scoredCount=r.players.reduce((n,p)=>
+    n+Object.values(r.scores[p.id]||{}).filter(h=>h?.s).length,0);
+  if (scoredCount!==0) return rounds;
+  const best=auditLog.find(e=>e.roundId===navState.roundId&&e.round);
+  if (!best) return rounds;
+  return rounds.map(x=>x.id===navState.roundId?best.round:x);
+}
+
+// ═══════════════════════════════════════════
+// TEST DATA FACTORIES
+// ═══════════════════════════════════════════
+function makeHoles18() {
+  return DEFAULT_PARS_18.map((par,i)=>({n:i+1,par,si:DEFAULT_SI_18[i]}));
+}
+function makeHoles9() {
+  return DEFAULT_PARS_9.map((par,i)=>({n:i+1,par,si:DEFAULT_SI_9[i]}));
+}
+function makeRound18(overrides) {
+  const players=[
+    {id:'p1',name:'Alice',handicapIndex:10},
+    {id:'p2',name:'Bob',  handicapIndex:18},
+  ];
+  const holes=makeHoles18();
+  const scores={}; for (const p of players) scores[p.id]={};
+  return Object.assign({
+    id:'r1', date:'2026-05-02T10:00:00Z', course:'Test Course',
+    courseRating:72, slopeRating:113,
+    players, holes, scores, done:false, format:'stroke', wolfHoles:{},
+  },overrides);
+}
+function makeWolfRound() {
+  const players=[
+    {id:'pA',name:'Alpha',courseHcpOverride:0},
+    {id:'pB',name:'Beta', courseHcpOverride:0},
+    {id:'pC',name:'Gamma',courseHcpOverride:0},
+    {id:'pD',name:'Delta',courseHcpOverride:0},
+  ];
+  const holes=makeHoles18();
+  const scores={}; for (const p of players) scores[p.id]={};
+  return {id:'rW',date:'2026-05-02T10:00:00Z',course:'Wolf Course',
+    courseRating:72,slopeRating:113,players,holes,scores,done:false,format:'wolf',wolfHoles:{}};
+}
+
+// ═══════════════════════════════════════════
+// SUITE 1 — HELPERS
+// ═══════════════════════════════════════════
+suite('dStr — score differential display');
+test('zero → E',          ()=>eq(dStr(0),'E'));
+test('positive → +n',     ()=>eq(dStr(3),'+3'));
+test('negative → -n',     ()=>eq(dStr(-2),'-2'));
+test('+1',                ()=>eq(dStr(1),'+1'));
+test('-1',                ()=>eq(dStr(-1),'-1'));
+
+suite('esc — HTML escaping');
+test('ampersand',         ()=>eq(esc('a & b'),'a &amp; b'));
+test('less-than',         ()=>eq(esc('<b>'),'&lt;b&gt;'));
+test('greater-than',      ()=>eq(esc('>'),'&gt;'));
+test('double-quote',      ()=>eq(esc('"hi"'),'&quot;hi&quot;'));
+test('no special chars',  ()=>eq(esc('abc'),'abc'));
+test('number coerced',    ()=>eq(esc(42),'42'));
+test('null coerced',      ()=>eq(esc(null),'null'));
+
+suite('normName / firstNorm');
+test('strips diacritics',      ()=>eq(normName('Sigurjón'),'sigurjon'));
+test('lowercases',             ()=>eq(normName('ALICE'),'alice'));
+test('trims whitespace',       ()=>eq(normName('  bob  '),'bob'));
+test('accent-insensitive',     ()=>eq(normName('Ingibjörg'),'ingibjorg'));
+test('firstNorm first word',   ()=>eq(firstNorm('Alice Smith'),'alice'));
+test('firstNorm single word',  ()=>eq(firstNorm('Carlos'),'carlos'));
+test('firstNorm diacritics',   ()=>eq(firstNorm('Ingibjörg Hansen'),'ingibjorg'));
+
+// ═══════════════════════════════════════════
+// SUITE 2 — SCORE COLOR
+// ═══════════════════════════════════════════
+suite('scoreColor');
+test('no score → grey',             ()=>eq(scoreColor(0,4),'#ccc'));
+test('hole in one → gold',          ()=>eq(scoreColor(1,4),'#FFD700'));
+test('hole in one par-3 → gold',    ()=>eq(scoreColor(1,3),'#FFD700'));
+test('eagle (2 on par-4) → gold',   ()=>eq(scoreColor(2,4),'#FFD700'));
+test('albatross (2 on par-5) → gold',()=>eq(scoreColor(2,5),'#FFD700'));
+test('birdie (3 on par-4) → red',   ()=>eq(scoreColor(3,4),'#e63946'));
+test('birdie (2 on par-3) → red',   ()=>eq(scoreColor(2,3),'#e63946'));
+test('par (4 on par-4) → green',    ()=>eq(scoreColor(4,4),'#2d6a4f'));
+test('par (5 on par-5) → green',    ()=>eq(scoreColor(5,5),'#2d6a4f'));
+test('par (3 on par-3) → green',    ()=>eq(scoreColor(3,3),'#2d6a4f'));
+test('bogey (5 on par-4) → dark',   ()=>eq(scoreColor(5,4),'#333'));
+test('double bogey → light grey',   ()=>eq(scoreColor(6,4),'#888'));
+test('triple bogey → light grey',   ()=>eq(scoreColor(7,4),'#888'));
+
+// ═══════════════════════════════════════════
+// SUITE 3 — GROSS TOTALS / PAR SUM
+// ═══════════════════════════════════════════
+suite('parSum');
+const _par18 = DEFAULT_PARS_18.reduce((s,p)=>s+p,0); // 72
+test('all 18 holes', ()=>eq(parSum(makeRound18()),_par18));
+test('front 9',      ()=>eq(parSum(makeRound18(),1,9),  DEFAULT_PARS_18.slice(0,9).reduce((s,p)=>s+p,0)));
+test('back 9',       ()=>eq(parSum(makeRound18(),10,18),DEFAULT_PARS_18.slice(9).reduce((s,p)=>s+p,0)));
+test('single hole',  ()=>eq(parSum(makeRound18(),1,1),  DEFAULT_PARS_18[0]));
+test('front+back = total', ()=>{
+  const r=makeRound18();
+  eq(parSum(r,1,9)+parSum(r,10,18),parSum(r));
+});
+
+suite('grossTotal');
+test('no scores = 0', ()=>{
+  eq(grossTotal(makeRound18(),'p1'),0);
+});
+test('all holes scored', ()=>{
+  const r=makeRound18();
+  for (let n=1;n<=18;n++) r.scores.p1[n]={s:5};
+  eq(grossTotal(r,'p1'),90);
+});
+test('partial range', ()=>{
+  const r=makeRound18();
+  for (let n=1;n<=18;n++) r.scores.p1[n]={s:4};
+  eq(grossTotal(r,'p1',1,9),36);
+});
+test('back 9 range', ()=>{
+  const r=makeRound18();
+  for (let n=1;n<=18;n++) r.scores.p1[n]={s:4};
+  eq(grossTotal(r,'p1',10,18),36);
+});
+test('unknown player = 0', ()=>{
+  const r=makeRound18();
+  for (let n=1;n<=18;n++) r.scores.p1[n]={s:5};
+  eq(grossTotal(r,'nobody'),0);
+});
+test('missing holes count as 0', ()=>{
+  const r=makeRound18();
+  r.scores.p1[1]={s:5}; // only hole 1
+  eq(grossTotal(r,'p1'),5);
+});
+test('multiple players independent', ()=>{
+  const r=makeRound18();
+  for (let n=1;n<=18;n++) { r.scores.p1[n]={s:4}; r.scores.p2[n]={s:5}; }
+  eq(grossTotal(r,'p1'),72);
+  eq(grossTotal(r,'p2'),90);
+});
+
+// ═══════════════════════════════════════════
+// SUITE 4 — HANDICAP CALCULATIONS
+// ═══════════════════════════════════════════
+suite('calcTeeHcp');
+test('scratch, standard slope, even CR',  ()=>eq(calcTeeHcp(0,  {slope:113,cr:72,par:72}),0));
+test('10 hcp, standard slope, even CR',   ()=>eq(calcTeeHcp(10, {slope:113,cr:72,par:72}),10));
+test('10 hcp, higher slope, even CR',     ()=>eq(calcTeeHcp(10, {slope:125,cr:72,par:72}),Math.round(10*125/113)));
+test('10 hcp, CR above par',              ()=>eq(calcTeeHcp(10, {slope:113,cr:74,par:72}),12));
+test('10 hcp, CR below par',              ()=>eq(calcTeeHcp(10, {slope:113,cr:70,par:72}),8));
+test('36 hcp, high slope',                ()=>eq(calcTeeHcp(36, {slope:130,cr:74,par:72}),Math.round(36*130/113+2)));
+test('string input coerced',              ()=>eq(calcTeeHcp('10',{slope:113,cr:72,par:72}),10));
+test('invalid input = 0 hcp',             ()=>eq(calcTeeHcp('x', {slope:113,cr:72,par:72}),0));
+test('rounding: 0.5 rounds up',           ()=>eq(calcTeeHcp(1,  {slope:170,cr:72,par:72}),Math.round(170/113)));
+
+suite('siStrokes');
+test('chcp 0 → always 0', ()=>{
+  for (let si=1;si<=18;si++) eq(siStrokes(0,si,18),0);
+});
+test('chcp 18 → 1 stroke every hole', ()=>{
+  for (let si=1;si<=18;si++) eq(siStrokes(18,si,18),1,'si='+si);
+});
+test('chcp 9 → 1 stroke on SI 1-9 only', ()=>{
+  for (let si=1;si<=9;si++)  eq(siStrokes(9,si,18),1,'si='+si);
+  for (let si=10;si<=18;si++) eq(siStrokes(9,si,18),0,'si='+si);
+});
+test('chcp 27 → 2 strokes on SI 1-9, 1 on SI 10-18', ()=>{
+  for (let si=1;si<=9;si++)  eq(siStrokes(27,si,18),2,'si='+si);
+  for (let si=10;si<=18;si++) eq(siStrokes(27,si,18),1,'si='+si);
+});
+test('chcp 36 → 2 strokes every hole', ()=>{
+  for (let si=1;si<=18;si++) eq(siStrokes(36,si,18),2,'si='+si);
+});
+test('9-hole, chcp 9 → 1 stroke every hole', ()=>{
+  for (let si=1;si<=9;si++) eq(siStrokes(9,si,9),1,'si='+si);
+});
+test('9-hole, chcp 5 → 1 stroke on SI 1-5 only', ()=>{
+  for (let si=1;si<=5;si++) eq(siStrokes(5,si,9),1,'si='+si);
+  for (let si=6;si<=9;si++) eq(siStrokes(5,si,9),0,'si='+si);
+});
+test('negative chcp → 0', ()=>eq(siStrokes(-1,1,18),0));
+
+suite('courseHcp');
+test('override takes precedence over handicap index', ()=>{
+  eq(courseHcp({courseHcpOverride:12,handicapIndex:24},makeRound18()),12);
+});
+test('override=0 is respected (not falsy-bypassed)', ()=>{
+  eq(courseHcp({courseHcpOverride:0,handicapIndex:24},makeRound18()),0);
+});
+test('handicapIndex 0 → 0', ()=>eq(courseHcp({handicapIndex:0},makeRound18()),0));
+test('scratch + standard slope + par==CR → 0', ()=>{
+  const r=makeRound18({courseRating:_par18,slopeRating:113});
+  eq(courseHcp({handicapIndex:0},r),0);
+});
+test('10 hcp, standard slope, par==CR → 10', ()=>{
+  const r=makeRound18({courseRating:_par18,slopeRating:113});
+  eq(courseHcp({handicapIndex:10},r),10);
+});
+test('9-hole round halves handicap index', ()=>{
+  const par9=DEFAULT_PARS_9.reduce((s,p)=>s+p,0);
+  const r={players:[],holes:makeHoles9(),scores:{},slopeRating:113,courseRating:par9};
+  eq(courseHcp({handicapIndex:20},r),10); // adj=10, slope=113, par=cr → 10
+});
+test('higher slope → more strokes', ()=>{
+  const r1=makeRound18({slopeRating:113,courseRating:_par18});
+  const r2=makeRound18({slopeRating:150,courseRating:_par18});
+  const p={handicapIndex:10};
+  assert(courseHcp(p,r2)>courseHcp(p,r1),'higher slope should give more strokes');
+});
+test('missing courseRating defaults to par', ()=>{
+  const r=makeRound18({courseRating:null,slopeRating:113});
+  // rating defaults to par → 0 adjustment, slope 113 → hcp = hcpIndex
+  eq(courseHcp({handicapIndex:10},r),10);
+});
+
+suite('netTotal');
+test('unknown player → 0', ()=>eq(netTotal(makeRound18(),'nobody'),0));
+test('no scores → 0',      ()=>eq(netTotal(makeRound18(),'p1'),0));
+test('scratch: net = gross', ()=>{
+  const r=makeRound18();
+  r.players[0]={id:'p1',name:'Alice',courseHcpOverride:0};
+  for (let n=1;n<=18;n++) r.scores.p1[n]={s:5};
+  eq(netTotal(r,'p1'),90);
+});
+test('18-hcp: 1 stroke off every hole', ()=>{
+  const r=makeRound18();
+  r.players[0]={id:'p1',name:'Alice',courseHcpOverride:18};
+  for (let n=1;n<=18;n++) r.scores.p1[n]={s:5}; // gross 90
+  eq(netTotal(r,'p1'),72); // 90 - 18
+});
+test('9-hcp: 1 stroke on SI 1-9, 0 on SI 10-18', ()=>{
+  const r=makeRound18();
+  r.players[0]={id:'p1',name:'Alice',courseHcpOverride:9};
+  for (let n=1;n<=18;n++) r.scores.p1[n]={s:5}; // gross 90
+  eq(netTotal(r,'p1'),81); // 90 - 9
+});
+test('partial scores: only scored holes contribute', ()=>{
+  const r=makeRound18();
+  r.players[0]={id:'p1',name:'Alice',courseHcpOverride:0};
+  r.scores.p1[1]={s:5}; // only hole 1
+  eq(netTotal(r,'p1'),5);
+});
+
+// ═══════════════════════════════════════════
+// SUITE 5 — STABLEFORD
+// ═══════════════════════════════════════════
+suite('stablefordPts');
+test('no strokes → null',              ()=>assert(stablefordPts(0,4,0)===null));
+test('double bogey (d=+2) → 0',        ()=>eq(stablefordPts(6,4,0),0));
+test('triple bogey (d=+3) → 0',        ()=>eq(stablefordPts(7,4,0),0));
+test('bogey (d=+1) → 1',               ()=>eq(stablefordPts(5,4,0),1));
+test('par (d=0) → 2',                  ()=>eq(stablefordPts(4,4,0),2));
+test('birdie (d=-1) → 3',              ()=>eq(stablefordPts(3,4,0),3));
+test('eagle (d=-2) → 4',               ()=>eq(stablefordPts(2,4,0),4));
+test('albatross par-5 (d=-3) → 5',     ()=>eq(stablefordPts(2,5,0),5));
+test('hole-in-one par-4 (d=-3) → 5',   ()=>eq(stablefordPts(1,4,0),5));
+test('hole-in-one par-3 (d=-2) → 4',   ()=>eq(stablefordPts(1,3,0),4));
+test('1 hcp stroke turns bogey→par',    ()=>eq(stablefordPts(5,4,1),2));
+test('2 hcp strokes turn bogey→birdie', ()=>eq(stablefordPts(5,4,2),3));
+test('1 hcp stroke: dbl-bogey→bogey',  ()=>eq(stablefordPts(6,4,1),1));
+test('par-3 par → 2',                  ()=>eq(stablefordPts(3,3,0),2));
+test('par-5 bogey → 1',                ()=>eq(stablefordPts(6,5,0),1));
+
+suite('stablefordTotal');
+test('unknown player → 0', ()=>eq(stablefordTotal(makeRound18(),'nobody'),0));
+test('no scores → 0',      ()=>eq(stablefordTotal(makeRound18(),'p1'),0));
+test('scratch: all pars → 36 pts', ()=>{
+  const r=makeRound18();
+  r.players[0]={id:'p1',name:'Alice',courseHcpOverride:0};
+  DEFAULT_PARS_18.forEach((par,i)=>{r.scores.p1[i+1]={s:par};});
+  eq(stablefordTotal(r,'p1'),36);
+});
+test('all bogeys, scratch → 18 pts', ()=>{
+  const r=makeRound18();
+  r.players[0]={id:'p1',name:'Alice',courseHcpOverride:0};
+  DEFAULT_PARS_18.forEach((par,i)=>{r.scores.p1[i+1]={s:par+1};});
+  eq(stablefordTotal(r,'p1'),18);
+});
+test('all double bogeys → 0 pts', ()=>{
+  const r=makeRound18();
+  r.players[0]={id:'p1',name:'Alice',courseHcpOverride:0};
+  DEFAULT_PARS_18.forEach((par,i)=>{r.scores.p1[i+1]={s:par+2};});
+  eq(stablefordTotal(r,'p1'),0);
+});
+test('18-hcp: all bogeys → net par → 36 pts', ()=>{
+  const r=makeRound18();
+  r.players[0]={id:'p1',name:'Alice',courseHcpOverride:18};
+  DEFAULT_PARS_18.forEach((par,i)=>{r.scores.p1[i+1]={s:par+1};});
+  eq(stablefordTotal(r,'p1'),36);
+});
+test('18-hcp: all pars → net birdie → 54 pts', ()=>{
+  const r=makeRound18();
+  r.players[0]={id:'p1',name:'Alice',courseHcpOverride:18};
+  DEFAULT_PARS_18.forEach((par,i)=>{r.scores.p1[i+1]={s:par};});
+  eq(stablefordTotal(r,'p1'),54); // 18 × 3pts (birdie)
+});
+
+// ═══════════════════════════════════════════
+// SUITE 6 — WOLF
+// ═══════════════════════════════════════════
+suite('wolfForHole — rotation');
+test('hole 1 → player A', ()=>eq(wolfForHole(makeWolfRound(),1),'pA'));
+test('hole 2 → player B', ()=>eq(wolfForHole(makeWolfRound(),2),'pB'));
+test('hole 3 → player C', ()=>eq(wolfForHole(makeWolfRound(),3),'pC'));
+test('hole 4 → player D', ()=>eq(wolfForHole(makeWolfRound(),4),'pD'));
+test('hole 5 wraps → player A', ()=>eq(wolfForHole(makeWolfRound(),5),'pA'));
+test('hole 9 → (8%4=0) → A',   ()=>eq(wolfForHole(makeWolfRound(),9),'pA'));
+test('hole 18 → (17%4=1) → B', ()=>eq(wolfForHole(makeWolfRound(),18),'pB'));
+
+suite('wolfHolePoints');
+test('no wolfHoles entry → null', ()=>{
+  assert(wolfHolePoints(makeWolfRound(),1)===null);
+});
+test('isLone=false, partnerPid=null → null (no decision)', ()=>{
+  const r=makeWolfRound(); r.wolfHoles[1]={isLone:false,partnerPid:null};
+  assert(wolfHolePoints(r,1)===null);
+});
+test('lone wolf wins → +6, opponents -2 each', ()=>{
+  const r=makeWolfRound();
+  r.scores.pA[1]={s:4}; r.scores.pB[1]={s:5}; r.scores.pC[1]={s:5}; r.scores.pD[1]={s:5};
+  r.wolfHoles[1]={isLone:true,partnerPid:null};
+  const pts=wolfHolePoints(r,1);
+  eq(pts.pA,6); eq(pts.pB,-2); eq(pts.pC,-2); eq(pts.pD,-2);
+});
+test('lone wolf loses → -6, opponents +2 each', ()=>{
+  const r=makeWolfRound();
+  r.scores.pA[1]={s:7}; r.scores.pB[1]={s:4}; r.scores.pC[1]={s:5}; r.scores.pD[1]={s:5};
+  r.wolfHoles[1]={isLone:true,partnerPid:null};
+  const pts=wolfHolePoints(r,1);
+  eq(pts.pA,-6); eq(pts.pB,2); eq(pts.pC,2); eq(pts.pD,2);
+});
+test('team wolf wins → wolf+partner +2, others -2', ()=>{
+  const r=makeWolfRound();
+  r.scores.pA[1]={s:3}; r.scores.pB[1]={s:3}; r.scores.pC[1]={s:5}; r.scores.pD[1]={s:5};
+  r.wolfHoles[1]={isLone:false,partnerPid:'pB'};
+  const pts=wolfHolePoints(r,1);
+  eq(pts.pA,2); eq(pts.pB,2); eq(pts.pC,-2); eq(pts.pD,-2);
+});
+test('team wolf loses → wolf+partner -2, others +2', ()=>{
+  const r=makeWolfRound();
+  r.scores.pA[1]={s:6}; r.scores.pB[1]={s:6}; r.scores.pC[1]={s:4}; r.scores.pD[1]={s:5};
+  r.wolfHoles[1]={isLone:false,partnerPid:'pB'};
+  const pts=wolfHolePoints(r,1);
+  eq(pts.pA,-2); eq(pts.pB,-2); eq(pts.pC,2); eq(pts.pD,2);
+});
+test('tie → all zero', ()=>{
+  const r=makeWolfRound();
+  r.scores.pA[1]={s:4}; r.scores.pB[1]={s:4}; r.scores.pC[1]={s:4}; r.scores.pD[1]={s:4};
+  r.wolfHoles[1]={isLone:true,partnerPid:null};
+  const pts=wolfHolePoints(r,1);
+  eq(pts.pA,0); eq(pts.pB,0); eq(pts.pC,0); eq(pts.pD,0);
+});
+test('missing scores → all zero', ()=>{
+  const r=makeWolfRound(); // no scores entered
+  r.wolfHoles[1]={isLone:false,partnerPid:'pB'};
+  const pts=wolfHolePoints(r,1);
+  eq(pts.pA,0); eq(pts.pB,0); eq(pts.pC,0); eq(pts.pD,0);
+});
+
+suite('wolfTotalPts');
+test('sums points across all played holes', ()=>{
+  const r=makeWolfRound();
+  // Hole 1: wolf=pA, lone wolf wins (+6 pA, -2 others)
+  r.scores.pA[1]={s:3}; r.scores.pB[1]={s:5}; r.scores.pC[1]={s:5}; r.scores.pD[1]={s:5};
+  r.wolfHoles[1]={isLone:true,partnerPid:null};
+  // Hole 2: wolf=pB, lone wolf wins (+6 pB, -2 others)
+  r.scores.pA[2]={s:5}; r.scores.pB[2]={s:3}; r.scores.pC[2]={s:5}; r.scores.pD[2]={s:5};
+  r.wolfHoles[2]={isLone:true,partnerPid:null};
+  eq(wolfTotalPts(r,'pA'),6-2);   // +6 hole1, -2 hole2
+  eq(wolfTotalPts(r,'pB'),-2+6);  // -2 hole1, +6 hole2
+  eq(wolfTotalPts(r,'pC'),-2-2);
+  eq(wolfTotalPts(r,'pD'),-2-2);
+});
+test('no decisions → 0 for all', ()=>{
+  const r=makeWolfRound();
+  eq(wolfTotalPts(r,'pA'),0);
+});
+
+// ═══════════════════════════════════════════
+// SUITE 7 — STORAGE: ROUNDS
+// ═══════════════════════════════════════════
+suite('saveRound / byId / removeRound');
+test('saveRound adds to _rounds', ()=>{
+  resetState();
+  saveRound(makeRound18(),'round_created');
+  eq(_rounds.length,1);
+});
+test('saveRound persists to localStorage', ()=>{
+  resetState();
+  saveRound(makeRound18(),'round_created');
+  const stored=JSON.parse(localStorage.getItem(ROUNDS_KEY));
+  eq(stored.length,1); eq(stored[0].id,'r1');
+});
+test('saveRound writes to Firestore', ()=>{
+  resetState();
+  saveRound(makeRound18(),'round_created');
+  assert(_fsStore['rounds/r1']!==undefined,'round should be in Firestore');
+  eq(_fsStore['rounds/r1'].id,'r1');
+});
+test('saveRound updates existing (no duplicates)', ()=>{
+  resetState();
+  const r=makeRound18();
+  saveRound(r,'round_created');
+  r.course='Updated';
+  saveRound(r);
+  eq(_rounds.length,1); eq(_rounds[0].course,'Updated');
+});
+test('two different rounds → both stored', ()=>{
+  resetState();
+  saveRound({...makeRound18(),id:'r1'},'round_created');
+  saveRound({...makeRound18(),id:'r2'},'round_created');
+  eq(_rounds.length,2);
+});
+test('byId finds round', ()=>{
+  resetState();
+  saveRound(makeRound18(),'round_created');
+  assert(byId('r1')!==null); eq(byId('r1').id,'r1');
+});
+test('byId returns null for unknown id', ()=>{
+  resetState(); assert(byId('x')===null);
+});
+test('removeRound deletes from memory and localStorage', ()=>{
+  resetState();
+  saveRound(makeRound18(),'round_created');
+  removeRound('r1');
+  eq(_rounds.length,0);
+  eq(JSON.parse(localStorage.getItem(ROUNDS_KEY)).length,0);
+});
+test('removeRound deletes from Firestore', ()=>{
+  resetState();
+  saveRound(makeRound18(),'round_created');
+  removeRound('r1');
+  assert(_fsStore['rounds/r1']===undefined,'should be gone from Firestore');
+});
+
+// ═══════════════════════════════════════════
+// SUITE 8 — STORAGE: PLAYERS
+// ═══════════════════════════════════════════
+suite('Player storage');
+test('persistPlayers saves to localStorage', ()=>{
+  resetState();
+  persistPlayers([{id:'pl1',name:'Alice'}]);
+  const stored=JSON.parse(localStorage.getItem(PLAYERS_KEY));
+  eq(stored.length,1); eq(stored[0].name,'Alice');
+});
+test('persistPlayers saves to Firestore', ()=>{
+  resetState();
+  persistPlayers([{id:'pl1',name:'Alice'}]);
+  assert(_fsStore['meta/players']!==undefined);
+  eq(_fsStore['meta/players'].list.length,1);
+});
+test('upsertPlayer adds new player', ()=>{
+  resetState();
+  upsertPlayer({id:'pl1',name:'Alice',handicapIndex:10});
+  eq(_players.length,1); eq(_players[0].name,'Alice');
+});
+test('upsertPlayer updates existing player', ()=>{
+  resetState();
+  upsertPlayer({id:'pl1',name:'Alice',handicapIndex:10});
+  upsertPlayer({id:'pl1',name:'Alice Smith',handicapIndex:12});
+  eq(_players.length,1); eq(_players[0].name,'Alice Smith'); eq(_players[0].handicapIndex,12);
+});
+test('upsertPlayer multiple players', ()=>{
+  resetState();
+  upsertPlayer({id:'pl1',name:'Alice'}); upsertPlayer({id:'pl2',name:'Bob'});
+  eq(_players.length,2);
+});
+test('deletePlayer removes correct player', ()=>{
+  resetState();
+  upsertPlayer({id:'pl1',name:'Alice'}); upsertPlayer({id:'pl2',name:'Bob'});
+  deletePlayer('pl1');
+  eq(_players.length,1); eq(_players[0].id,'pl2');
+});
+test('deletePlayer unknown id is a no-op', ()=>{
+  resetState();
+  upsertPlayer({id:'pl1',name:'Alice'});
+  deletePlayer('nobody');
+  eq(_players.length,1);
+});
+
+// ═══════════════════════════════════════════
+// SUITE 9 — AUDIT LOG
+// ═══════════════════════════════════════════
+suite('Audit log — _writeAuditEntry');
+test('creates entry in localStorage', ()=>{
+  resetState();
+  _writeAuditEntry(makeRound18(),'round_created');
+  const log=JSON.parse(localStorage.getItem(AUDIT_KEY));
+  eq(log.length,1); eq(log[0].event,'round_created'); eq(log[0].roundId,'r1');
+});
+test('entry contains full round snapshot', ()=>{
+  resetState();
+  _writeAuditEntry(makeRound18(),'round_created');
+  const log=JSON.parse(localStorage.getItem(AUDIT_KEY));
+  assert(log[0].round!==undefined,'should contain round');
+  eq(log[0].round.id,'r1');
+});
+test('entry has timestamp and course', ()=>{
+  resetState();
+  _writeAuditEntry(makeRound18(),'round_created');
+  const log=JSON.parse(localStorage.getItem(AUDIT_KEY));
+  assert(!!log[0].timestamp,'should have timestamp');
+  eq(log[0].course,'Test Course');
+});
+test('writes to Firestore auditLog collection', ()=>{
+  resetState();
+  _writeAuditEntry(makeRound18(),'round_created');
+  const auditKeys=Object.keys(_fsStore).filter(k=>k.startsWith('auditLog/'));
+  eq(auditKeys.length,1);
+  eq(_fsStore[auditKeys[0]].event,'round_created');
+});
+test('newest entry is first in array', ()=>{
+  resetState();
+  const r=makeRound18();
+  _writeAuditEntry(r,'round_created');
+  _writeAuditEntry(r,'scores_snapshot');
+  const log=JSON.parse(localStorage.getItem(AUDIT_KEY));
+  eq(log[0].event,'scores_snapshot'); eq(log[1].event,'round_created');
+});
+test('ring buffer caps at 100 entries', ()=>{
+  resetState();
+  const r=makeRound18();
+  for (let i=0;i<110;i++) _writeAuditEntry(r,'scores_snapshot');
+  const log=JSON.parse(localStorage.getItem(AUDIT_KEY));
+  assert(log.length<=100,'expected ≤100, got '+log.length);
+});
+test('entries older than 7 days are pruned', ()=>{
+  resetState();
+  const r=makeRound18();
+  const old={id:'old',roundId:'r1',course:'Test',event:'round_created',
+    timestamp:new Date(Date.now()-8*24*60*60*1000).toISOString(),round:r};
+  localStorage.setItem(AUDIT_KEY,JSON.stringify([old]));
+  _writeAuditEntry(r,'scores_snapshot'); // triggers prune
+  const log=JSON.parse(localStorage.getItem(AUDIT_KEY));
+  assert(log.every(e=>e.id!=='old'),'old entry should be pruned');
+  assert(log.some(e=>e.event==='scores_snapshot'),'new entry present');
+});
+
+suite('Audit log — saveRound integration');
+test('saveRound with auditEvent → immediate flush, no pending timer', ()=>{
+  resetState();
+  saveRound(makeRound18(),'round_created');
+  const log=JSON.parse(localStorage.getItem(AUDIT_KEY));
+  assert(log&&log.length===1,'audit entry written immediately');
+  eq(log[0].event,'round_created');
+  assert(_auditFlushTimer===null,'timer should be null after flush');
+});
+test('saveRound without auditEvent → debounce timer set', ()=>{
+  resetState();
+  const r=makeRound18(); _rounds=[r];
+  saveRound({...r}); // no auditEvent, round not done
+  assert(_auditFlushTimer!==null,'debounce timer should be set');
+  clearTimeout(_auditFlushTimer); _auditFlushTimer=null;
+});
+test('saveRound with done=true → immediate flush as round_finished', ()=>{
+  resetState();
+  saveRound({...makeRound18(),done:true}); // no explicit auditEvent
+  const log=JSON.parse(localStorage.getItem(AUDIT_KEY));
+  assert(log&&log.length===1);
+  eq(log[0].event,'round_finished');
+});
+test('_flushAudit cancels pending timer and writes immediately', ()=>{
+  resetState();
+  const r=makeRound18();
+  _scheduleAudit(r); assert(_auditFlushTimer!==null,'timer set');
+  _flushAudit(r,'hole_5');
+  assert(_auditFlushTimer===null,'timer cleared');
+  const log=JSON.parse(localStorage.getItem(AUDIT_KEY));
+  eq(log[0].event,'hole_5');
+});
+test('gotoHole flushes audit with hole_N event', ()=>{
+  resetState();
+  const r=makeRound18(); saveRound(r,'round_created');
+  S.roundId='r1'; S.hole=1;
+  localStorage.setItem(AUDIT_KEY,'[]'); // clear prior entries
+  gotoHole(5);
+  const log=JSON.parse(localStorage.getItem(AUDIT_KEY));
+  eq(log[0].event,'hole_5');
+});
+
+// ═══════════════════════════════════════════
+// SUITE 10 — NAVIGATION STATE
+// ═══════════════════════════════════════════
+suite('Navigation state — NAV_KEY');
+test('nav(scorecard) saves roundId+hole to localStorage', ()=>{
+  resetState(); S.roundId='r1'; S.hole=7;
+  nav('scorecard',{roundId:'r1',hole:7});
+  const saved=JSON.parse(localStorage.getItem(NAV_KEY));
+  eq(saved.roundId,'r1'); eq(saved.hole,7);
+});
+test('nav(home) removes NAV_KEY', ()=>{
+  resetState();
+  localStorage.setItem(NAV_KEY,'{"roundId":"r1","hole":5}');
+  nav('home');
+  assert(localStorage.getItem(NAV_KEY)===null,'NAV_KEY should be cleared');
+});
+test('nav(players) removes NAV_KEY', ()=>{
+  resetState();
+  localStorage.setItem(NAV_KEY,'{"roundId":"r1","hole":5}');
+  nav('players');
+  assert(localStorage.getItem(NAV_KEY)===null);
+});
+test('nav(stats) removes NAV_KEY', ()=>{
+  resetState();
+  localStorage.setItem(NAV_KEY,'{"roundId":"r1","hole":5}');
+  nav('stats');
+  assert(localStorage.getItem(NAV_KEY)===null);
+});
+test('nav updates S.view', ()=>{
+  resetState(); S.roundId='r1';
+  nav('scorecard',{roundId:'r1',hole:1}); eq(S.view,'scorecard');
+  nav('home'); eq(S.view,'home');
+});
+test('nav with params merges into S', ()=>{
+  resetState(); S.roundId='r1';
+  nav('scorecard',{roundId:'r99',hole:5});
+  eq(S.roundId,'r99'); eq(S.hole,5);
+});
+test('gotoHole updates NAV_KEY hole', ()=>{
+  resetState();
+  const r=makeRound18(); saveRound(r,'round_created');
+  S.roundId='r1'; S.hole=1;
+  localStorage.setItem(NAV_KEY,JSON.stringify({roundId:'r1',hole:1}));
+  gotoHole(9);
+  const saved=JSON.parse(localStorage.getItem(NAV_KEY));
+  eq(saved.hole,9); eq(saved.roundId,'r1');
+});
+test('gotoHole ignores hole number > total holes', ()=>{
+  resetState();
+  const r=makeRound18(); saveRound(r,'round_created');
+  S.roundId='r1'; S.hole=5;
+  gotoHole(99);
+  eq(S.hole,5); // unchanged
+});
+test('gotoHole ignores hole 0', ()=>{
+  resetState();
+  const r=makeRound18(); saveRound(r,'round_created');
+  S.roundId='r1'; S.hole=3;
+  gotoHole(0);
+  eq(S.hole,3);
+});
+
+// ═══════════════════════════════════════════
+// SUITE 11 — SCORE ENTRY
+// ═══════════════════════════════════════════
+suite('Score entry — adjScore / setScoreNumpad');
+test('adjScore increments score', ()=>{
+  resetState();
+  const r=makeRound18(); r.scores.p1[1]={s:4};
+  saveRound(r,'round_created'); S.roundId='r1'; S.hole=1;
+  adjScore('p1',1);
+  eq(byId('r1').scores.p1[1].s,5);
+});
+test('adjScore decrements score', ()=>{
+  resetState();
+  const r=makeRound18(); r.scores.p1[1]={s:4};
+  saveRound(r,'round_created'); S.roundId='r1'; S.hole=1;
+  adjScore('p1',-1);
+  eq(byId('r1').scores.p1[1].s,3);
+});
+test('adjScore floor at 1', ()=>{
+  resetState();
+  const r=makeRound18(); r.scores.p1[1]={s:1};
+  saveRound(r,'round_created'); S.roundId='r1'; S.hole=1;
+  adjScore('p1',-1);
+  eq(byId('r1').scores.p1[1].s,1);
+});
+test('adjScore on empty slot starts at 1', ()=>{
+  resetState();
+  const r=makeRound18(); saveRound(r,'round_created');
+  S.roundId='r1'; S.hole=1;
+  adjScore('p1',1); // cur=0, max(1,0+1)=1
+  eq(byId('r1').scores.p1[1].s,1);
+});
+test('adjScore persists to localStorage', ()=>{
+  resetState();
+  const r=makeRound18(); r.scores.p1[1]={s:4};
+  saveRound(r,'round_created'); S.roundId='r1'; S.hole=1;
+  adjScore('p1',1);
+  const stored=JSON.parse(localStorage.getItem(ROUNDS_KEY));
+  eq(stored[0].scores.p1[1].s,5);
+});
+test('setScoreNumpad sets exact score', ()=>{
+  resetState();
+  const r=makeRound18(); saveRound(r,'round_created');
+  S.roundId='r1'; S.hole=3;
+  setScoreNumpad('p1',6);
+  eq(byId('r1').scores.p1[3].s,6);
+});
+test('setScoreNumpad clears S.numpadPid', ()=>{
+  resetState();
+  const r=makeRound18(); saveRound(r,'round_created');
+  S.roundId='r1'; S.hole=1; S.numpadPid='p1';
+  setScoreNumpad('p1',4);
+  assert(S.numpadPid===null);
+});
+test('setScoreNumpad persists to localStorage', ()=>{
+  resetState();
+  const r=makeRound18(); saveRound(r,'round_created');
+  S.roundId='r1'; S.hole=2;
+  setScoreNumpad('p1',3);
+  const stored=JSON.parse(localStorage.getItem(ROUNDS_KEY));
+  eq(stored[0].scores.p1[2].s,3);
+});
+
+// ═══════════════════════════════════════════
+// SUITE 12 — FIRESTORE MERGE LOGIC
+// ═══════════════════════════════════════════
+suite('Firestore merge — mergeRounds');
+test('local-only round kept when Firestore empty', ()=>{
+  const local=[{id:'r1',date:'2026-05-01',course:'A'}];
+  const merged=mergeRounds([],local);
+  eq(merged.length,1); eq(merged[0].id,'r1');
+});
+test('Firestore version wins when both have same id', ()=>{
+  const fs=[{id:'r1',date:'2026-05-01',course:'Firestore'}];
+  const local=[{id:'r1',date:'2026-05-01',course:'Local'}];
+  const merged=mergeRounds(fs,local);
+  eq(merged.length,1); eq(merged[0].course,'Firestore');
+});
+test('local-only round appended to Firestore rounds', ()=>{
+  const fs=[{id:'r1',date:'2026-05-01',course:'A'}];
+  const local=[{id:'r1',date:'2026-05-01',course:'A'},{id:'r2',date:'2026-05-02',course:'B'}];
+  const merged=mergeRounds(fs,local);
+  eq(merged.length,2); assert(merged.some(r=>r.id==='r2'));
+});
+test('result sorted newest first', ()=>{
+  const fs=[{id:'r1',date:'2026-05-01T10:00:00Z',course:'A'}];
+  const local=[{id:'r2',date:'2026-05-02T10:00:00Z',course:'B'}];
+  const merged=mergeRounds(fs,local);
+  eq(merged[0].id,'r2'); eq(merged[1].id,'r1');
+});
+test('both empty → empty', ()=>eq(mergeRounds([],[]).length,0));
+test('Firestore has all → result equals Firestore list', ()=>{
+  const fs=[{id:'r1',date:'2026-05-01',course:'A'},{id:'r2',date:'2026-05-02',course:'B'}];
+  const local=[...fs];
+  const merged=mergeRounds(fs,local);
+  eq(merged.length,2);
+});
+test('multiple local-only rounds all kept', ()=>{
+  const local=[
+    {id:'r1',date:'2026-05-01',course:'A'},
+    {id:'r2',date:'2026-05-02',course:'B'},
+    {id:'r3',date:'2026-05-03',course:'C'},
+  ];
+  const merged=mergeRounds([],local);
+  eq(merged.length,3);
+});
+
+// ═══════════════════════════════════════════
+// SUITE 13 — AUTO-RECOVERY
+// ═══════════════════════════════════════════
+suite('Auto-recovery from audit log');
+function emptyRound(id) {
+  const r=makeRound18(); r.id=id;
+  r.players.forEach(p=>{r.scores[p.id]={};});
+  return r;
+}
+test('no navState → rounds unchanged', ()=>{
+  const rounds=[makeRound18()];
+  eq(tryRecoverRound(rounds,null,[]).length,1);
+});
+test('navState for unknown round → unchanged', ()=>{
+  const rounds=[makeRound18()];
+  const result=tryRecoverRound(rounds,{roundId:'unknown'},[]);
+  eq(result[0].id,'r1');
+});
+test('round already has scores → not recovered', ()=>{
+  const r=makeRound18(); r.scores.p1[1]={s:4};
+  const auditR={...r}; auditR.scores.p1[2]={s:5};
+  const result=tryRecoverRound([r],{roundId:'r1'},[{roundId:'r1',round:auditR}]);
+  assert(!result[0].scores.p1[2],'should not overwrite existing scores');
+});
+test('empty scores + empty audit → not recovered', ()=>{
+  const r=emptyRound('r1');
+  const result=tryRecoverRound([r],{roundId:'r1'},[]);
+  eq(Object.keys(result[0].scores.p1).length,0);
+});
+test('empty scores + audit entry → scores restored', ()=>{
+  const r=emptyRound('r1');
+  const recovered={...r}; recovered.scores.p1={1:{s:4},2:{s:5}};
+  const result=tryRecoverRound([r],{roundId:'r1'},[{roundId:'r1',round:recovered}]);
+  eq(result[0].scores.p1[1].s,4); eq(result[0].scores.p1[2].s,5);
+});
+test('done round is not recovered', ()=>{
+  const r={...emptyRound('r1'),done:true};
+  const recovered={...r,done:false}; recovered.scores.p1={1:{s:4}};
+  const result=tryRecoverRound([r],{roundId:'r1'},[{roundId:'r1',round:recovered}]);
+  eq(Object.keys(result[0].scores.p1).length,0); // unchanged
+});
+test('uses first (newest) audit entry', ()=>{
+  const r=emptyRound('r1');
+  const newer={...r}; newer.scores.p1={1:{s:3}};
+  const older={...r}; older.scores.p1={1:{s:7}};
+  const auditLog=[{roundId:'r1',round:newer},{roundId:'r1',round:older}];
+  const result=tryRecoverRound([r],{roundId:'r1'},auditLog);
+  eq(result[0].scores.p1[1].s,3); // uses newer (first in array)
+});
+test('audit entry for different round is ignored', ()=>{
+  const r=emptyRound('r1');
+  const auditLog=[{roundId:'r2',round:{...r,id:'r2'}}];
+  const result=tryRecoverRound([r],{roundId:'r1'},auditLog);
+  eq(Object.keys(result[0].scores.p1).length,0); // not recovered
+});
+test('other rounds not affected during recovery', ()=>{
+  const r1=emptyRound('r1');
+  const r2=makeRound18(); r2.id='r2'; r2.scores.p1[1]={s:4};
+  const recovered={...r1}; recovered.scores.p1={1:{s:5}};
+  const result=tryRecoverRound([r1,r2],{roundId:'r1'},[{roundId:'r1',round:recovered}]);
+  eq(result.find(x=>x.id==='r2').scores.p1[1].s,4); // r2 untouched
+});
+
+// ═══════════════════════════════════════════
+// RENDER RESULTS
+// ═══════════════════════════════════════════
+const el=document.getElementById('results');
+let html=`<div class="summary ${_failed?'has-failures':'all-pass'}">
+  ${_failed?'✗':'✓'} ${_passed} passed &nbsp;·&nbsp; ${_failed} failed &nbsp;·&nbsp; ${_passed+_failed} total
+</div>`;
+for (const s of _suites) {
+  const hasFail=s.tests.some(t=>!t.ok);
+  const passCount=s.tests.filter(t=>t.ok).length;
+  html+=`<details ${hasFail?'open':''}>
+    <summary class="suite-name ${hasFail?'suite-fail':'suite-pass'}">
+      ${hasFail?'✗':'✓'} ${s.name}
+      <span class="count">${passCount}/${s.tests.length}</span>
+    </summary><ul>`;
+  for (const t of s.tests) {
+    html+=`<li class="${t.ok?'pass':'fail'}">${t.ok?'✓':'✗'} ${t.name}
+      ${t.msg?`<span class="err">${t.msg}</span>`:''}
+    </li>`;
+  }
+  html+='</ul></details>';
+}
+el.innerHTML=html;
+
+// Also log summary to console
+console.log(`Tests: ${_passed} passed, ${_failed} failed`);
+if (_failed) {
+  for (const s of _suites) for (const t of s.tests) if (!t.ok)
+    console.error(`FAIL [${s.name}] ${t.name}: ${t.msg}`);
+}
+</script>
+</body>
+</html>
