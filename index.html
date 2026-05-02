@@ -913,6 +913,7 @@ const PLAYERS_KEY     = 'golf_players_v1';
 const COURSES_KEY     = 'golf_courses_v1';
 const COURSE_IMG_PFX  = 'golf_img_v1_';
 const NAV_KEY         = 'golf_nav_v1';
+const AUDIT_KEY       = 'golf_audit_v1';
 
 // ═══════════════════════════════════════════
 // FIREBASE
@@ -933,6 +934,7 @@ _db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 let _rounds          = [];
 let _players         = [];
 let _courseOverrides = [];
+let _auditFlushTimer = null;
 
 const SCORE_TYPES = [
   { key:'holesInOne',   label:'Hole in One',  color:'#FFD700' },
@@ -1059,12 +1061,55 @@ const S = {
 // ═══════════════════════════════════════════
 function loadRounds() { return _rounds; }
 
-function saveRound(r) {
+function saveRound(r, auditEvent) {
   const i = _rounds.findIndex(x => x.id === r.id);
   if (i >= 0) _rounds[i] = r; else _rounds.unshift(r);
   localStorage.setItem(ROUNDS_KEY, JSON.stringify(_rounds));
   _db.collection('rounds').doc(r.id).set(r).catch(() => {});
+  if (auditEvent || r.done) {
+    _flushAudit(r, auditEvent || 'round_finished');
+  } else {
+    _scheduleAudit(r);
+  }
   if (r.done) { try { downloadRoundBackup(r); } catch(e) {} }
+}
+
+// ═══════════════════════════════════════════
+// AUDIT LOG — append-only, never overwritten
+// Every round save lands in localStorage (AUDIT_KEY) AND Firestore auditLog collection.
+// localStorage copy survives Firestore overwrites; Firestore copy survives a browser wipe.
+// ═══════════════════════════════════════════
+function _writeAuditEntry(round, event) {
+  const entry = {
+    id: 'a' + Date.now() + Math.random().toString(36).slice(2, 6),
+    roundId: round.id,
+    course:  round.course,
+    timestamp: new Date().toISOString(),
+    event,
+    round: JSON.parse(JSON.stringify(round))
+  };
+  // localStorage ring buffer — 7 days / max 100 entries, newest first
+  try {
+    const log = JSON.parse(localStorage.getItem(AUDIT_KEY) || '[]');
+    log.unshift(entry);
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    localStorage.setItem(AUDIT_KEY, JSON.stringify(
+      log.filter(e => new Date(e.timestamp).getTime() > cutoff).slice(0, 100)
+    ));
+  } catch {}
+  // Firestore — append-only document, never updated or deleted
+  _db.collection('auditLog').doc(entry.id).set(entry).catch(() => {});
+}
+
+function _scheduleAudit(round) {
+  clearTimeout(_auditFlushTimer);
+  _auditFlushTimer = setTimeout(() => _writeAuditEntry(round, 'scores_snapshot'), 30000);
+}
+
+function _flushAudit(round, event) {
+  clearTimeout(_auditFlushTimer);
+  _auditFlushTimer = null;
+  _writeAuditEntry(round, event);
 }
 
 function byId(id) { return _rounds.find(r => r.id === id) || null; }
@@ -2445,7 +2490,7 @@ function startRound() {
     wolfHoles: {},
   };
 
-  saveRound(round);
+  saveRound(round, 'round_created');
   S.nr = { holes:18, pars:[...DEFAULT_PARS_18], si:[...DEFAULT_SI_18],
            courseRating:'', slopeRating:'113', showHoleSettings:false,
            selPids:[], guests:[{name:'',hcp:''},{name:'',hcp:''},{name:'',hcp:''},{name:'',hcp:''}],
@@ -2664,6 +2709,7 @@ function renderScorecard(c) {
 function gotoHole(n) {
   const round = byId(S.roundId);
   if (!round || n < 1 || n > round.holes.length) return;
+  _flushAudit(round, 'hole_' + n);  // snapshot with current scores before moving
   S.hole = n;
   S.showLayout = false;
   try { localStorage.setItem(NAV_KEY, JSON.stringify({ roundId: S.roundId, hole: n })); } catch {}
@@ -3932,6 +3978,30 @@ function toggleStatsIncludeStableford() {
     }
     _courseOverrides = fsCourses;
     if (needsWrite) _persistCoursesToFirestore();
+
+    // Auto-recover: if an in-progress round has no scores (Firestore only had the empty shell),
+    // restore from the local audit log which Firestore never overwrites.
+    try {
+      const navState = JSON.parse(localStorage.getItem(NAV_KEY) || 'null');
+      if (navState?.roundId) {
+        const r = _rounds.find(x => x.id === navState.roundId);
+        if (r && !r.done) {
+          const scoredCount = r.players.reduce((n, p) =>
+            n + Object.values(r.scores[p.id] || {}).filter(h => h?.s).length, 0);
+          if (scoredCount === 0) {
+            const auditLog = JSON.parse(localStorage.getItem(AUDIT_KEY) || '[]');
+            const best = auditLog.find(e => e.roundId === navState.roundId && e.round);
+            if (best) {
+              const idx = _rounds.findIndex(x => x.id === navState.roundId);
+              if (idx >= 0) {
+                _rounds[idx] = best.round;
+                _db.collection('rounds').doc(best.round.id).set(best.round).catch(() => {});
+              }
+            }
+          }
+        }
+      }
+    } catch {}
 
     localStorage.setItem(ROUNDS_KEY,  JSON.stringify(_rounds));
     localStorage.setItem(PLAYERS_KEY, JSON.stringify(_players));
