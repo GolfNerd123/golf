@@ -2640,7 +2640,7 @@ function renderScorecard(c) {
           <button class="sc-btn" onclick="adjScore('${p.id}',-1)">&#8722;</button>
           <div class="sc-circle" style="border-color:${col}" onclick="openNumpad('${p.id}')">
             <span class="sc-val" style="color:${g?col:'#ccc'}">${g||'&#8722;'}</span>
-            ${diff!==null?`<span class="sc-sub" style="color:${col}">${diff===0?'E':diff>0?'+'+diff:diff}</span>`:''}
+            ${diff!==null ? '<span class="sc-sub" style="color:' + col + '">' + (diff===0?'E':diff>0?'+'+diff:diff) + '</span>' : ''}
           </div>
           <button class="sc-btn" onclick="adjScore('${p.id}',1)">+</button>
           ${ptsBubble}
@@ -2889,10 +2889,9 @@ function renderSummary(c) {
         pRows += `<td>${cell(g, h.par)}</td>`;
       }
       if (nh===18) pRows += `<td class="sc" style="font-weight:700">${b||'-'}</td>`;
-      pRows += `<td class="sc">
-        <strong style="color:${isW?'#8B6914':'#1a1a1a'}">${tot||'-'}</strong>
-        ${tot?`<br><span style="font-size:9px;color:${d<=0?'#e63946':'#888'}">${dStr(d)}</span>`:''}
-      </td></tr>`;
+      const _gwDiffCol  = d<=0 ? '#e63946' : '#888';
+      const _gwDiffSpan = tot ? '<br><span style="font-size:9px;color:' + _gwDiffCol + '">' + dStr(d) + '</span>' : '';
+      pRows += '<td class="sc"><strong style="color:' + (isW?'#8B6914':'#1a1a1a') + '">' + (tot||'-') + '</strong>' + _gwDiffSpan + '</td></tr>';
     }
     return `<div class="tbl-wrap"><table class="sc-tbl">
       <thead>${thead}</thead>
@@ -3027,7 +3026,7 @@ function renderSummary(c) {
         <div class="lb-name">${esc(p.name)}</div>
         <div class="lb-right">
           <div class="lb-score">${val||'-'}</div>
-          ${val?`<div class="lb-diff" style="color:${d<=0?'#e63946':'#888'}">${dStr(d)}</div>`:''}
+          ${val ? '<div class="lb-diff" style="color:' + (d<=0?'#e63946':'#888') + '">' + dStr(d) + '</div>' : ''}
           ${hcpTag}
         </div>
       </div>`;
@@ -3186,8 +3185,11 @@ function renderSummary(c) {
     const tGross = fGross + bGross;
     const tNet   = netTotal(round, pid);
     parCells   += `<td class="sc"><strong>${tpar}</strong></td>`;
-    scoreCells += `<td class="sc"><strong>${tGross||'-'}</strong>${tGross?`<br><span style="font-size:9px;color:${tGross-tpar<=0?'#e63946':'#888'}">${dStr(tGross-tpar)}</span>`:''}</td>`;
-    netCells   += `<td class="sc" style="font-size:10px;color:#888">${chcp>0&&tNet?`${tNet} (${dStr(tNet-tpar)})`:''}</td>`;
+    const _scDiffCol  = tGross-tpar<=0 ? '#e63946' : '#888';
+    const _scDiffSpan = tGross ? '<br><span style="font-size:9px;color:' + _scDiffCol + '">' + dStr(tGross-tpar) + '</span>' : '';
+    scoreCells += '<td class="sc"><strong>' + (tGross||'-') + '</strong>' + _scDiffSpan + '</td>';
+    const _netDisp = chcp>0&&tNet ? tNet + ' (' + dStr(tNet-tpar) + ')' : '';
+    netCells   += '<td class="sc" style="font-size:10px;color:#888">' + _netDisp + '</td>';
 
     let thead = `<tr><th class="nc">${esc(p.name.split(' ')[0])}</th>`;
     for (const h of front) thead += `<th>${h.n}</th>`;
@@ -3196,7 +3198,7 @@ function renderSummary(c) {
     if (nh===18) thead += `<th class="sc">IN</th>`;
     thead += `<th class="sc" style="color:var(--green-pale)">TOT</th></tr>`;
 
-    const netRowLabel = chcp > 0 ? `Net${chcp>0?` (CH ${chcp})`:''}` : '';
+    const netRowLabel = chcp > 0 ? 'Net' + (chcp > 0 ? ' (CH ' + chcp + ')' : '') : '';
     const netRow = chcp > 0 ? `<tr><td class="nc" style="font-size:10px;color:#888">${netRowLabel}</td>${netCells}</tr>` : '';
 
     return `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">${esc(p.name)}${hcpTag}</div>
@@ -3972,7 +3974,12 @@ function toggleStatsIncludeStableford() {
     }
   } catch {}
 
-  render();
+  try {
+    render();
+  } catch (e) {
+    S.view = 'home'; S.roundId = null;
+    try { render(); } catch {}
+  }
 
   // Load from Firestore — merge with local data so offline-only saves are not lost
   try {
