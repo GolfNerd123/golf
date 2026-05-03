@@ -884,6 +884,69 @@ test('finished round is NOT auto-recovered (done flag respected)',()=>{
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
+// RIVALRY BANNER — format-aware scoring (mirrored from rivalryBannerHtml)
+// ═════════════════════════════════════════════════════════════════════════════
+function rivalryBannerScore(round, pids) {
+  const isStbl = (round.format || 'stroke') === 'stableford';
+  return pids.reduce((s, pid) => s + (isStbl ? stablefordTotal(round, pid) : netTotal(round, pid)), 0);
+}
+function rivalryBannerWinner(round, aScore, bScore) {
+  const isStbl = (round.format || 'stroke') === 'stableford';
+  if (isStbl ? aScore > bScore : aScore < bScore) return 'A';
+  if (isStbl ? bScore > aScore : bScore < aScore) return 'B';
+  return 'TIE';
+}
+function rivalryBannerLabel(round) {
+  return (round.format || 'stroke') === 'stableford' ? 'stableford points' : 'net strokes';
+}
+
+suite('Rivalry banner — format-aware scoring');
+test('stroke round: lower net score wins', () => {
+  const r = makeRound18(); r.format = 'stroke';
+  r.scores.p1 = {}; r.scores.p2 = {};
+  for (let n = 1; n <= 18; n++) { r.scores.p1[n] = { s: 5 }; r.scores.p2[n] = { s: 4 }; }
+  const aScore = rivalryBannerScore(r, ['p1']);
+  const bScore = rivalryBannerScore(r, ['p2']);
+  eq(rivalryBannerWinner(r, aScore, bScore), 'B'); // p2 has fewer strokes
+});
+test('stableford round: higher points score wins', () => {
+  const r = makeRound18(); r.format = 'stableford';
+  r.scores.p1 = {}; r.scores.p2 = {};
+  // p1 gets par every hole (2pts), p2 gets bogey (1pt)
+  for (let n = 1; n <= 18; n++) {
+    const par = r.holes[n-1].par;
+    r.scores.p1[n] = { s: par };
+    r.scores.p2[n] = { s: par + 1 };
+  }
+  const aScore = rivalryBannerScore(r, ['p1']);
+  const bScore = rivalryBannerScore(r, ['p2']);
+  assert(aScore > bScore, `p1 should have more points (${aScore} vs ${bScore})`);
+  eq(rivalryBannerWinner(r, aScore, bScore), 'A');
+});
+test('stableford round: tie detected correctly', () => {
+  const r = makeRound18(); r.format = 'stableford';
+  r.players.forEach(p => p.handicapIndex = 0); // same hcp → same pts for same shots
+  r.scores.p1 = {}; r.scores.p2 = {};
+  for (let n = 1; n <= 18; n++) {
+    const par = r.holes[n-1].par;
+    r.scores.p1[n] = { s: par };
+    r.scores.p2[n] = { s: par };
+  }
+  const aScore = rivalryBannerScore(r, ['p1']);
+  const bScore = rivalryBannerScore(r, ['p2']);
+  eq(rivalryBannerWinner(r, aScore, bScore), 'TIE');
+});
+test('label is "stableford points" for stableford round', () => {
+  eq(rivalryBannerLabel({ format: 'stableford' }), 'stableford points');
+});
+test('label is "net strokes" for stroke round', () => {
+  eq(rivalryBannerLabel({ format: 'stroke' }), 'net strokes');
+});
+test('label is "net strokes" when format is absent', () => {
+  eq(rivalryBannerLabel({}), 'net strokes');
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
 // COURSE OVERRIDE MERGE  (logic mirrored from init + onSnapshot)
 // ═════════════════════════════════════════════════════════════════════════════
 function mergeCourseOverrides(localOverrides, fsCourses) {
