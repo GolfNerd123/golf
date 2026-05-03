@@ -854,6 +854,7 @@
   .copy-btn.copied { background: #f0f7f4; border-color: var(--green-mid); color: var(--green-mid); }
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 </head>
@@ -930,12 +931,13 @@ const _fbConfig = {
   messagingSenderId: "374005827667",
   appId: "1:374005827667:web:83a870bddf7b2f21fa5ea6"
 };
-let _db = null, _storage = null;
+let _db = null, _storage = null, _auth = null;
 try {
   if (typeof firebase !== 'undefined') {
     firebase.initializeApp(_fbConfig);
     _db      = firebase.firestore();
     _storage = firebase.storage();
+    _auth    = firebase.auth();
     _db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
   }
 } catch(e) { console.warn('Firebase init failed, running offline-only:', e); }
@@ -3992,6 +3994,11 @@ function toggleStatsIncludeStableford() {
   } catch (e) {
     S.view = 'home'; S.roundId = null;
     try { render(); } catch {}
+  }
+
+  // Sign in anonymously so Firestore security rules can require authentication
+  if (_auth) {
+    try { await _auth.signInAnonymously(); } catch(e) { /* offline — skip sync */ }
   }
 
   // Load from Firestore — merge with local data so offline-only saves are not lost

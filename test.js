@@ -5,6 +5,30 @@
 // Exit 0 = all pass  |  Exit 1 = failures found
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── SYNTAX CHECK (runs before everything else) ────────────────────────────────
+// Extracts the inline <script> from index.html and validates it parses cleanly.
+// A syntax error here would cause a blank page — catch it before it ships.
+{
+  const fs = require('fs');
+  const vm = require('vm');
+  const html = fs.readFileSync(require('path').join(__dirname, 'index.html'), 'utf8');
+  const scriptStart = html.indexOf('<script>');
+  const scriptEnd   = html.lastIndexOf('</script>');
+  if (scriptStart === -1 || scriptEnd === -1) {
+    console.error('\x1b[31mSYNTAX CHECK FAILED: could not locate <script> block in index.html\x1b[0m');
+    process.exit(1);
+  }
+  const js = html.slice(scriptStart + 8, scriptEnd);
+  try {
+    new vm.Script(js);
+    console.log('\x1b[32m✓ index.html script syntax OK\x1b[0m');
+  } catch (e) {
+    console.error('\x1b[31mSYNTAX CHECK FAILED: ' + e.message + '\x1b[0m');
+    console.error('Push blocked — fix the syntax error in index.html before pushing.');
+    process.exit(1);
+  }
+}
+
 // ── TERMINAL COLOURS ─────────────────────────────────────────────────────────
 const isTTY = process.stdout.isTTY;
 const C = {
