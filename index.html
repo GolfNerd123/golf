@@ -2902,39 +2902,22 @@ function renderSummary(c) {
 
   // Stableford scorecard table
   function buildStablefordTable() {
-    let thead = `<tr><th class="nc">Player</th>`;
-    for (const h of front) thead += `<th>${h.n}</th>`;
-    thead += `<th class="sc">${nh===18?'OUT':'F'}</th>`;
-    for (const h of back)  thead += `<th>${h.n}</th>`;
-    if (nh===18) thead += `<th class="sc">IN</th>`;
-    thead += `<th class="sc" style="color:var(--green-pale)">PTS</th></tr>`;
+    let thead = '<tr><th class="nc">Player</th>';
+    for (const h of front) thead += '<th>' + h.n + '</th>';
+    thead += '<th class="sc">' + (nh===18?'OUT':'F') + '</th>';
+    for (const h of back)  thead += '<th>' + h.n + '</th>';
+    if (nh===18) thead += '<th class="sc">IN</th>';
+    thead += '<th class="sc" style="color:var(--green-pale)">PTS</th></tr>';
     // Par row
-    thead += `<tr style="font-size:10px;color:#aaa"><th class="nc" style="font-size:9px;color:#bbb">PAR</th>`;
-    for (const h of front) thead += `<th>${h.par}</th>`;
-    thead += `<th class="sc">${fpar}</th>`;
-    for (const h of back)  thead += `<th>${h.par}</th>`;
-    if (nh===18) thead += `<th class="sc">${bpar}</th>`;
-    thead += `<th class="sc">${tpar}</th></tr>`;
+    thead += '<tr style="font-size:10px;color:#aaa"><th class="nc" style="font-size:9px;color:#bbb">PAR</th>';
+    for (const h of front) thead += '<th>' + h.par + '</th>';
+    thead += '<th class="sc">' + fpar + '</th>';
+    for (const h of back)  thead += '<th>' + h.par + '</th>';
+    if (nh===18) thead += '<th class="sc">' + bpar + '</th>';
+    thead += '<th class="sc">' + tpar + '</th></tr>';
 
     const sorted = [...round.players].sort((a,b) => stablefordTotal(round,b.id) - stablefordTotal(round,a.id));
     const winId  = sorted[0]?.id;
-
-    const stblColor = (val) => {
-      if (val >= 5) return '#c084fc';
-      if (val === 4) return '#FFD700';
-      if (val === 3) return '#e63946';
-      if (val === 2) return '#2d6a4f';
-      if (val === 1) return '#888';
-      return '#ccc';
-    };
-
-    // Build a hole cell showing stroke (small, muted) above stableford points (coloured)
-    const holeCell = (g, par, hs) => {
-      const v = stablefordPts(g, par, hs);
-      if (v === null) return `<td>-</td>`;
-      const strokeLabel = g > 0 ? `<div style="font-size:9px;color:#bbb;line-height:1.2">${g}</div>` : '';
-      return `<td>${strokeLabel}<span style="font-weight:700;color:${stblColor(v)}">${v}</span></td>`;
-    };
 
     let pRows = '';
     for (const p of round.players) {
@@ -2943,31 +2926,44 @@ function renderSummary(c) {
       let f = 0, b = 0;
       for (const h of front) {
         const g  = round.scores[p.id]?.[h.n]?.s || 0;
-        f += stablefordPts(g, h.par, siStrokes(chcp, h.si, nh)) || 0;
+        const hs = siStrokes(chcp, h.si, nh);
+        f += stablefordPts(g, h.par, hs) || 0;
       }
       for (const h of back) {
         const g  = round.scores[p.id]?.[h.n]?.s || 0;
-        b += stablefordPts(g, h.par, siStrokes(chcp, h.si, nh)) || 0;
+        const hs = siStrokes(chcp, h.si, nh);
+        b += stablefordPts(g, h.par, hs) || 0;
       }
       const tot = f + b;
-      pRows += `<tr ${isW?'class="win-row"':''}>
-        <td class="nc" style="font-weight:700">${esc(p.name.split(' ')[0])}</td>`;
+      const stblColor = (val) => {
+        if (val >= 5) return '#c084fc';
+        if (val === 4) return '#FFD700';
+        if (val === 3) return '#e63946';
+        if (val === 2) return '#2d6a4f';
+        if (val === 1) return '#888';
+        return '#ccc';
+      };
+      pRows += '<tr ' + (isW ? 'class="win-row"' : '') + '>'
+             + '<td class="nc" style="font-weight:700">' + esc(p.name.split(' ')[0]) + '</td>';
       for (const h of front) {
-        const g = round.scores[p.id]?.[h.n]?.s || 0;
-        pRows += holeCell(g, h.par, siStrokes(chcp, h.si, nh));
+        const g  = round.scores[p.id]?.[h.n]?.s || 0;
+        const hs = siStrokes(chcp, h.si, nh);
+        const v  = stablefordPts(g, h.par, hs);
+        const strokePart = (v !== null && g > 0) ? '<div style="font-size:9px;color:#bbb;line-height:1.2">' + g + '</div>' : '';
+        pRows += '<td>' + (v !== null ? strokePart + '<span style="font-weight:700;color:' + stblColor(v) + '">' + v + '</span>' : '-') + '</td>';
       }
-      pRows += `<td class="sc" style="font-weight:700">${f||'-'}</td>`;
+      pRows += '<td class="sc" style="font-weight:700">' + (f||'-') + '</td>';
       for (const h of back) {
-        const g = round.scores[p.id]?.[h.n]?.s || 0;
-        pRows += holeCell(g, h.par, siStrokes(chcp, h.si, nh));
+        const g  = round.scores[p.id]?.[h.n]?.s || 0;
+        const hs = siStrokes(chcp, h.si, nh);
+        const v  = stablefordPts(g, h.par, hs);
+        const strokePart = (v !== null && g > 0) ? '<div style="font-size:9px;color:#bbb;line-height:1.2">' + g + '</div>' : '';
+        pRows += '<td>' + (v !== null ? strokePart + '<span style="font-weight:700;color:' + stblColor(v) + '">' + v + '</span>' : '-') + '</td>';
       }
-      if (nh===18) pRows += `<td class="sc" style="font-weight:700">${b||'-'}</td>`;
-      pRows += `<td class="sc"><strong style="color:${isW?'#8B6914':'var(--green)'}">${tot||'-'}</strong></td></tr>`;
+      if (nh===18) pRows += '<td class="sc" style="font-weight:700">' + (b||'-') + '</td>';
+      pRows += '<td class="sc"><strong style="color:' + (isW ? '#8B6914' : 'var(--green)') + '">' + (tot||'-') + '</strong></td></tr>';
     }
-    return `<div class="tbl-wrap"><table class="sc-tbl">
-      <thead>${thead}</thead>
-      <tbody>${pRows}</tbody>
-    </table></div>`;
+    return '<div class="tbl-wrap"><table class="sc-tbl"><thead>' + thead + '</thead><tbody>' + pRows + '</tbody></table></div>';
   }
 
   // Wolf hole-by-hole table
@@ -3431,22 +3427,21 @@ function rivalryBannerHtml(roundId, rounds) {
   const aScore = aPids.reduce((s, pid) => s + (isStblRound ? stablefordTotal(r, pid) : netTotal(r, pid)), 0);
   const bScore = bPids.reduce((s, pid) => s + (isStblRound ? stablefordTotal(r, pid) : netTotal(r, pid)), 0);
   const scoreLabel = isStblRound ? 'stableford points' : 'net strokes';
-  // Stableford: higher wins. Stroke: lower wins.
   const aWins = isStblRound ? aScore > bScore : aScore < bScore;
   const bWins = isStblRound ? bScore > aScore : bScore < aScore;
 
   let headline, sub, extra = '';
   if (aWins) {
     headline = `🏆 ${esc(aN1)} &amp; ${esc(aN2)} are the greatest!`;
-    sub = `Won with ${aScore} vs ${bScore} (${scoreLabel})`;
+    sub = 'Won with ' + aScore + ' vs ' + bScore + ' (' + scoreLabel + ')';
     extra = `style="background:linear-gradient(135deg,#1a4731,#2d6a4f)"`;
   } else if (bWins) {
     headline = `🏆 ${esc(bN1)} &amp; ${esc(bN2)} are the greatest!`;
-    sub = `Won with ${bScore} vs ${aScore} (${scoreLabel})`;
+    sub = 'Won with ' + bScore + ' vs ' + aScore + ' (' + scoreLabel + ')';
     extra = `style="background:linear-gradient(135deg,#7c3a00,#b85500)"`;
   } else {
     headline = `🤝 It&apos;s a tie — well played!`;
-    sub = `${esc(aN1)} &amp; ${esc(aN2)} vs ${esc(bN1)} &amp; ${esc(bN2)} — both scored ${aScore} (${scoreLabel})`;
+    sub = esc(aN1) + ' &amp; ' + esc(aN2) + ' vs ' + esc(bN1) + ' &amp; ' + esc(bN2) + ' — both scored ' + aScore + ' (' + scoreLabel + ')';
     extra = `style="background:linear-gradient(135deg,#2d2d2d,#555)"`;
   }
 
