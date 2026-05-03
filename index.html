@@ -1187,6 +1187,7 @@ function saveCourseData(course) {
     const { imgs, ...meta } = course;
     // Only Storage URLs go to Firestore — never base64 blobs
     meta.imgs = (imgs || []).map(img => (img && img.startsWith('http')) ? img : '');
+    meta.updatedAt = Date.now();
     const i = _courseOverrides.findIndex(o => o.id === meta.id);
     if (i >= 0) _courseOverrides[i] = meta; else _courseOverrides.push(meta);
     try { localStorage.setItem(COURSES_KEY, JSON.stringify(_courseOverrides)); } catch {}
@@ -3991,15 +3992,20 @@ function toggleStatsIncludeStableford() {
       }
     }
 
-    // Courses: Firestore wins; migrate any local-only overrides up on first run
+    // Courses: merge local + Firestore, newer updatedAt wins, local wins on tie/no timestamp
     const fsCourses = cSnap.exists ? (cSnap.data().list || []) : [];
-    const fsIds = new Set(fsCourses.map(c => c.id));
-    let needsWrite = false;
-    for (const local of _courseOverrides) {
-      if (!fsIds.has(local.id)) { fsCourses.push(local); needsWrite = true; }
+    const merged = new Map(_courseOverrides.map(c => [c.id, c]));
+    for (const fsCourse of fsCourses) {
+      const local = merged.get(fsCourse.id);
+      if (!local) {
+        merged.set(fsCourse.id, fsCourse);
+      } else if (local.updatedAt && fsCourse.updatedAt && fsCourse.updatedAt > local.updatedAt) {
+        merged.set(fsCourse.id, fsCourse); // Firestore is definitively newer
+      }
+      // else: local wins (no timestamps, or local is newer/equal — preserves user's edits)
     }
-    _courseOverrides = fsCourses;
-    if (needsWrite) _persistCoursesToFirestore();
+    _courseOverrides = Array.from(merged.values());
+    _persistCoursesToFirestore(); // push merged state back to Firestore
 
     // Auto-recover: if an in-progress round has no scores (Firestore only had the empty shell),
     // restore from the local audit log which Firestore never overwrites.
@@ -4057,9 +4063,22 @@ function toggleStatsIncludeStableford() {
 
   _db.collection('meta').doc('courses').onSnapshot(snap => {
     if (!snap.exists) return;
-    _courseOverrides = snap.data().list || [];
-    try { localStorage.setItem(COURSES_KEY, JSON.stringify(_courseOverrides)); } catch {}
-    if (S.view === 'courses' || S.view === 'newRound') render();
+    const fsList = snap.data().list || [];
+    let changed = false;
+    for (const fsCourse of fsList) {
+      const localIdx = _courseOverrides.findIndex(c => c.id === fsCourse.id);
+      if (localIdx < 0) {
+        _courseOverrides.push(fsCourse); changed = true;
+      } else if (fsCourse.updatedAt && _courseOverrides[localIdx].updatedAt &&
+                 fsCourse.updatedAt > _courseOverrides[localIdx].updatedAt) {
+        _courseOverrides[localIdx] = fsCourse; changed = true; // another device saved a newer version
+      }
+      // else: local version is current — don't overwrite
+    }
+    if (changed) {
+      try { localStorage.setItem(COURSES_KEY, JSON.stringify(_courseOverrides)); } catch {}
+      if (S.view === 'courses' || S.view === 'newRound') render();
+    }
   });
 })();
 

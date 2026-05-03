@@ -884,6 +884,87 @@ test('finished round is NOT auto-recovered (done flag respected)',()=>{
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
+// COURSE OVERRIDE MERGE  (logic mirrored from init + onSnapshot)
+// ═════════════════════════════════════════════════════════════════════════════
+function mergeCourseOverrides(localOverrides, fsCourses) {
+  const merged = new Map(localOverrides.map(c => [c.id, c]));
+  for (const fsCourse of fsCourses) {
+    const local = merged.get(fsCourse.id);
+    if (!local) {
+      merged.set(fsCourse.id, fsCourse);
+    } else if (local.updatedAt && fsCourse.updatedAt && fsCourse.updatedAt > local.updatedAt) {
+      merged.set(fsCourse.id, fsCourse);
+    }
+  }
+  return Array.from(merged.values());
+}
+
+suite('Course override merge — init strategy');
+test('Firestore-only course added to local', () => {
+  const result = mergeCourseOverrides([], [{ id:'korpa', name:'Korpa', updatedAt:1000 }]);
+  eq(result.length, 1);
+  eq(result[0].id, 'korpa');
+});
+test('local-only course preserved when not in Firestore', () => {
+  const local = [{ id:'grafarholt', name:'Grafarholt', courseRating:71.5, updatedAt:1000 }];
+  const result = mergeCourseOverrides(local, []);
+  eq(result.length, 1);
+  eq(result[0].courseRating, 71.5);
+});
+test('local wins when both have same timestamp', () => {
+  const local = [{ id:'grafarholt', courseRating:71.5, updatedAt:1000 }];
+  const fs    = [{ id:'grafarholt', courseRating:70.5, updatedAt:1000 }];
+  const result = mergeCourseOverrides(local, fs);
+  eq(result[0].courseRating, 71.5);
+});
+test('local wins when neither has a timestamp', () => {
+  const local = [{ id:'grafarholt', courseRating:71.5 }];
+  const fs    = [{ id:'grafarholt', courseRating:70.5 }];
+  const result = mergeCourseOverrides(local, fs);
+  eq(result[0].courseRating, 71.5);
+});
+test('Firestore wins when its timestamp is strictly newer', () => {
+  const local = [{ id:'grafarholt', courseRating:70.5, updatedAt:1000 }];
+  const fs    = [{ id:'grafarholt', courseRating:71.5, updatedAt:2000 }];
+  const result = mergeCourseOverrides(local, fs);
+  eq(result[0].courseRating, 71.5);
+});
+test('local wins when local timestamp is newer', () => {
+  const local = [{ id:'grafarholt', courseRating:71.5, updatedAt:3000 }];
+  const fs    = [{ id:'grafarholt', courseRating:70.5, updatedAt:2000 }];
+  const result = mergeCourseOverrides(local, fs);
+  eq(result[0].courseRating, 71.5);
+});
+test('local wins when only Firestore has no timestamp', () => {
+  const local = [{ id:'grafarholt', courseRating:71.5, updatedAt:1000 }];
+  const fs    = [{ id:'grafarholt', courseRating:70.5 }];
+  const result = mergeCourseOverrides(local, fs);
+  eq(result[0].courseRating, 71.5);
+});
+test('local wins when only local has no timestamp', () => {
+  const local = [{ id:'grafarholt', courseRating:71.5 }];
+  const fs    = [{ id:'grafarholt', courseRating:70.5, updatedAt:2000 }];
+  const result = mergeCourseOverrides(local, fs);
+  eq(result[0].courseRating, 71.5);
+});
+test('multiple courses merged correctly', () => {
+  const local = [
+    { id:'grafarholt', courseRating:71.5, updatedAt:3000 },
+    { id:'korpa',      courseRating:72.0, updatedAt:1000 },
+  ];
+  const fs = [
+    { id:'grafarholt', courseRating:70.5, updatedAt:2000 }, // local is newer → local wins
+    { id:'korpa',      courseRating:73.0, updatedAt:2000 }, // fs is newer → fs wins
+    { id:'keilir',     courseRating:70.1, updatedAt:500  }, // only in fs → added
+  ];
+  const result = mergeCourseOverrides(local, fs);
+  eq(result.length, 3);
+  eq(result.find(c => c.id==='grafarholt').courseRating, 71.5);
+  eq(result.find(c => c.id==='korpa').courseRating,      73.0);
+  eq(result.find(c => c.id==='keilir').courseRating,     70.1);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
 // TEAM SCORE SUMMARY  (logic mirrored from renderStats)
 // ═════════════════════════════════════════════════════════════════════════════
 function buildTeamSummary(allPlayerStats) {
