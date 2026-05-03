@@ -898,9 +898,13 @@
     <h1 id="hdr-title">Golf Scorecard.</h1>
     <div id="hdr-right"></div>
   </header>
-  <main id="main"></main>
+  <main id="main"><p id="js-err" style="padding:2rem;color:red;font-family:monospace">Loading…</p></main>
 </div>
 <script>
+window.onerror = function(msg, src, line, col, err) {
+  var el = document.getElementById('js-err');
+  if (el) el.innerHTML = '<b>JS ERROR</b><br>' + msg + '<br>line ' + line + ', col ' + col + '<br>' + (err && err.stack ? err.stack.replace(/</g,'&lt;') : '');
+};
 // ═══════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════
@@ -3980,6 +3984,8 @@ function toggleStatsIncludeStableford() {
     }
   } catch {}
 
+  var _errEl = document.getElementById('js-err');
+  if (_errEl) _errEl.remove();
   try {
     render();
   } catch (e) {
