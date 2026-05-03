@@ -3518,24 +3518,25 @@ function rivalrySectionHtml(rounds) {
           <div style="font-size:13px;font-weight:700;margin-bottom:8px;line-height:1.35">${esc(aN1)}<br>${esc(aN2)}</div>
           <div style="font-size:64px;font-weight:900;line-height:1;${aLead?'color:#FFD700':''}">${rv.aWins}</div>
           <div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:3px;letter-spacing:.5px">win${rv.aWins!==1?'s':''}</div>
-          ${aLead?`<div style="font-size:20px;margin-top:8px">🏆</div>`:''}
+          ${aLead?'<div style="font-size:20px;margin-top:8px">🏆</div>':''}
         </div>
         <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.4);text-align:center">
           <div style="font-size:20px;margin-bottom:4px">vs</div>
-          ${rv.ties?`<div style="font-size:10px">${rv.ties} tie${rv.ties!==1?'s':''}</div>`:''}
+          ${rv.ties?('<div style="font-size:10px">' + rv.ties + ' tie' + (rv.ties!==1?'s':'') + '</div>'):''}
         </div>
         <div>
           <div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#95d5b2;text-transform:uppercase;margin-bottom:4px">Team 2</div>
           <div style="font-size:13px;font-weight:700;margin-bottom:8px;line-height:1.35">${esc(bN1)}<br>${esc(bN2)}</div>
           <div style="font-size:64px;font-weight:900;line-height:1;${bLead?'color:#FFD700':''}">${rv.bWins}</div>
           <div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:3px;letter-spacing:.5px">win${rv.bWins!==1?'s':''}</div>
-          ${bLead?`<div style="font-size:20px;margin-top:8px">🏆</div>`:''}
+          ${bLead?'<div style="font-size:20px;margin-top:8px">🏆</div>':''}
         </div>
       </div>
       <div style="text-align:center;font-size:10px;color:rgba(255,255,255,.35);margin-top:14px;border-top:1px solid rgba(255,255,255,.1);padding-top:10px">${rv.total} match${rv.total!==1?'es':''} played together &middot; net strokes with handicap</div>
     </div>
-    ${historyRows ? `<div style="margin-top:10px"><div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">All matches (newest first)</div>${historyRows}</div>` : ''}
+    ${historyRows ? '<div style="margin-top:10px"><div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">All matches (newest first)</div>' + historyRows + '</div>' : ''}
   </div>`;
+}
 
 function renderStats(c) {
   const rounds = loadRounds().filter(r => r.done);
