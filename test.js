@@ -884,6 +884,84 @@ test('finished round is NOT auto-recovered (done flag respected)',()=>{
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
+// TEAM SCORE SUMMARY  (logic mirrored from renderStats)
+// ═════════════════════════════════════════════════════════════════════════════
+function buildTeamSummary(allPlayerStats) {
+  const strokeRanked = allPlayerStats.filter(ps => ps.stroke.rounds > 0)
+    .sort((a, b) => a.stroke.avgNetToPar - b.stroke.avgNetToPar);
+  if (strokeRanked.length < 2) return null;
+  const teamAvg    = strokeRanked.reduce((s, ps) => s + ps.stroke.avgNetToPar, 0) / strokeRanked.length;
+  const totalRounds = strokeRanked.reduce((s, ps) => s + ps.stroke.rounds,    0);
+  return { strokeRanked, teamAvg, totalRounds };
+}
+
+suite('Team score summary — buildTeamSummary');
+test('returns null for 0 players', () => {
+  eq(buildTeamSummary([]), null);
+});
+test('returns null for 1 player with stroke rounds', () => {
+  const ps = [{ name:'A', stroke:{ rounds:3, avgNetToPar:2.0 } }];
+  eq(buildTeamSummary(ps), null);
+});
+test('returns null when no player has stroke rounds', () => {
+  const ps = [
+    { name:'A', stroke:{ rounds:0, avgNetToPar:0 } },
+    { name:'B', stroke:{ rounds:0, avgNetToPar:0 } },
+  ];
+  eq(buildTeamSummary(ps), null);
+});
+test('returns summary for 2 players', () => {
+  const ps = [
+    { name:'A', stroke:{ rounds:4, avgNetToPar: 3.0 } },
+    { name:'B', stroke:{ rounds:2, avgNetToPar:-1.0 } },
+  ];
+  const res = buildTeamSummary(ps);
+  assert(res !== null);
+  eq(res.totalRounds, 6);
+  // teamAvg = (3.0 + -1.0) / 2 = 1.0
+  assert(Math.abs(res.teamAvg - 1.0) < 0.001, `teamAvg should be 1.0, got ${res.teamAvg}`);
+});
+test('players ranked ascending by avgNetToPar (leader first)', () => {
+  const ps = [
+    { name:'A', stroke:{ rounds:3, avgNetToPar: 5.0 } },
+    { name:'B', stroke:{ rounds:3, avgNetToPar:-2.0 } },
+    { name:'C', stroke:{ rounds:3, avgNetToPar: 1.0 } },
+  ];
+  const res = buildTeamSummary(ps);
+  eq(res.strokeRanked[0].name, 'B');
+  eq(res.strokeRanked[1].name, 'C');
+  eq(res.strokeRanked[2].name, 'A');
+});
+test('players with 0 stroke rounds excluded from ranking', () => {
+  const ps = [
+    { name:'A', stroke:{ rounds:3, avgNetToPar: 2.0 } },
+    { name:'B', stroke:{ rounds:0, avgNetToPar: 0.0 } },
+    { name:'C', stroke:{ rounds:5, avgNetToPar:-1.0 } },
+  ];
+  const res = buildTeamSummary(ps);
+  eq(res.strokeRanked.length, 2);
+  eq(res.strokeRanked.find(p => p.name === 'B'), undefined);
+});
+test('team avg is mean of all included players avgNetToPar', () => {
+  const ps = [
+    { name:'A', stroke:{ rounds:1, avgNetToPar: 6.0 } },
+    { name:'B', stroke:{ rounds:1, avgNetToPar: 3.0 } },
+    { name:'C', stroke:{ rounds:1, avgNetToPar:-3.0 } },
+  ];
+  const res = buildTeamSummary(ps);
+  // (6 + 3 + -3) / 3 = 2.0
+  assert(Math.abs(res.teamAvg - 2.0) < 0.001, `expected 2.0, got ${res.teamAvg}`);
+});
+test('totalRounds is sum of all included players rounds', () => {
+  const ps = [
+    { name:'A', stroke:{ rounds:4, avgNetToPar:1 } },
+    { name:'B', stroke:{ rounds:6, avgNetToPar:2 } },
+    { name:'C', stroke:{ rounds:0, avgNetToPar:0 } },
+  ];
+  eq(buildTeamSummary(ps).totalRounds, 10);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
 // PRINT RESULTS
 // ═════════════════════════════════════════════════════════════════════════════
 console.log('');

@@ -1,4 +1,4 @@
-const CACHE = 'golf-v8';
+const CACHE = 'golf-v9';
 const ASSETS = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', e => {
@@ -15,12 +15,14 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
-  // Network-first: always try the network, update cache, fall back to cache if offline
+  // Always bypass HTTP cache so we never serve a stale browser-cached copy
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' })
       .then(res => {
-        const clone = res.clone();
-        caches.open(CACHE).then(c => c.put(e.request, clone));
+        if (res.ok) {
+          const clone = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, clone));
+        }
         return res;
       })
       .catch(() => caches.match(e.request).then(r => r || caches.match('./index.html')))

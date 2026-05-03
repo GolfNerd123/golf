@@ -3466,8 +3466,6 @@ function rivalryDebugHtml(rounds) {
 
 function rivalrySectionHtml(rounds) {
   const rv = computeRivalry(rounds);
-  if (rv.total === 0) return rivalryDebugHtml(rounds);
-
   const nm = rivalryNameMap(rounds);
   const [aN1, aN2] = RIVALRY_TEAM_A.map(n => nm[n] || n);
   const [bN1, bN2] = RIVALRY_TEAM_B.map(n => nm[n] || n);
@@ -3488,34 +3486,33 @@ function rivalrySectionHtml(rounds) {
     </div>`;
   }).join('');
 
-  return `<div style="margin-top:28px">
-    <div class="sec">⚔️ Team Rivalry</div>
+  return `<div style="margin-bottom:22px">
+    <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;padding:0 2px">Summer Team Scoreboard</div>
     <div class="rivalry-win-card">
       <div style="display:grid;grid-template-columns:1fr 44px 1fr;align-items:center;gap:8px;text-align:center">
         <div>
-          <div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#95d5b2;text-transform:uppercase;margin-bottom:3px">Team 1</div>
-          <div style="font-size:12px;font-weight:700;margin-bottom:6px;line-height:1.3">${esc(aN1)}<br>${esc(aN2)}</div>
-          <div style="font-size:48px;font-weight:900;line-height:1;${aLead?'color:#FFD700':''}">${rv.aWins}</div>
-          <div style="font-size:10px;color:rgba(255,255,255,.55);margin-top:2px">win${rv.aWins!==1?'s':''}</div>
-          ${aLead?`<div style="font-size:18px;margin-top:6px">🏆</div>`:''}
+          <div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#95d5b2;text-transform:uppercase;margin-bottom:4px">Team 1</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px;line-height:1.35">${esc(aN1)}<br>${esc(aN2)}</div>
+          <div style="font-size:64px;font-weight:900;line-height:1;${aLead?'color:#FFD700':''}">${rv.aWins}</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:3px;letter-spacing:.5px">win${rv.aWins!==1?'s':''}</div>
+          ${aLead?`<div style="font-size:20px;margin-top:8px">🏆</div>`:''}
         </div>
         <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.4);text-align:center">
-          <div style="font-size:18px;margin-bottom:4px">vs</div>
+          <div style="font-size:20px;margin-bottom:4px">vs</div>
           ${rv.ties?`<div style="font-size:10px">${rv.ties} tie${rv.ties!==1?'s':''}</div>`:''}
         </div>
         <div>
-          <div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#95d5b2;text-transform:uppercase;margin-bottom:3px">Team 2</div>
-          <div style="font-size:12px;font-weight:700;margin-bottom:6px;line-height:1.3">${esc(bN1)}<br>${esc(bN2)}</div>
-          <div style="font-size:48px;font-weight:900;line-height:1;${bLead?'color:#FFD700':''}">${rv.bWins}</div>
-          <div style="font-size:10px;color:rgba(255,255,255,.55);margin-top:2px">win${rv.bWins!==1?'s':''}</div>
-          ${bLead?`<div style="font-size:18px;margin-top:6px">🏆</div>`:''}
+          <div style="font-size:10px;font-weight:700;letter-spacing:1px;color:#95d5b2;text-transform:uppercase;margin-bottom:4px">Team 2</div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px;line-height:1.35">${esc(bN1)}<br>${esc(bN2)}</div>
+          <div style="font-size:64px;font-weight:900;line-height:1;${bLead?'color:#FFD700':''}">${rv.bWins}</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:3px;letter-spacing:.5px">win${rv.bWins!==1?'s':''}</div>
+          ${bLead?`<div style="font-size:20px;margin-top:8px">🏆</div>`:''}
         </div>
       </div>
       <div style="text-align:center;font-size:10px;color:rgba(255,255,255,.35);margin-top:14px;border-top:1px solid rgba(255,255,255,.1);padding-top:10px">${rv.total} match${rv.total!==1?'es':''} played together &middot; net strokes with handicap</div>
     </div>
-    ${historyRows ? `<div style="margin-top:6px"><div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">All matches (newest first)</div>${historyRows}</div>` : ''}
+    ${historyRows ? `<div style="margin-top:10px"><div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">All matches (newest first)</div>${historyRows}</div>` : ''}
   </div>`;
-}
 
 function renderStats(c) {
   const rounds = loadRounds().filter(r => r.done);
@@ -3570,6 +3567,30 @@ function renderStats(c) {
       `<button class="nav-pill ${ps.name===S.statsPlayer?'active':''}" onclick="selStatsPlayer(${qname(ps.name)})">${esc(ps.name)}</button>`
     ).join('')}</div>
   </div>` : '';
+
+  // Team score summary card
+  const strokeRanked = allPlayerStats.filter(ps => ps.stroke.rounds > 0)
+    .sort((a, b) => a.stroke.avgNetToPar - b.stroke.avgNetToPar);
+  let teamSummarySection = '';
+  if (strokeRanked.length >= 2) {
+    const teamAvg = strokeRanked.reduce((s, ps) => s + ps.stroke.avgNetToPar, 0) / strokeRanked.length;
+    const totalRounds = strokeRanked.reduce((s, ps) => s + ps.stroke.rounds, 0);
+    const teamRows = strokeRanked.map((ps, i) => `
+      <div onclick="selStatsPlayer(${qname(ps.name)})" style="display:flex;align-items:center;gap:10px;padding:9px 0;${i>0?'border-top:1px solid rgba(255,255,255,.12)':''};cursor:pointer">
+        <div style="width:22px;height:22px;border-radius:50%;background:${i===0?'#ffd700':'rgba(255,255,255,.2)'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:${i===0?'#1a4731':'rgba(255,255,255,.8)'};flex-shrink:0">${i+1}</div>
+        <div style="flex:1;font-size:14px;font-weight:600;color:#fff">${esc(ps.name)}</div>
+        <div style="font-size:14px;font-weight:700;color:${ps.stroke.avgNetToPar<0?'#b7e4c7':'#fff'}">${(ps.stroke.avgNetToPar>=0?'+':'')+ps.stroke.avgNetToPar.toFixed(1)}</div>
+      </div>`).join('');
+    teamSummarySection = `
+      <div style="background:var(--green);border-radius:16px;padding:16px 18px;margin-bottom:16px">
+        <div style="margin-bottom:14px">
+          <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Total Team Score</div>
+          <div style="font-size:30px;font-weight:900;color:#fff;line-height:1">${(teamAvg>=0?'+':'')+teamAvg.toFixed(1)}</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.55);margin-top:3px">team avg vs par &middot; ${totalRounds} round${totalRounds!==1?'s':''}</div>
+        </div>
+        ${teamRows}
+      </div>`;
+  }
 
   // ── Helper: best-round sub-text for inside a stat box ───────────
   const bestSubHtml = (sel, extraTag) => {
@@ -3762,6 +3783,7 @@ function renderStats(c) {
     </div>
     <div style="padding:14px;padding-bottom:48px">
       ${finishBanner}
+      ${teamSummarySection}
       <div class="banner" style="margin-bottom:16px">
         <h2>${esc(selPs.name)}</h2>
         <p>${totalUniqueRounds} round${totalUniqueRounds!==1?'s':''} completed</p>
@@ -4042,7 +4064,9 @@ function toggleStatsIncludeStableford() {
 })();
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
+  // When a new SW takes over an open tab, reload so the user gets the latest version immediately
+  navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload());
 }
 </script>
 </body>
