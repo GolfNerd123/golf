@@ -926,10 +926,15 @@ const _fbConfig = {
   messagingSenderId: "374005827667",
   appId: "1:374005827667:web:83a870bddf7b2f21fa5ea6"
 };
-firebase.initializeApp(_fbConfig);
-const _db      = firebase.firestore();
-const _storage = firebase.storage();
-_db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+let _db = null, _storage = null;
+try {
+  if (typeof firebase !== 'undefined') {
+    firebase.initializeApp(_fbConfig);
+    _db      = firebase.firestore();
+    _storage = firebase.storage();
+    _db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+  }
+} catch(e) { console.warn('Firebase init failed, running offline-only:', e); }
 
 let _rounds          = [];
 let _players         = [];
@@ -1065,7 +1070,7 @@ function saveRound(r, auditEvent) {
   const i = _rounds.findIndex(x => x.id === r.id);
   if (i >= 0) _rounds[i] = r; else _rounds.unshift(r);
   localStorage.setItem(ROUNDS_KEY, JSON.stringify(_rounds));
-  _db.collection('rounds').doc(r.id).set(r).catch(() => {});
+  if (_db) _db.collection('rounds').doc(r.id).set(r).catch(() => {});
   if (auditEvent || r.done) {
     _flushAudit(r, auditEvent || 'round_finished');
   } else {
@@ -1098,7 +1103,7 @@ function _writeAuditEntry(round, event) {
     ));
   } catch {}
   // Firestore — append-only document, never updated or deleted
-  _db.collection('auditLog').doc(entry.id).set(entry).catch(() => {});
+  if (_db) _db.collection('auditLog').doc(entry.id).set(entry).catch(() => {});
 }
 
 function _scheduleAudit(round) {
@@ -1117,7 +1122,7 @@ function byId(id) { return _rounds.find(r => r.id === id) || null; }
 function removeRound(id) {
   _rounds = _rounds.filter(r => r.id !== id);
   localStorage.setItem(ROUNDS_KEY, JSON.stringify(_rounds));
-  _db.collection('rounds').doc(id).delete().catch(() => {});
+  if (_db) _db.collection('rounds').doc(id).delete().catch(() => {});
 }
 
 
@@ -1129,7 +1134,7 @@ function loadPlayers() { return _players; }
 function persistPlayers(arr) {
   _players = arr;
   localStorage.setItem(PLAYERS_KEY, JSON.stringify(arr));
-  _db.collection('meta').doc('players').set({ list: arr }).catch(() => {});
+  if (_db) _db.collection('meta').doc('players').set({ list: arr }).catch(() => {});
 }
 
 function upsertPlayer(p) {
@@ -1180,7 +1185,7 @@ function loadCourses() {
   } catch { return [...COURSES]; }
 }
 function _persistCoursesToFirestore() {
-  _db.collection('meta').doc('courses').set({ list: _courseOverrides }).catch(() => {});
+  if (_db) _db.collection('meta').doc('courses').set({ list: _courseOverrides }).catch(() => {});
 }
 function saveCourseData(course) {
   try {
@@ -2370,6 +2375,7 @@ function pickCeHoleImg(idx) {
         try { localStorage.setItem(COURSE_IMG_PFX + courseId + '_' + i, compressed); } catch {}
         renderCourses(document.getElementById('main'));
         // Upload to Firebase Storage → get permanent URL → save to Firestore
+        if (!_storage) return;
         const ref = _storage.ref('courseImages/' + courseId + '/' + i);
         ref.putString(compressed, 'data_url')
           .then(() => ref.getDownloadURL())
@@ -2397,7 +2403,7 @@ function removeCeHoleImg(idx) {
   S.ce.imgs[idx] = '';
   localStorage.removeItem(COURSE_IMG_PFX + courseId + '_' + idx);
   // Delete from Firebase Storage if it's a cloud URL
-  if (existing && existing.startsWith('http')) {
+  if (existing && existing.startsWith('http') && _storage) {
     _storage.ref('courseImages/' + courseId + '/' + idx).delete().catch(() => {});
   }
   renderCourses(document.getElementById('main'));
@@ -4055,7 +4061,7 @@ function toggleStatsIncludeStableford() {
   } catch(e) { /* offline – local data already shown */ }
 
   // Real-time listeners for live sync
-  _db.collection('rounds').onSnapshot(snap => {
+  if (_db) _db.collection('rounds').onSnapshot(snap => {
     snap.docChanges().forEach(ch => {
       if (ch.type === 'added' || ch.type === 'modified') {
         const r = ch.doc.data();
@@ -4071,14 +4077,14 @@ function toggleStatsIncludeStableford() {
     else if (S.view === 'scorecard' && !S.numpadPid) render();
   });
 
-  _db.collection('meta').doc('players').onSnapshot(snap => {
+  if (_db) _db.collection('meta').doc('players').onSnapshot(snap => {
     if (!snap.exists) return;
     _players = snap.data().list || [];
     localStorage.setItem(PLAYERS_KEY, JSON.stringify(_players));
     if ((S.view === 'players' && !S.playerEdit) || S.view === 'newRound') render();
   });
 
-  _db.collection('meta').doc('courses').onSnapshot(snap => {
+  if (_db) _db.collection('meta').doc('courses').onSnapshot(snap => {
     if (!snap.exists) return;
     const fsList = snap.data().list || [];
     let changed = false;
