@@ -351,7 +351,24 @@
   .hc-input::-webkit-outer-spin-button,
   .hc-input::-webkit-inner-spin-button { -webkit-appearance: none; }
 
-  /* Tee selector (Hlíðavöllur per-player) */
+  /* Course editor — tee-box rows */
+  .ce-tees { display: flex; flex-direction: column; gap: 10px; }
+  .ce-tee-row {
+    display: flex; gap: 8px; align-items: flex-start;
+    background: #f0f7f4; border: 1px solid #c8e6d8; border-radius: 10px;
+    padding: 10px 12px;
+  }
+  .ce-tee-fields { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+
+  /* Tee selector (per-player in new round) */
+  .tee-select {
+    -webkit-appearance: none; appearance: none;
+    background: #fff; border: 2px solid var(--border); border-radius: 10px;
+    padding: 6px 11px; font-size: 12px; font-weight: 700; color: var(--text);
+    cursor: pointer; flex: 1;
+  }
+  .tee-select:focus { outline: none; border-color: var(--green-mid); }
+
   .tee-section {
     background: #f0f7f4; border: 1px solid #c8e6d8; border-radius: 12px;
     padding: 12px 14px; margin-top: 14px;
@@ -1064,6 +1081,7 @@ const S = {
     courseId: null,
     nineStart: 1,   // 1 = front 9, 10 = back 9
     chcp: {},       // per-player course handicap override: { [profileId]: '12' }
+    playerTee: {},  // per-player selected tee index: { [profileId]: 0 }
   },
 };
 
@@ -1251,6 +1269,35 @@ function esc(s) {
 function calcTeeHcp(hcpIndex, tee) {
   const hci = parseFloat(hcpIndex) || 0;
   return Math.round(hci * tee.slope / 113 + (tee.cr - tee.par));
+}
+function getCourseTees(co, playerGender) {
+  if (!co || !co.tees) return [];
+  if (Array.isArray(co.tees)) {
+    const gender = playerGender === 'konur' ? 'women' : 'men';
+    return co.tees.filter(t => t.gender === 'both' || t.gender === gender);
+  }
+  // Old keyed format { karlar: [...], konur: [...] }
+  const key = playerGender === 'konur' ? 'konur' : 'karlar';
+  return (co.tees[key] || []).map(t => ({ name: t.label || t.name, cr: t.cr, slope: t.slope, par: t.par }));
+}
+function setPlayerTee(pid, teeIdx) {
+  if (!S.nr.playerTee) S.nr.playerTee = {};
+  S.nr.playerTee[pid] = teeIdx;
+  const co = S.nr.courseId ? loadCourses().find(c => c.id === S.nr.courseId) : null;
+  if (!co) return;
+  const p = loadPlayers().find(x => x.id === pid);
+  if (!p || p.handicapIndex == null) return;
+  const tees = getCourseTees(co, p.gender);
+  const tee  = tees[teeIdx];
+  if (!tee) return;
+  const ch = calcTeeHcp(p.handicapIndex, tee);
+  if (!S.nr.chcp) S.nr.chcp = {};
+  S.nr.chcp[pid] = ch;
+  const safeId = pid.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const chEl    = document.getElementById('nr-ch-' + safeId);
+  if (chEl) chEl.value = ch;
+  const teeChEl = document.getElementById('tee-ch-' + safeId);
+  if (teeChEl) teeChEl.textContent = 'CH ' + ch;
 }
 function courseHcp(player, round) {
   if (player.courseHcpOverride != null) return player.courseHcpOverride;
@@ -1722,17 +1769,41 @@ function renderCourses(c) {
           <button class="seg-btn ${ce.holes===18?'active':''}" onclick="setCeHoles(18)">18 Holes</button>
         </div>
 
-        <span class="lbl">Course Rating &amp; Slope</span>
-        <div class="two-col">
-          <div class="input-wrap">
-            <span class="input-cap">Course Rating</span>
-            <input class="input" id="ce-rating" type="number" placeholder="${totalPar}.0" step="0.1" min="20" max="85" value="${esc(String(ce.courseRating||''))}">
-          </div>
-          <div class="input-wrap">
-            <span class="input-cap">Slope Rating</span>
-            <input class="input" id="ce-slope" type="number" placeholder="113" step="1" min="55" max="155" value="${esc(String(ce.slopeRating||''))}">
-          </div>
+        <span class="lbl">Tee Boxes</span>
+        <div class="ce-tees" id="ce-tees-list">
+          ${(ce.tees||[]).map((t, i) => `
+            <div class="ce-tee-row" id="ce-tee-${i}">
+              <div class="ce-tee-fields">
+                <input class="input" id="ce-tee-name-${i}" placeholder="Tee name (e.g. Yellow)" autocomplete="off" value="${esc(t.name||'')}">
+                <div class="two-col">
+                  <div class="input-wrap">
+                    <span class="input-cap">Course Rating</span>
+                    <input class="input" id="ce-tee-cr-${i}" type="number" placeholder="${totalPar}.0" step="0.1" min="20" max="85" value="${esc(String(t.cr||''))}">
+                  </div>
+                  <div class="input-wrap">
+                    <span class="input-cap">Slope</span>
+                    <input class="input" id="ce-tee-slope-${i}" type="number" placeholder="113" step="1" min="55" max="155" value="${esc(String(t.slope||''))}">
+                  </div>
+                </div>
+                <div class="two-col">
+                  <div class="input-wrap">
+                    <span class="input-cap">Gender</span>
+                    <select class="input" id="ce-tee-gender-${i}" style="font-size:13px">
+                      <option value="men"${t.gender==='men'?' selected':''}>Men</option>
+                      <option value="women"${t.gender==='women'?' selected':''}>Women</option>
+                      <option value="both"${t.gender==='both'?' selected':''}>Both</option>
+                    </select>
+                  </div>
+                  <div class="input-wrap">
+                    <span class="input-cap">Par</span>
+                    <input class="input" id="ce-tee-par-${i}" type="number" placeholder="${totalPar}" step="1" min="27" max="90" value="${esc(t.par ? String(t.par) : '')}">
+                  </div>
+                </div>
+              </div>
+              <button class="icon-btn icon-btn-del" style="align-self:flex-start;margin-top:2px" onclick="removeCeTee(${i})">&#10005;</button>
+            </div>`).join('')}
         </div>
+        <button class="btn btn-outline" style="margin-top:8px;padding:10px 16px;font-size:13px" onclick="addCeTee()">+ Add Tee</button>
 
         <span class="lbl">Upload Handicap Table</span>
         <div class="scan-section">
@@ -1791,7 +1862,7 @@ function renderCourses(c) {
 function newCourse() {
   S.courseEdit = 'new';
   S.ce = { id: 'cc'+Date.now(), name:'', club:'', holes:18,
-            courseRating:'', slopeRating:'113',
+            courseRating:'', slopeRating:'113', tees: [],
             pars:[...DEFAULT_PARS_18], si:[...DEFAULT_SI_18],
             descriptions: Array(18).fill(''), imgs: Array(18).fill('') };
   renderCourses(document.getElementById('main'));
@@ -1802,6 +1873,7 @@ function editCourse(id) {
   if (!co) return;
   S.courseEdit = id;
   S.ce = { ...co, pars:[...co.pars], si:[...co.si],
+            tees: Array.isArray(co.tees) ? co.tees.map(t => ({...t})) : [],
             descriptions:[...(co.descriptions || Array(18).fill(''))],
             imgs:[...(co.imgs || Array(18).fill(''))] };
   renderCourses(document.getElementById('main'));
@@ -1809,6 +1881,21 @@ function editCourse(id) {
 
 function cancelCourseEdit() {
   S.courseEdit = null; S.ce = null;
+  renderCourses(document.getElementById('main'));
+}
+
+function addCeTee() {
+  saveCeInputs();
+  const totalPar = (S.ce.pars || []).slice(0, S.ce.holes).reduce((a,b)=>a+b, 0);
+  S.ce.tees = S.ce.tees || [];
+  S.ce.tees.push({ name: '', gender: 'men', cr: '', slope: 113, par: totalPar });
+  renderCourses(document.getElementById('main'));
+}
+
+function removeCeTee(i) {
+  saveCeInputs();
+  S.ce.tees = S.ce.tees || [];
+  S.ce.tees.splice(i, 1);
   renderCourses(document.getElementById('main'));
 }
 
@@ -1854,6 +1941,23 @@ function saveCeInputs() {
     const descEl = document.getElementById(`ce-desc-${i}`);
     if (descEl) S.ce.descriptions[i] = descEl.value;
   }
+  if (!S.ce.tees) S.ce.tees = [];
+  const ceTotalPar = S.ce.pars.slice(0, S.ce.holes).reduce((a,b)=>a+b, 0);
+  for (let i = 0; i < S.ce.tees.length; i++) {
+    const nameEl   = document.getElementById(`ce-tee-name-${i}`);
+    if (!nameEl) continue;
+    const genderEl = document.getElementById(`ce-tee-gender-${i}`);
+    const crEl     = document.getElementById(`ce-tee-cr-${i}`);
+    const slopeEl  = document.getElementById(`ce-tee-slope-${i}`);
+    const teeParEl = document.getElementById(`ce-tee-par-${i}`);
+    S.ce.tees[i] = {
+      name:   nameEl.value.trim(),
+      gender: genderEl ? genderEl.value : 'men',
+      cr:     crEl     && crEl.value     !== '' ? parseFloat(crEl.value)     : '',
+      slope:  slopeEl  && slopeEl.value  !== '' ? parseInt(slopeEl.value)    : 113,
+      par:    teeParEl && teeParEl.value !== '' ? parseInt(teeParEl.value)   : ceTotalPar,
+    };
+  }
 }
 
 function submitCourse() {
@@ -1868,6 +1972,7 @@ function submitCourse() {
     holes:        nh,
     courseRating: S.ce.courseRating !== '' ? parseFloat(S.ce.courseRating) : null,
     slopeRating:  S.ce.slopeRating  !== '' ? parseInt(S.ce.slopeRating)   : 113,
+    tees:         (S.ce.tees || []).filter(t => t.name && t.cr !== ''),
     pars:         [...S.ce.pars.slice(0, nh)],
     si:           [...S.ce.si.slice(0, nh)],
     descriptions: [...(S.ce.descriptions || []).slice(0, nh)],
@@ -2001,6 +2106,24 @@ function pfSetTee(btn) {
 
 function renderNewRound(c) {
   const nr         = S.nr;
+  // Pre-populate CH from default tee (index 0 or saved selection) for players
+  // without a manually typed CH value, so the CH input shows a value on first render.
+  if (nr.courseId) {
+    const _co = loadCourses().find(c => c.id === nr.courseId);
+    if (_co) {
+      const _saved = loadPlayers();
+      for (const pid of nr.selPids) {
+        if (nr.chcp[pid] != null && nr.chcp[pid] !== '') continue;
+        const _p = _saved.find(x => x.id === pid);
+        if (!_p || _p.handicapIndex == null) continue;
+        const _tees = getCourseTees(_co, _p.gender);
+        if (!_tees.length) continue;
+        const _idx = (nr.playerTee && nr.playerTee[pid] != null) ? nr.playerTee[pid] : 0;
+        const _tee = _tees[_idx];
+        if (_tee) nr.chcp[pid] = calcTeeHcp(_p.handicapIndex, _tee);
+      }
+    }
+  }
   const saved      = loadPlayers();
   const totalPar   = nr.pars.slice(0, nr.holes).reduce((a,b)=>a+b, 0);
   const selCount   = nr.selPids.length;
@@ -2146,38 +2269,44 @@ function renderNewRound(c) {
     <p style="font-size:11px;color:var(--muted);margin-top:6px">SI = Stroke Index (1 = hardest hole)</p>
   </div>` : '';
 
-  // Vallarforgjöf summary — read-only, shown when course has tee data
+  // Per-player tee selection — shown when course has tee data
   let teeSection = '';
   if (nr.courseId) {
     const co = loadCourses().find(c => c.id === nr.courseId);
-    if (co && co.tees) {
-      const savedRef = loadPlayers();
-      const rows = [];
-      for (const pid of nr.selPids) {
-        const p = savedRef.find(x => x.id === pid);
-        if (!p) continue;
-        const gender   = p.gender || 'karlar';
-        const teesArr  = co.tees[gender] || [];
-        const selTee   = teesArr.find(t => t.color === p.defaultTee) || null;
-        const ch       = selTee && p.handicapIndex != null ? calcTeeHcp(p.handicapIndex, selTee) : null;
-        const teeLabel = selTee ? selTee.label : '—';
-        const chTxt    = ch != null ? `CH ${ch}` : '—';
-        const gLbl     = gender === 'konur' ? 'Konur' : 'Karlar';
-        rows.push(`<div class="tee-player-row">
-          <div class="tee-player-name">${esc(p.name)}</div>
-          <div class="tee-controls">
-            <span class="tee-btn active" style="pointer-events:none">${gLbl}</span>
-            <span class="tee-btn${selTee?' active':''}" style="pointer-events:none">${teeLabel}</span>
-            <div class="tee-ch-result">${chTxt}</div>
-          </div>
-        </div>`);
-      }
-      if (rows.length) {
-        teeSection = `<div class="tee-section">
-          <div class="tee-section-title">VALLARFORGJÖF — ${esc(co.name)}</div>
-          ${rows.join('')}
-          <p style="font-size:11px;color:var(--muted);margin-top:8px">Set gender &amp; tee in player profile to update</p>
-        </div>`;
+    if (co) {
+      const hasTees = Array.isArray(co.tees) ? co.tees.length > 0
+                    : (co.tees && (Object.keys(co.tees).some(k => (co.tees[k]||[]).length > 0)));
+      if (hasTees) {
+        const savedRef = loadPlayers();
+        const rows = [];
+        for (const pid of nr.selPids) {
+          const p = savedRef.find(x => x.id === pid);
+          if (!p || p.handicapIndex == null) continue;
+          const tees = getCourseTees(co, p.gender);
+          if (!tees.length) continue;
+          const selIdx = (nr.playerTee && nr.playerTee[pid] != null) ? nr.playerTee[pid] : 0;
+          const safeId = pid.replace(/[^a-zA-Z0-9_-]/g, '_');
+          const opts = tees.map((t, i) =>
+            `<option value="${i}"${i === selIdx ? ' selected' : ''}>${esc(t.name)}</option>`
+          ).join('');
+          const ch    = tees[selIdx] ? calcTeeHcp(p.handicapIndex, tees[selIdx]) : null;
+          const chTxt = ch != null ? `CH ${ch}` : '—';
+          rows.push(`<div class="tee-player-row">
+            <div class="tee-player-name">${esc(p.name)}</div>
+            <div class="tee-controls">
+              <select class="tee-select" id="tee-sel-${safeId}" onchange="setPlayerTee('${pid}', parseInt(this.value))">
+                ${opts}
+              </select>
+              <div class="tee-ch-result" id="tee-ch-${safeId}">${chTxt}</div>
+            </div>
+          </div>`);
+        }
+        if (rows.length) {
+          teeSection = `<div class="tee-section">
+            <div class="tee-section-title">TEE SELECTION — ${esc(co.name)}</div>
+            ${rows.join('')}
+          </div>`;
+        }
       }
     }
   }
@@ -2250,10 +2379,13 @@ function preserveNrInputs() {
     hcp:  i < remain ? (document.getElementById(`ng-h${i}`)?.value || '') : '',
   }));
   if (!S.nr.chcp) S.nr.chcp = {};
+  if (!S.nr.playerTee) S.nr.playerTee = {};
   for (const pid of S.nr.selPids) {
     const safeId = pid.replace(/[^a-zA-Z0-9_-]/g, '_');
     const el = document.getElementById('nr-ch-' + safeId);
     if (el) S.nr.chcp[pid] = el.value;
+    const tSel = document.getElementById('tee-sel-' + safeId);
+    if (tSel) S.nr.playerTee[pid] = parseInt(tSel.value);
   }
 }
 
@@ -2446,13 +2578,24 @@ function startRound() {
     .map(id => saved.find(p => p.id === id)).filter(Boolean)
     .map(p => {
       const pl = { id:'rp'+p.id+Date.now(), name:p.name, handicapIndex:p.handicapIndex??null };
-      if (co && co.tees && p.gender && p.defaultTee) {
-        const teesArr = co.tees[p.gender] || [];
-        const selTee  = teesArr.find(t => t.color === p.defaultTee);
-        if (selTee && p.handicapIndex != null) {
-          pl.courseHcpOverride = calcTeeHcp(p.handicapIndex, selTee);
-          pl.teeLabel = selTee.label;
-          pl.gender   = p.gender;
+      if (co && co.tees) {
+        if (Array.isArray(co.tees)) {
+          const tees   = getCourseTees(co, p.gender);
+          const teeIdx = (S.nr.playerTee && S.nr.playerTee[p.id] != null) ? S.nr.playerTee[p.id] : 0;
+          const selTee = tees[teeIdx];
+          if (selTee && p.handicapIndex != null) {
+            pl.courseHcpOverride = calcTeeHcp(p.handicapIndex, selTee);
+            pl.teeLabel = selTee.name;
+            pl.gender   = p.gender;
+          }
+        } else if (p.gender && p.defaultTee) {
+          const teesArr = co.tees[p.gender] || [];
+          const selTee  = teesArr.find(t => t.color === p.defaultTee);
+          if (selTee && p.handicapIndex != null) {
+            pl.courseHcpOverride = calcTeeHcp(p.handicapIndex, selTee);
+            pl.teeLabel = selTee.label;
+            pl.gender   = p.gender;
+          }
         }
       }
       // Manual CH override from the new-round form takes precedence
@@ -2507,7 +2650,7 @@ function startRound() {
   S.nr = { holes:18, pars:[...DEFAULT_PARS_18], si:[...DEFAULT_SI_18],
            courseRating:'', slopeRating:'113', showHoleSettings:false,
            selPids:[], guests:[{name:'',hcp:''},{name:'',hcp:''},{name:'',hcp:''},{name:'',hcp:''}],
-           format:'stroke', courseId:null, nineStart:1, chcp:{} };
+           format:'stroke', courseId:null, nineStart:1, chcp:{}, playerTee:{} };
   nav('scorecard', { roundId: round.id, hole: 1 });
 }
 
