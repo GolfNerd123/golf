@@ -2598,13 +2598,27 @@ function startRound() {
           }
         }
       }
-      // Manual CH override from the new-round form takes precedence
+      // Manual CH input takes precedence over tee-calculated value
       const safeId = p.id.replace(/[^a-zA-Z0-9_-]/g, '_');
       const chEl  = document.getElementById('nr-ch-' + safeId);
       const chVal = chEl?.value?.trim();
       if (chVal !== undefined && chVal !== '' && !isNaN(chVal)) {
         pl.courseHcpOverride = parseInt(chVal, 10);
         delete pl.teeLabel;
+      }
+      // Always freeze CH at round creation — future HCI changes must not affect this round
+      if (pl.courseHcpOverride == null && pl.handicapIndex != null) {
+        const hci = parseFloat(pl.handicapIndex) || 0;
+        if (hci > 0) {
+          const slopeInp  = document.getElementById('nr-slope')?.value;
+          const ratingInp = document.getElementById('nr-rating')?.value;
+          const nh        = S.nr.holes;
+          const par       = S.nr.pars.slice(0, nh).reduce((a,b) => a+b, 0);
+          const slope     = parseFloat(slopeInp)  || 113;
+          const rating    = parseFloat(ratingInp) || par;
+          const adj       = nh === 9 ? hci / 2 : hci;
+          pl.courseHcpOverride = Math.round(adj * (slope / 113) + (rating - par));
+        }
       }
       return pl;
     });
