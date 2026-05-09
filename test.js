@@ -356,7 +356,17 @@ function gotoHole(n) {
 function adjScore(pid, delta) {
   const round=byId(S.roundId); if(!round) return;
   const cur=round.scores[pid]?.[S.hole]?.s||0;
-  round.scores[pid][S.hole]={s:Math.max(1,cur+delta)};
+  let next;
+  if (!cur) {
+    const hole=round.holes.find(h=>h.n===S.hole);
+    const player=round.players.find(p=>p.id===pid);
+    const hs=siStrokes(courseHcp(player,round),hole.si,round.holes.length);
+    next=hole.par+hs;
+  } else {
+    next=Math.max(1,cur+delta);
+  }
+  if(!round.scores[pid]) round.scores[pid]={};
+  round.scores[pid][S.hole]={s:next};
   saveRound(round); renderScorecard();
 }
 function setScoreNumpad(pid, score) {
@@ -759,9 +769,53 @@ test('adjScore floor at 1',()=>{
   saveRound(r,'round_created');S.roundId='r1';S.hole=1;adjScore('p1',-1);
   eq(byId('r1').scores.p1[1].s,1);
 });
-test('adjScore empty slot starts at 1',()=>{
-  resetState();const r=makeRound18();saveRound(r,'round_created');
-  S.roundId='r1';S.hole=1;adjScore('p1',1);eq(byId('r1').scores.p1[1].s,1);
+test('adjScore empty slot snaps to par (courseHcpOverride=0)',()=>{
+  // hole 1: par=4, 0 hcp strokes → snap to 4 regardless of delta direction
+  resetState();
+  const r=makeRound18({players:[{id:'p1',name:'A',courseHcpOverride:0}]});
+  saveRound(r,'round_created');
+  S.roundId='r1';S.hole=1;adjScore('p1',1);eq(byId('r1').scores.p1[1].s,4);
+});
+test('adjScore empty slot snaps to par+hcp (+1 stroke, par 3 hole)',()=>{
+  // chcp=18 → 1 extra stroke on every hole; hole 3 par=3, SI=17 → snap to 4
+  resetState();
+  const r=makeRound18({players:[{id:'p1',name:'A',courseHcpOverride:18}]});
+  saveRound(r,'round_created');
+  S.roundId='r1';S.hole=3;adjScore('p1',1);eq(byId('r1').scores.p1[3].s,4);
+});
+test('adjScore empty slot — minus press also snaps (not to 1)',()=>{
+  // pressing − on empty snaps to par+hcp, not to 1
+  resetState();
+  const r=makeRound18({players:[{id:'p1',name:'A',courseHcpOverride:0}]});
+  saveRound(r,'round_created');
+  S.roundId='r1';S.hole=1;adjScore('p1',-1);eq(byId('r1').scores.p1[1].s,4);
+});
+test('adjScore empty slot — hole with 0 hcp strokes snaps to par exactly',()=>{
+  // chcp=1: only SI=1 hole gets extra stroke; hole 2 SI=9 gets 0 → snap to par=4
+  resetState();
+  const r=makeRound18({players:[{id:'p1',name:'A',courseHcpOverride:1}]});
+  saveRound(r,'round_created');
+  S.roundId='r1';S.hole=2;adjScore('p1',1);eq(byId('r1').scores.p1[2].s,4);
+});
+test('adjScore after snap — second press increments normally',()=>{
+  // chcp=0, hole 1 par=4: snap to 4, then +1 → 5
+  resetState();
+  const r=makeRound18({players:[{id:'p1',name:'A',courseHcpOverride:0}]});
+  saveRound(r,'round_created');
+  S.roundId='r1';S.hole=1;
+  adjScore('p1',1); // snap to 4
+  adjScore('p1',1); // 4+1=5
+  eq(byId('r1').scores.p1[1].s,5);
+});
+test('adjScore after snap — second press decrements normally',()=>{
+  // chcp=0, hole 1 par=4: snap to 4, then -1 → 3
+  resetState();
+  const r=makeRound18({players:[{id:'p1',name:'A',courseHcpOverride:0}]});
+  saveRound(r,'round_created');
+  S.roundId='r1';S.hole=1;
+  adjScore('p1',1); // snap to 4
+  adjScore('p1',-1); // 4-1=3
+  eq(byId('r1').scores.p1[1].s,3);
 });
 test('setScoreNumpad sets exact score',()=>{
   resetState();const r=makeRound18();saveRound(r,'round_created');

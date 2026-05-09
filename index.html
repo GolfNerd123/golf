@@ -3082,12 +3082,22 @@ function adjScore(pid, delta) {
   const round = byId(S.roundId);
   if (!round) return;
   const cur  = round.scores[pid]?.[S.hole]?.s || 0;
-  const next = Math.max(1, cur + delta);
+  let next;
+  if (!cur) {
+    // First entry: snap to par + handicap strokes so first +/- press is meaningful
+    const hole   = round.holes.find(h => h.n === S.hole);
+    const player = round.players.find(p => p.id === pid);
+    const hs     = siStrokes(courseHcp(player, round), hole.si, round.holes.length);
+    next = hole.par + hs;
+  } else {
+    next = Math.max(1, cur + delta);
+  }
   if (cur && cur !== next) {
     const pname = round.players.find(p => p.id === pid)?.name || pid;
     _logChange('round', round.id, round.course, 'updated',
       [{ field: 'H' + S.hole + ' — ' + pname, from: cur, to: next }]);
   }
+  if (!round.scores[pid]) round.scores[pid] = {};
   round.scores[pid][S.hole] = { s: next };
   saveRound(round);
   if (navigator.vibrate) navigator.vibrate(8);
