@@ -92,7 +92,7 @@
 
   /* Home */
   #view-home { display: flex; flex-direction: column; height: 100%; }
-  #rounds-list { flex: 1; overflow-y: auto; padding: 14px; padding-bottom: 130px; }
+  #rounds-list { flex: 1; overflow-y: auto; padding: 14px; padding-bottom: 100px; }
 
   .empty-state {
     height: 50vh; display: flex; flex-direction: column;
@@ -154,18 +154,51 @@
 
   .home-footer {
     position: fixed; bottom: 0; left: 0; right: 0;
-    display: flex; flex-direction: column; gap: 6px;
-    padding: 8px 14px;
-    padding-bottom: max(12px, var(--safe-bottom));
+    display: flex; gap: 8px; padding: 10px 14px;
+    padding-bottom: max(18px, var(--safe-bottom));
     background: var(--bg); border-top: 1px solid var(--border);
   }
-  .home-footer-nav { display: flex; gap: 6px; }
-  .home-footer-nav .btn { flex: 1; padding: 9px 2px; font-size: 11px; }
-  .home-footer .btn-green { font-size: 14px; padding: 13px; }
+  .home-footer .btn { flex: 1; padding: 11px 4px; font-size: 12px; }
+  .home-footer .btn-green { flex: 2; font-size: 13px; }
+
+  /* Hamburger menu */
+  #hamburger-btn {
+    background: none; border: none; color: #fff;
+    font-size: 22px; padding: 0 6px; cursor: pointer;
+    min-width: 36px; line-height: 1; touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #hamburger-overlay {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,.45);
+  }
+  #hamburger-overlay.open { display: block; }
+  #hamburger-sheet {
+    position: absolute; right: 0; top: 0; bottom: 0;
+    width: 230px; background: #fff;
+    box-shadow: -4px 0 24px rgba(0,0,0,.18);
+    display: flex; flex-direction: column;
+    padding: 0; overflow-y: auto;
+  }
+  .hm-header {
+    background: var(--green); color: #fff;
+    padding: 18px 16px 14px; font-size: 15px; font-weight: 700;
+    padding-top: max(18px, env(safe-area-inset-top));
+  }
+  .hm-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 15px 18px; font-size: 15px;
+    border-bottom: 1px solid var(--border); cursor: pointer;
+    text-decoration: none; color: var(--text);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .hm-item:active { background: var(--bg); }
+  .hm-item-icon { font-size: 20px; width: 24px; text-align: center; }
+  .hm-item-label { flex: 1; }
   .err-count-badge {
     display: inline-block; background: #c84b11; color: #fff;
     border-radius: 10px; font-size: 10px; font-weight: 700;
-    padding: 1px 5px; margin-left: 2px; vertical-align: middle;
+    padding: 1px 6px; margin-left: 4px;
   }
 
   /* Change History view */
@@ -955,8 +988,23 @@
   <header id="hdr">
     <button id="back-btn" onclick="goBack()">&#8592;</button>
     <h1 id="hdr-title">Golf Scorecard.</h1>
-    <div id="hdr-right"></div>
+    <div id="hdr-right">
+      <button id="hamburger-btn" onclick="openHamburger()" aria-label="Menu">&#9776;</button>
+    </div>
   </header>
+  <div id="hamburger-overlay" onclick="closeHamburger()">
+    <div id="hamburger-sheet" onclick="event.stopPropagation()">
+      <div class="hm-header">Menu</div>
+      <div class="hm-item" onclick="closeHamburger();nav('history')">
+        <span class="hm-item-icon">&#128203;</span>
+        <span class="hm-item-label">Change History</span>
+      </div>
+      <div class="hm-item" id="hm-errors-item" onclick="closeHamburger();nav('errors')">
+        <span class="hm-item-icon">&#9888;</span>
+        <span class="hm-item-label">Error Log</span>
+      </div>
+    </div>
+  </div>
   <main id="main"><p id="js-err" style="padding:2rem;color:red;font-family:monospace">Loading…</p></main>
 </div>
 <script>
@@ -1689,14 +1737,10 @@ function renderHome(c) {
   c.innerHTML = `<div id="view-home">
     <div id="rounds-list">${list}</div>
     <div class="home-footer">
-      <div class="home-footer-nav">
-        <button class="btn btn-outline" onclick="nav('players')">Players</button>
-        <button class="btn btn-outline" onclick="nav('courses')">Courses</button>
-        <button class="btn btn-outline" onclick="nav('stats')">Stats</button>
-        <button class="btn btn-outline" onclick="nav('history')">History</button>
-        <button class="btn btn-outline hf-errors-btn" onclick="nav('errors')">${(()=>{ try { const n=JSON.parse(localStorage.getItem('golf_errors_v1')||'[]').length; return n ? 'Errors <span class="err-count-badge">'+n+'</span>' : 'Errors'; } catch { return 'Errors'; } })()}</button>
-      </div>
-      <button class="btn btn-green" onclick="nav('new-round')">+ New Round</button>
+      <button class="btn btn-outline" onclick="nav('players')">Players</button>
+      <button class="btn btn-outline" onclick="nav('courses')">Courses</button>
+      <button class="btn btn-outline" onclick="nav('stats')">Stats</button>
+      <button class="btn btn-green"   onclick="nav('new-round')">+ New Round</button>
     </div>
   </div>`;
 
@@ -3036,8 +3080,14 @@ function hideScoreGuide() { document.getElementById('score-guide-overlay').class
 function adjScore(pid, delta) {
   const round = byId(S.roundId);
   if (!round) return;
-  const cur = round.scores[pid]?.[S.hole]?.s || 0;
-  round.scores[pid][S.hole] = { s: Math.max(1, cur + delta) };
+  const cur  = round.scores[pid]?.[S.hole]?.s || 0;
+  const next = Math.max(1, cur + delta);
+  if (cur && cur !== next) {
+    const pname = round.players.find(p => p.id === pid)?.name || pid;
+    _logChange('round', round.id, round.course, 'updated',
+      [{ field: 'H' + S.hole + ' — ' + pname, from: cur, to: next }]);
+  }
+  round.scores[pid][S.hole] = { s: next };
   saveRound(round);
   if (navigator.vibrate) navigator.vibrate(8);
   renderScorecard(document.getElementById('main'));
@@ -3057,6 +3107,12 @@ function setScoreNumpad(pid, score) {
   const round = byId(S.roundId);
   if (!round) return;
   if (!round.scores[pid]) round.scores[pid] = {};
+  const cur = round.scores[pid][S.hole]?.s || 0;
+  if (cur && cur !== score) {
+    const pname = round.players.find(p => p.id === pid)?.name || pid;
+    _logChange('round', round.id, round.course, 'updated',
+      [{ field: 'H' + S.hole + ' — ' + pname, from: cur, to: score }]);
+  }
   round.scores[pid][S.hole] = { s: score };
   saveRound(round);
   S.numpadPid = null;
@@ -4446,13 +4502,13 @@ function renderHistory(c) {
       <div class="empty-state" style="height:38vh">
         <div class="ico" style="font-size:40px">&#128203;</div>
         <h2>No changes yet</h2>
-        <p>Edits to players and courses will appear here</p>
+        <p>Edits to players, courses and scores will appear here</p>
       </div></div>`;
     return;
   }
 
   const rows = log.map(e => {
-    const icon   = e.entity === 'player' ? '&#128100;' : '&#127939;';
+    const icon   = e.entity === 'player' ? '&#128100;' : e.entity === 'round' ? '&#9971;' : '&#127939;';
     const actClr = e.action === 'created' ? 'var(--green-mid)' : e.action === 'deleted' ? '#c84b11' : '#555';
     const actLbl = e.action === 'created' ? 'Created' : e.action === 'deleted' ? 'Deleted' : 'Updated';
     const diffs  = (e.changes || []).map(ch =>
@@ -4530,6 +4586,32 @@ function clearErrors() {
   if (!confirm('Clear all error logs?')) return;
   localStorage.removeItem(ERROR_LOG_KEY);
   render();
+}
+
+// ═══════════════════════════════════════════
+// HAMBURGER MENU
+// ═══════════════════════════════════════════
+function openHamburger() {
+  // Refresh error badge
+  try {
+    const n = JSON.parse(localStorage.getItem(ERROR_LOG_KEY) || '[]').length;
+    const el = document.getElementById('hm-errors-item');
+    if (el) {
+      const badge = el.querySelector('.err-count-badge');
+      if (n && !badge) {
+        el.querySelector('.hm-item-label').insertAdjacentHTML('beforeend',
+          `<span class="err-count-badge">${n}</span>`);
+      } else if (!n && badge) {
+        badge.remove();
+      } else if (n && badge) {
+        badge.textContent = n;
+      }
+    }
+  } catch {}
+  document.getElementById('hamburger-overlay').classList.add('open');
+}
+function closeHamburger() {
+  document.getElementById('hamburger-overlay').classList.remove('open');
 }
 
 if ('serviceWorker' in navigator) {
