@@ -447,33 +447,35 @@ function suggestHcpIndex(name, rounds) {
 function buildRoundStandingsHTML(round) {
   const isWolf = round.format === 'wolf';
   const isStbl = round.format === 'stableford';
+  const holesPlayed = round.holes.filter(h => round.players.every(p => round.scores[p.id]?.[h.n]?.s)).length;
   const rows = round.players.map(p => {
     const gross = grossTotal(round, p.id);
     const chcp  = courseHcp(p, round);
     const scoredPar = round.holes.filter(h => round.scores[p.id]?.[h.n]?.s).reduce((s,h)=>s+h.par,0);
     const grossVsPar = gross ? gross - scoredPar : null;
-    let primary, secondary;
+    let primary, sortKey, secondary;
     if (isStbl) {
-      primary   = stablefordTotal(round, p.id);
-      secondary = primary ? `${primary} pts` : '-';
+      primary = sortKey = stablefordTotal(round, p.id);
+      secondary = gross ? `gross ${gross}` : '-';
     } else if (isWolf) {
       const wp  = wolfTotalPts(round, p.id);
-      primary   = wp;
+      primary = sortKey = wp;
       secondary = gross ? `${wp >= 0 ? '+' : ''}${wp} wolf pts` : '-';
     } else {
-      const nt  = netTotal(round, p.id);
+      const nt       = netTotal(round, p.id);
       const netVsPar = nt ? nt - scoredPar : null;
-      primary   = netVsPar !== null ? netVsPar : Infinity;
-      secondary = gross ? `gross ${gross} (${dStr(grossVsPar)}) · net ${dStr(netVsPar)}` : 'No scores';
+      sortKey   = netVsPar !== null ? netVsPar : Infinity;
+      primary   = gross;
+      secondary = gross ? `${dStr(grossVsPar)} gross · net ${dStr(netVsPar)}` : 'No scores';
     }
-    return { p, gross, primary, secondary, grossVsPar };
+    return { p, gross, primary, sortKey, secondary, grossVsPar };
   });
   if (isStbl || isWolf) {
-    rows.sort((a, b) => b.primary - a.primary);
+    rows.sort((a, b) => b.sortKey - a.sortKey);
   } else {
-    rows.sort((a, b) => a.primary - b.primary);
+    rows.sort((a, b) => a.sortKey - b.sortKey);
   }
-  return rows;
+  return { rows, holesPlayed };
 }
 function buildNineHoleSummaryHTML(round) {
   const isStbl = round.format === 'stableford';
@@ -1684,9 +1686,19 @@ test('player with lower net vs par ranks first', () => {
   // Bob:   6 strokes on par-4 hole 1 → net vs par = +2
   r.scores.p1[1] = { s: 4 };
   r.scores.p2[1] = { s: 6 };
-  const rows = buildRoundStandingsHTML(r);
+  const { rows } = buildRoundStandingsHTML(r);
   eq(rows[0].p.name, 'Alice');
   eq(rows[1].p.name, 'Bob');
+});
+test('primary is gross strokes, sortKey is net vs par', () => {
+  resetState();
+  const r = makeRound18({ players: [
+    { id:'p1', name:'Alice', courseHcpOverride:0 },
+  ]});
+  r.scores.p1[1] = { s: 5 }; // par 4 → grossVsPar=+1, net=5, netVsPar=+1
+  const { rows } = buildRoundStandingsHTML(r);
+  eq(rows[0].primary, 5);      // gross strokes displayed
+  eq(rows[0].sortKey, 1);      // +1 vs par used for sorting
 });
 test('player with better net score (after hcp) ranks first even if higher gross', () => {
   resetState();
@@ -1695,16 +1707,14 @@ test('player with better net score (after hcp) ranks first even if higher gross'
     { id:'p2', name:'Bob',   courseHcpOverride:18 },
   ]});
   // Hole 1: SI=1, Bob (chcp=18) gets 1 stroke → net = gross - 1
-  // Alice gross 5, net vs par = +1
-  // Bob gross 6, net = 6-1=5, vs par = +1 → tied, so order stable or by Infinity logic
-  // Let's try Alice gross 5 (net +1), Bob gross 5 (net 5-1=4, vs par = 0) → Bob wins net
-  r.scores.p1[1] = { s: 5 }; // Alice: net vs par = 5-4 = +1
-  r.scores.p2[1] = { s: 5 }; // Bob: net = 5-1=4, vs par = 4-4 = 0
-  const rows = buildRoundStandingsHTML(r);
+  // Alice gross 5 → net vs par = +1; Bob gross 5 → net 4, vs par = 0 → Bob wins
+  r.scores.p1[1] = { s: 5 };
+  r.scores.p2[1] = { s: 5 };
+  const { rows } = buildRoundStandingsHTML(r);
   eq(rows[0].p.name, 'Bob');
   eq(rows[1].p.name, 'Alice');
 });
-test('player with no scores ranks last (primary=Infinity)', () => {
+test('player with no scores ranks last (sortKey=Infinity)', () => {
   resetState();
   const r = makeRound18({ players: [
     { id:'p1', name:'Alice', courseHcpOverride:0 },
@@ -1712,10 +1722,33 @@ test('player with no scores ranks last (primary=Infinity)', () => {
   ]});
   r.scores.p1[1] = { s: 5 };
   // Bob has no scores
-  const rows = buildRoundStandingsHTML(r);
+  const { rows } = buildRoundStandingsHTML(r);
   eq(rows[0].p.name, 'Alice');
   eq(rows[1].p.name, 'Bob');
-  eq(rows[1].primary, Infinity);
+  eq(rows[1].sortKey, Infinity);
+  eq(rows[1].primary, 0); // gross = 0, shows '-' in UI
+});
+test('holesPlayed counts only holes where all players have scored', () => {
+  resetState();
+  const r = makeRound18({ players: [
+    { id:'p1', name:'Alice', courseHcpOverride:0 },
+    { id:'p2', name:'Bob',   courseHcpOverride:0 },
+  ]});
+  // All players scored holes 1-9; only Alice scored hole 10
+  for (let i = 1; i <= 9; i++) { r.scores.p1[i] = { s: 4 }; r.scores.p2[i] = { s: 4 }; }
+  r.scores.p1[10] = { s: 4 }; // only Alice
+  const { holesPlayed } = buildRoundStandingsHTML(r);
+  eq(holesPlayed, 9); // not 10
+});
+test('holesPlayed is 0 when no hole has all players scored', () => {
+  resetState();
+  const r = makeRound18({ players: [
+    { id:'p1', name:'Alice', courseHcpOverride:0 },
+    { id:'p2', name:'Bob',   courseHcpOverride:0 },
+  ]});
+  r.scores.p1[1] = { s: 4 }; // only Alice on hole 1
+  const { holesPlayed } = buildRoundStandingsHTML(r);
+  eq(holesPlayed, 0);
 });
 
 suite('buildRoundStandingsHTML — stableford ranking');
@@ -1728,7 +1761,7 @@ test('player with more points ranks first', () => {
   // Hole 1 par 4; Alice 3 (birdie=3pts), Bob 4 (par=2pts)
   r.scores.p1[1] = { s: 3 };
   r.scores.p2[1] = { s: 4 };
-  const rows = buildRoundStandingsHTML(r);
+  const { rows } = buildRoundStandingsHTML(r);
   eq(rows[0].p.name, 'Alice');
   eq(rows[0].primary, 3);
   eq(rows[1].p.name, 'Bob');

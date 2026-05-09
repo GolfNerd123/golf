@@ -3387,50 +3387,54 @@ function continueToBackNine() {
 function buildRoundStandingsHTML(round) {
   const isWolf = round.format === 'wolf';
   const isStbl = round.format === 'stableford';
-  const holesPlayed = round.holes.filter(h => round.players.some(p => round.scores[p.id]?.[h.n]?.s)).length;
+  // Only count a hole as "played" when every player has a score on it
+  const holesPlayed = round.holes.filter(h => round.players.every(p => round.scores[p.id]?.[h.n]?.s)).length;
 
   const rows = round.players.map(p => {
     const gross = grossTotal(round, p.id);
     const chcp  = courseHcp(p, round);
     const scoredPar = round.holes.filter(h => round.scores[p.id]?.[h.n]?.s).reduce((s,h) => s+h.par, 0);
     const grossVsPar = gross ? gross - scoredPar : null;
-    let primary, secondary;
+    let primary, sortKey, secondary;
     if (isStbl) {
-      primary   = stablefordTotal(round, p.id);
-      secondary = primary ? `${primary} pts` : '-';
+      primary = sortKey = stablefordTotal(round, p.id);
+      secondary = gross ? `gross ${gross}` : '-';
     } else if (isWolf) {
       const wp  = wolfTotalPts(round, p.id);
-      primary   = wp;
+      primary = sortKey = wp;
       secondary = gross ? `${wp >= 0 ? '+' : ''}${wp} wolf pts` : '-';
     } else {
-      const nt  = netTotal(round, p.id);
+      const nt       = netTotal(round, p.id);
       const netVsPar = nt ? nt - scoredPar : null;
-      primary   = netVsPar !== null ? netVsPar : Infinity;
-      secondary = gross ? `gross ${gross} (${dStr(grossVsPar)}) · net ${dStr(netVsPar)}` : 'No scores';
+      sortKey   = netVsPar !== null ? netVsPar : Infinity;
+      primary   = gross;  // display: total gross strokes
+      secondary = gross ? `${dStr(grossVsPar)} gross &middot; net ${dStr(netVsPar)}` : 'No scores';
     }
-    return { p, gross, primary, secondary, grossVsPar };
+    return { p, gross, primary, sortKey, secondary, grossVsPar };
   });
 
   if (isStbl || isWolf) {
-    rows.sort((a, b) => isStbl ? b.primary - a.primary : b.primary - a.primary);
+    rows.sort((a, b) => b.sortKey - a.sortKey);
   } else {
-    rows.sort((a, b) => a.primary - b.primary);
+    rows.sort((a, b) => a.sortKey - b.sortKey);
   }
 
   const holesLabel = holesPlayed === round.holes.length ? 'All holes' : `${holesPlayed} hole${holesPlayed !== 1 ? 's' : ''} played`;
-  const colHead = isStbl ? 'Points' : isWolf ? 'Wolf Pts' : 'Net vs Par';
+  const colHead = isStbl ? 'Points' : isWolf ? 'Wolf Pts' : 'Strokes';
 
   let html = `<div style="font-size:11px;color:var(--muted);margin-bottom:10px">${esc(round.course)} &middot; ${holesLabel}</div>`;
   html += `<table class="standings-table">
     <thead><tr><th class="pos">#</th><th>Player</th><th>${colHead}</th></tr></thead>
     <tbody>`;
   rows.forEach((row, i) => {
-    const isLeader = i === 0 && row.primary !== Infinity;
+    const isLeader = i === 0 && (isStbl || isWolf ? row.gross > 0 : row.sortKey !== Infinity);
     let primaryStr;
-    if (isStbl || isWolf) {
-      primaryStr = row.primary !== 0 || row.gross > 0 ? `${isWolf && row.primary >= 0 ? '+' : ''}${row.primary}` : '-';
+    if (isStbl) {
+      primaryStr = row.gross > 0 ? String(row.primary) : '-';
+    } else if (isWolf) {
+      primaryStr = row.gross > 0 ? `${row.primary >= 0 ? '+' : ''}${row.primary}` : '-';
     } else {
-      primaryStr = row.primary === Infinity ? '-' : dStr(row.primary);
+      primaryStr = row.gross > 0 ? String(row.gross) : '-';
     }
     html += `<tr class="${isLeader ? 'leader' : ''}">
       <td class="pos">${i + 1}</td>
