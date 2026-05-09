@@ -265,6 +265,7 @@ function loadRounds()  { return _rounds; }
 function loadPlayers() { return _players; }
 function loadCourses() { return _courseOverrides; }
 function byId(id)      { return _rounds.find(r=>r.id===id)||null; }
+function isPresetCourse(id) { return id.startsWith('preset_'); }
 
 function _saveTeePrefs(pid, courseId, teeIdx) {
   try {
@@ -2058,6 +2059,103 @@ test('course and date appear on separate lines', () => {
   assert(courseLine !== undefined, 'course should be on its own line');
   assert(dateLine   !== undefined, 'date should be on its own line');
   assert(courseLine !== dateLine,  'course and date should be on different lines');
+});
+
+// ─── showCourseActions / deleteCourseFromAction stubs ────────────────────────
+let _actionCourseId = null;
+let _lastCourseActionShown = null;
+let _courseDeleteCalledFor = null;
+let _courseDeleteConfirmResult = true;
+
+function showCourseActions(id) {
+  const co = loadCourses().find(c => c.id === id);
+  if (!co) return;
+  _actionCourseId = id;
+  _lastCourseActionShown = { id, name: co.name, isCustom: !isPresetCourse(id) };
+}
+function closeCourseActions() {
+  _actionCourseId = null;
+}
+function editCourseFromAction() {
+  const id = _actionCourseId;
+  closeCourseActions();
+  // editing opens the editor — just record the call in tests
+  _lastEditedCourseId = id;
+}
+function deleteCourseFromAction() {
+  const id = _actionCourseId;
+  const co = loadCourses().find(c => c.id === id);
+  closeCourseActions();
+  if (co && _courseDeleteConfirmResult) {
+    _courseDeleteCalledFor = id;
+    deleteCourseData(id);
+  }
+}
+let _lastEditedCourseId = null;
+
+// ═════════════════════════════════════════════════════════════════════════════
+// COURSE ACTION SHEET (long-press / context menu)
+// ═════════════════════════════════════════════════════════════════════════════
+suite('Course action sheet — long press / context menu');
+
+test('showCourseActions populates title with course name', () => {
+  _courseOverrides = [{ id: 'c1', name: 'Hlíðavöllur', holes: 18, pars: Array(18).fill(4), si: Array.from({length:18},(_,i)=>i+1) }];
+  _lastCourseActionShown = null;
+  showCourseActions('c1');
+  assert(_lastCourseActionShown !== null, 'action should be shown');
+  eq(_lastCourseActionShown.name, 'Hlíðavöllur');
+});
+
+test('showCourseActions marks custom courses as deletable', () => {
+  _courseOverrides = [{ id: 'custom_1', name: 'My Course', holes: 18, pars: Array(18).fill(4), si: Array.from({length:18},(_,i)=>i+1) }];
+  showCourseActions('custom_1');
+  assert(_lastCourseActionShown.isCustom === true, 'custom course should be deletable');
+});
+
+test('showCourseActions marks preset courses as non-deletable', () => {
+  _courseOverrides = [{ id: 'preset_abc', name: 'Preset Course', holes: 18, pars: Array(18).fill(4), si: Array.from({length:18},(_,i)=>i+1) }];
+  showCourseActions('preset_abc');
+  assert(_lastCourseActionShown.isCustom === false, 'preset course should not be deletable');
+});
+
+test('showCourseActions with unknown id does nothing', () => {
+  _courseOverrides = [];
+  _lastCourseActionShown = null;
+  showCourseActions('nonexistent');
+  assert(_lastCourseActionShown === null, 'should not open for unknown id');
+});
+
+test('deleteCourseFromAction removes the course', () => {
+  _courseOverrides = [{ id: 'custom_1', name: 'My Course', holes: 18, pars: Array(18).fill(4), si: Array.from({length:18},(_,i)=>i+1) }];
+  _courseDeleteConfirmResult = true;
+  showCourseActions('custom_1');
+  deleteCourseFromAction();
+  assert(_courseOverrides.length === 0, 'course should be deleted');
+});
+
+test('deleteCourseFromAction does not delete when user cancels', () => {
+  _courseOverrides = [{ id: 'custom_1', name: 'My Course', holes: 18, pars: Array(18).fill(4), si: Array.from({length:18},(_,i)=>i+1) }];
+  _courseDeleteConfirmResult = false;
+  showCourseActions('custom_1');
+  deleteCourseFromAction();
+  assert(_courseOverrides.length === 1, 'course should remain when cancelled');
+  _courseDeleteConfirmResult = true;
+});
+
+test('deleteCourseFromAction clears _actionCourseId', () => {
+  _courseOverrides = [{ id: 'custom_1', name: 'My Course', holes: 18, pars: Array(18).fill(4), si: Array.from({length:18},(_,i)=>i+1) }];
+  showCourseActions('custom_1');
+  deleteCourseFromAction();
+  assert(_actionCourseId === null, '_actionCourseId should be cleared after action');
+});
+
+test('editCourseFromAction records the course id and clears action state', () => {
+  _courseOverrides = [{ id: 'custom_1', name: 'My Course', holes: 18, pars: Array(18).fill(4), si: Array.from({length:18},(_,i)=>i+1) }];
+  _lastEditedCourseId = null;
+  showCourseActions('custom_1');
+  editCourseFromAction();
+  eq(_lastEditedCourseId, 'custom_1');
+  assert(_actionCourseId === null, '_actionCourseId should be cleared after edit');
 });
 
 // ═════════════════════════════════════════════════════════════════════════════

@@ -910,7 +910,7 @@
   .course-item-info { flex: 1; }
   .course-item-name { font-size: 16px; font-weight: 700; color: var(--green); }
   .course-item-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
-  .course-item-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .course-item { cursor: pointer; user-select: none; }
 
   .course-edit-card {
     background: #fff; border-radius: var(--radius); box-shadow: var(--shadow);
@@ -1069,6 +1069,15 @@
     <button class="action-btn ab-edit"   onclick="editRound()">Edit scores</button>
     <button class="action-btn ab-delete" onclick="confirmDeleteRound()">Delete round</button>
     <button class="action-btn ab-cancel" onclick="closeRoundActions()">Cancel</button>
+  </div>
+</div>
+
+<div id="course-action-overlay" class="action-overlay" onclick="closeCourseActions()">
+  <div class="action-sheet" onclick="event.stopPropagation()">
+    <div class="action-title" id="course-action-title"></div>
+    <button class="action-btn ab-edit"   onclick="editCourseFromAction()">Edit course</button>
+    <button class="action-btn ab-delete" id="course-action-delete" onclick="deleteCourseFromAction()">Delete course</button>
+    <button class="action-btn ab-cancel" onclick="closeCourseActions()">Cancel</button>
   </div>
 </div>
 
@@ -2146,15 +2155,11 @@ function renderCourses(c) {
     const imgCount = (co.imgs || []).filter(Boolean).length;
     const imgInfo  = imgCount > 0 ? `${imgCount} layout image${imgCount > 1 ? 's' : ''}` : '';
     const meta     = [co.club, `${co.holes}H Par ${parTot}`, crInfo, srInfo, imgInfo].filter(Boolean).join(' · ');
-    return `<div class="course-item">
+    return `<div class="course-item" data-id="${co.id}">
       <div class="course-item-top">
         <div class="course-item-info">
           <div class="course-item-name">${esc(co.name)}</div>
           <div class="course-item-meta">${esc(meta)}</div>
-        </div>
-        <div class="course-item-actions">
-          <button class="icon-btn icon-btn-edit" onclick="editCourse('${co.id}')">&#9998;</button>
-          ${isCustom ? `<button class="icon-btn icon-btn-del" onclick="confirmDeleteCourse('${co.id}')">&#10005;</button>` : ''}
         </div>
       </div>
     </div>`;
@@ -2164,6 +2169,15 @@ function renderCourses(c) {
     ${list}
     <button class="btn btn-green" style="margin-top:4px" onclick="newCourse()">+ Add Custom Course</button>
   </div>`;
+
+  c.querySelectorAll('.course-item').forEach(card => {
+    const id = card.dataset.id;
+    let t;
+    card.addEventListener('touchstart', () => { t = setTimeout(() => showCourseActions(id), 600); }, {passive:true});
+    card.addEventListener('touchend',   () => clearTimeout(t), {passive:true});
+    card.addEventListener('touchmove',  () => clearTimeout(t), {passive:true});
+    card.addEventListener('contextmenu', e => { e.preventDefault(); showCourseActions(id); });
+  });
 }
 
 function newCourse() {
@@ -4681,6 +4695,36 @@ function closeRoundActions() {
   document.getElementById('round-action-overlay').classList.remove('open');
   _actionRoundId = null;
 }
+
+let _actionCourseId = null;
+function showCourseActions(id) {
+  const co = loadCourses().find(c => c.id === id);
+  if (!co) return;
+  _actionCourseId = id;
+  document.getElementById('course-action-title').textContent = co.name;
+  const isCustom = !isPresetCourse(id);
+  document.getElementById('course-action-delete').style.display = isCustom ? '' : 'none';
+  document.getElementById('course-action-overlay').classList.add('open');
+}
+function closeCourseActions() {
+  document.getElementById('course-action-overlay').classList.remove('open');
+  _actionCourseId = null;
+}
+function editCourseFromAction() {
+  const id = _actionCourseId;
+  closeCourseActions();
+  editCourse(id);
+}
+function deleteCourseFromAction() {
+  const id = _actionCourseId;
+  const co = loadCourses().find(c => c.id === id);
+  closeCourseActions();
+  if (co && confirm(`Delete "${co.name}"?`)) {
+    deleteCourseData(id);
+    renderCourses(document.getElementById('main'));
+  }
+}
+
 function editRound() {
   const id = _actionRoundId;
   closeRoundActions();
