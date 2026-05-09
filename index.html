@@ -1281,6 +1281,7 @@ const S = {
     nineStart: 1,   // 1 = front 9, 10 = back 9
     chcp: {},       // per-player course handicap override: { [profileId]: '12' }
     playerTee: {},  // per-player selected tee index: { [profileId]: 0 }
+    _date: new Date().toISOString().slice(0, 10),
   },
 };
 
@@ -2617,6 +2618,9 @@ function renderNewRound(c) {
     ${coursePresets}
     <input class="input" id="nr-course" placeholder="Course name" autocomplete="off">
 
+    <span class="lbl">Date</span>
+    <input class="input" id="nr-date" type="date" value="${nr._date || new Date().toISOString().slice(0,10)}" max="${new Date().toISOString().slice(0,10)}">
+
     <span class="lbl">Course Rating &amp; Slope</span>
     <div class="two-col">
       <div class="input-wrap">
@@ -2673,6 +2677,7 @@ function preserveNrInputs() {
   S.nr._course = document.getElementById('nr-course')?.value || '';
   S.nr._rating = document.getElementById('nr-rating')?.value || '';
   S.nr._slope  = document.getElementById('nr-slope')?.value  || '';
+  S.nr._date   = document.getElementById('nr-date')?.value   || new Date().toISOString().slice(0, 10);
   const remain = 4 - S.nr.selPids.length;
   S.nr.guests  = Array.from({ length: 4 }, (_, i) => ({
     name: i < remain ? (document.getElementById(`ng-n${i}`)?.value || '') : '',
@@ -2694,6 +2699,7 @@ function restoreNrInputs() {
   set('nr-course', S.nr._course);
   set('nr-rating', S.nr._rating);
   set('nr-slope',  S.nr._slope);
+  set('nr-date',   S.nr._date);
 }
 
 function setCourse(id) {
@@ -2963,10 +2969,11 @@ function startRound() {
 
   const ratingVal = document.getElementById('nr-rating')?.value;
   const slopeVal  = document.getElementById('nr-slope')?.value;
+  const dateVal   = document.getElementById('nr-date')?.value;
 
   const round = {
     id: 'r' + Date.now(),
-    date: new Date().toISOString(),
+    date: parseDateInput(dateVal),
     course,
     courseRating: ratingVal ? parseFloat(ratingVal) : null,
     slopeRating:  slopeVal  ? parseInt(slopeVal)    : 113,
@@ -2980,7 +2987,8 @@ function startRound() {
   S.nr = { holes:18, pars:[...DEFAULT_PARS_18], si:[...DEFAULT_SI_18],
            courseRating:'', slopeRating:'113', showHoleSettings:false,
            selPids:[], guests:[{name:'',hcp:''},{name:'',hcp:''},{name:'',hcp:''},{name:'',hcp:''}],
-           format:'stroke', courseId:null, nineStart:1, chcp:{}, playerTee:{} };
+           format:'stroke', courseId:null, nineStart:1, chcp:{}, playerTee:{},
+           _date: new Date().toISOString().slice(0, 10) };
   nav('scorecard', { roundId: round.id, hole: 1 });
 }
 
@@ -4680,6 +4688,11 @@ function editRound() {
   }
   nav('scorecard', { roundId: id, hole: start });
 }
+function parseDateInput(dateVal) {
+  // Treat a YYYY-MM-DD string as noon UTC to avoid date shifting across timezones
+  return dateVal ? (dateVal + 'T12:00:00.000Z') : new Date().toISOString();
+}
+
 function buildDeleteRoundMessage(round) {
   if (!round) return 'Delete this round?\n\nThis cannot be undone.';
   const dateStr = new Date(round.date).toLocaleDateString('en-GB',
@@ -4999,6 +5012,14 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('new',  '📅', 'Custom round date',
+        'When creating a new round the date defaults to today, but you can change it to any past date — making it easy to enter scores from older rounds you played without the app.'),
+      entry('new',  '⚠️', 'Delete round confirmation',
+        'Deleting a round now shows the course name and date in the confirmation prompt, so you can be sure you\'re removing the right one before it\'s gone.'),
+      entry('new',  '✨', 'What\'s New page',
+        'This page! All new features and fixes are listed here as they\'re added, so you always know what\'s changed. Find it under ☰ → What\'s New.'),
+      entry('fix',  '🔒', 'Change history can no longer be cleared',
+        'The "Clear all" button has been removed from Change History. An audit trail that can be wiped isn\'t much of an audit trail.'),
       entry('fix',  '📊', 'Standings shows stroke totals',
         'The live standings during a round now show each player\'s actual stroke total (e.g. 47 strokes) as the main number, with gross vs par and net vs par shown underneath.'),
       entry('fix',  '⛳', 'Holes played count corrected',

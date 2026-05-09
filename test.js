@@ -223,6 +223,10 @@ function wolfTotalPts(round, pid) {
   return t;
 }
 
+function parseDateInput(dateVal) {
+  return dateVal ? (dateVal + 'T12:00:00.000Z') : new Date().toISOString();
+}
+
 function buildDeleteRoundMessage(round) {
   if (!round) return 'Delete this round?\n\nThis cannot be undone.';
   const dateStr = new Date(round.date).toLocaleDateString('en-GB',
@@ -1911,6 +1915,28 @@ test('overwriting pref updates stored value', () => {
   _saveTeePrefs('p1', 'c1', 0);
   _saveTeePrefs('p1', 'c1', 2);
   eq(_loadTeePref('p1', 'c1'), 2);
+});
+
+// ── parseDateInput ────────────────────────────────────────────────────────────
+suite('parseDateInput — round date handling');
+test('converts YYYY-MM-DD to noon UTC ISO string', () => {
+  eq(parseDateInput('2026-05-09'), '2026-05-09T12:00:00.000Z');
+});
+test('converts an older date correctly', () => {
+  eq(parseDateInput('2025-11-30'), '2025-11-30T12:00:00.000Z');
+});
+test('empty string falls back to a current ISO date', () => {
+  const result = parseDateInput('');
+  assert(result.length > 10, 'fallback should be a full ISO string');
+  assert(!result.startsWith('T'), 'fallback should not start with T');
+});
+test('null falls back to a current ISO date', () => {
+  const result = parseDateInput(null);
+  assert(result.length > 10);
+});
+test('date portion is preserved exactly in output', () => {
+  const result = parseDateInput('2024-03-15');
+  assert(result.startsWith('2024-03-15'), `expected 2024-03-15 prefix, got: ${result}`);
 });
 
 // ── Delete round confirmation message ────────────────────────────────────────
