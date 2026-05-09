@@ -1,4 +1,4 @@
-const CACHE = 'golf-v16';
+const CACHE = 'golf-v17';
 const ASSETS = ['./', './index.html', './manifest.json'];
 
 self.addEventListener('install', e => {

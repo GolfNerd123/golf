@@ -925,6 +925,70 @@
   .np-cancel { background: #fff0f0; color: #c84b11; grid-column: span 4; padding: 13px; font-size: 15px; }
   .np-cancel:active { background: #c84b11; color: #fff; }
 
+  /* Standings / 9-hole / comment overlays */
+  .sc-top-bar { padding: 8px 16px 0; display: flex; justify-content: flex-end; }
+  .standings-btn {
+    padding: 6px 14px; background: var(--green); color: #fff;
+    border: none; border-radius: 20px; font-size: 13px; font-weight: 700;
+    cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  }
+  .standings-btn:active { opacity: .8; }
+  .overlay-dim {
+    position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 299;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+    touch-action: none;
+  }
+  .overlay-card {
+    background: #fff; border-radius: 20px; width: 100%; max-width: 460px;
+    max-height: 88vh; display: flex; flex-direction: column; overflow: hidden;
+    box-shadow: 0 8px 40px rgba(0,0,0,.3);
+  }
+  .overlay-head {
+    background: var(--green); color: #fff; padding: 16px 18px;
+    font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: space-between;
+  }
+  .overlay-body { padding: 16px; overflow-y: auto; }
+  .overlay-foot { padding: 12px 16px; border-top: 1px solid #e8e8e8; display: flex; gap: 10px; }
+  .standings-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .standings-table th { background: #f0f7f4; color: var(--green); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 8px 10px; text-align: left; }
+  .standings-table td { padding: 9px 10px; border-top: 1px solid #f0f0f0; }
+  .standings-table tr:first-child td { border-top: none; }
+  .standings-table .pos { width: 30px; font-weight: 700; color: var(--green); }
+  .standings-table .leader { background: #f0f7f4; font-weight: 700; }
+  .nine-hole-sheet {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 299;
+    background: #fff; border-radius: 22px 22px 0 0;
+    box-shadow: 0 -4px 28px rgba(0,0,0,.22);
+    padding: 20px 16px;
+    padding-bottom: max(24px, var(--safe-bottom));
+    max-height: 80vh; overflow-y: auto;
+  }
+  .nine-hole-dim { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 298; touch-action: none; }
+  .nine-hole-title { font-size: 17px; font-weight: 800; color: var(--green); margin-bottom: 12px; text-align: center; }
+  .comment-sheet {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 299;
+    background: #fff; border-radius: 22px 22px 0 0;
+    box-shadow: 0 -4px 28px rgba(0,0,0,.22);
+    padding: 20px 16px;
+    padding-bottom: max(24px, var(--safe-bottom));
+  }
+  .comment-dim { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 298; touch-action: none; }
+  .comment-title { font-size: 17px; font-weight: 800; color: var(--green); margin-bottom: 6px; }
+  .comment-sub { font-size: 13px; color: var(--muted); margin-bottom: 14px; }
+  .comment-input {
+    width: 100%; box-sizing: border-box; border: 2px solid var(--green); border-radius: 12px;
+    padding: 12px 14px; font-size: 15px; resize: none; outline: none; color: #222;
+    font-family: inherit;
+  }
+  .comment-input:focus { border-color: var(--green-mid); }
+  .hcp-suggest-card {
+    background: linear-gradient(135deg, #f0f7f4, #e0f0e8); border: 1.5px solid var(--green-mid);
+    border-radius: 14px; padding: 16px; margin-top: 20px; margin-bottom: 16px;
+  }
+  .hcp-suggest-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 8px; }
+  .hcp-suggest-val { font-size: 36px; font-weight: 800; color: var(--green); line-height: 1.1; }
+  .hcp-suggest-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
   /* Per-player scorecard in summary */
   .psc-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
   .psc-pill {
@@ -1171,6 +1235,9 @@ const S = {
   summaryPlayer: null,
   numpadPid: null,
   showLayout: false,
+  showRoundSummary: false,
+  showNineHoleSummary: false,
+  finishComment: null,
 
   nr: {
     holes: 18,
@@ -2964,7 +3031,14 @@ function renderScorecard(c) {
       runLine = (wp !== 0 || run > 0) ? `${wp >= 0 ? '+' : ''}${wp} wolf pts` : 'No scores yet';
       netLine = netBracket;
     } else {
-      runLine = run ? `${run} (${dStr(rd)})` : 'No scores yet';
+      if (run) {
+        const nt = netTotal(round, p.id);
+        const scoredPar = round.holes.filter(h => round.scores[p.id]?.[h.n]?.s).reduce((s,h) => s+h.par, 0);
+        const netVsPar = nt - scoredPar;
+        runLine = `${run} (${dStr(rd)}) &middot; net ${dStr(netVsPar)}`;
+      } else {
+        runLine = 'No scores yet';
+      }
       netLine = netBracket;
     }
 
@@ -3040,7 +3114,47 @@ function renderScorecard(c) {
       </div>
     </div>` : '';
 
+  // Standings overlay
+  const standingsOverlay = S.showRoundSummary ? `
+    <div class="overlay-dim" onclick="closeRoundSummary()">
+      <div class="overlay-card" onclick="event.stopPropagation()">
+        <div class="overlay-head">
+          <span>📊 Standings</span>
+          <button onclick="closeRoundSummary()" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer;line-height:1">&#10005;</button>
+        </div>
+        <div class="overlay-body">${buildRoundStandingsHTML(round)}</div>
+        <div class="overlay-foot">
+          <button class="btn btn-outline" style="flex:1" onclick="closeRoundSummary()">Close</button>
+        </div>
+      </div>
+    </div>` : '';
+
+  // 9-hole summary overlay
+  const nineHoleOverlay = S.showNineHoleSummary ? `
+    <div class="nine-hole-dim" onclick="continueToBackNine()"></div>
+    <div class="nine-hole-sheet">
+      ${buildNineHoleSummaryHTML(round)}
+      <button class="btn btn-green" style="width:100%;margin-top:16px" onclick="continueToBackNine()">Continue to Back 9 &#8594;</button>
+    </div>` : '';
+
+  // Finish comment sheet
+  const commentSheet = S.finishComment !== null ? `
+    <div class="comment-dim"></div>
+    <div class="comment-sheet">
+      <div class="comment-title">Round Notes</div>
+      <div class="comment-sub">Anything memorable? Conditions, highlights, achievements... (optional)</div>
+      <textarea class="comment-input" rows="4" placeholder="e.g. First eagle for Ingibjörg, weather was awful..."
+        oninput="updateFinishComment(this.value)">${esc(S.finishComment)}</textarea>
+      <div style="display:flex;gap:10px;margin-top:14px">
+        <button class="btn btn-outline" style="flex:1" onclick="skipFinishComment()">Skip</button>
+        <button class="btn btn-green" style="flex:2" onclick="submitFinishComment()">Save &amp; Finish</button>
+      </div>
+    </div>` : '';
+
   c.innerHTML = `<div id="view-scorecard"${isCompact ? ' class="compact"' : ''}>
+    <div class="sc-top-bar">
+      <button class="standings-btn" onclick="openRoundSummary()">&#128202; Standings</button>
+    </div>
     <div class="hole-hdr">
       <button class="nav-btn" onclick="gotoHole(${S.hole-1})" ${S.hole===firstHole?'disabled':''}>&#8249;</button>
       <div class="hole-mid">
@@ -3064,6 +3178,9 @@ function renderScorecard(c) {
     <div class="sc-footer">${foot}</div>
     ${numpad}
     ${layoutModal}
+    ${standingsOverlay}
+    ${nineHoleOverlay}
+    ${commentSheet}
   </div>`;
 }
 
@@ -3071,8 +3188,12 @@ function gotoHole(n) {
   const round = byId(S.roundId);
   if (!round || n < 1 || n > round.holes.length) return;
   _flushAudit(round, 'hole_' + n);  // snapshot with current scores before moving
+  const prevHole = S.hole;
   S.hole = n;
   S.showLayout = false;
+  if (prevHole === 9 && n === 10 && round.holes.length === 18) {
+    S.showNineHoleSummary = true;
+  }
   try { localStorage.setItem(NAV_KEY, JSON.stringify({ roundId: S.roundId, hole: n })); } catch {}
   renderScorecard(document.getElementById('main'));
 }
@@ -3186,8 +3307,182 @@ function finishRound() {
   const round = byId(S.roundId);
   if (!round) return;
   const incomplete = round.players.some(p => round.holes.some(h => !round.scores[p.id]?.[h.n]?.s));
-  const go = () => { round.done = true; saveRound(round); S.justFinishedRoundId = round.id; nav('stats'); };
-  if (incomplete) { if (confirm('Some holes have no scores. Finish anyway?')) go(); } else go();
+  const showComment = () => { S.finishComment = ''; renderScorecard(document.getElementById('main')); };
+  if (incomplete) { if (confirm('Some holes have no scores. Finish anyway?')) showComment(); } else showComment();
+}
+
+function submitFinishComment() {
+  const round = byId(S.roundId);
+  if (!round) return;
+  const comment = (S.finishComment || '').trim();
+  if (comment) round.comments = comment;
+  round.done = true;
+  saveRound(round);
+  S.justFinishedRoundId = round.id;
+  S.finishComment = null;
+  nav('stats');
+}
+
+function skipFinishComment() {
+  const round = byId(S.roundId);
+  if (!round) return;
+  round.done = true;
+  saveRound(round);
+  S.justFinishedRoundId = round.id;
+  S.finishComment = null;
+  nav('stats');
+}
+
+function updateFinishComment(val) {
+  S.finishComment = val;
+}
+
+function openRoundSummary() {
+  S.showRoundSummary = true;
+  renderScorecard(document.getElementById('main'));
+}
+
+function closeRoundSummary() {
+  S.showRoundSummary = false;
+  renderScorecard(document.getElementById('main'));
+}
+
+function continueToBackNine() {
+  S.showNineHoleSummary = false;
+  renderScorecard(document.getElementById('main'));
+}
+
+function buildRoundStandingsHTML(round) {
+  const isWolf = round.format === 'wolf';
+  const isStbl = round.format === 'stableford';
+  const holesPlayed = round.holes.filter(h => round.players.some(p => round.scores[p.id]?.[h.n]?.s)).length;
+
+  const rows = round.players.map(p => {
+    const gross = grossTotal(round, p.id);
+    const chcp  = courseHcp(p, round);
+    const scoredPar = round.holes.filter(h => round.scores[p.id]?.[h.n]?.s).reduce((s,h) => s+h.par, 0);
+    const grossVsPar = gross ? gross - scoredPar : null;
+    let primary, secondary;
+    if (isStbl) {
+      primary   = stablefordTotal(round, p.id);
+      secondary = primary ? `${primary} pts` : '-';
+    } else if (isWolf) {
+      const wp  = wolfTotalPts(round, p.id);
+      primary   = wp;
+      secondary = gross ? `${wp >= 0 ? '+' : ''}${wp} wolf pts` : '-';
+    } else {
+      const nt  = netTotal(round, p.id);
+      const netVsPar = nt ? nt - scoredPar : null;
+      primary   = netVsPar !== null ? netVsPar : Infinity;
+      secondary = gross ? `gross ${gross} (${dStr(grossVsPar)}) · net ${dStr(netVsPar)}` : 'No scores';
+    }
+    return { p, gross, primary, secondary, grossVsPar };
+  });
+
+  if (isStbl || isWolf) {
+    rows.sort((a, b) => isStbl ? b.primary - a.primary : b.primary - a.primary);
+  } else {
+    rows.sort((a, b) => a.primary - b.primary);
+  }
+
+  const holesLabel = holesPlayed === round.holes.length ? 'All holes' : `${holesPlayed} hole${holesPlayed !== 1 ? 's' : ''} played`;
+  const colHead = isStbl ? 'Points' : isWolf ? 'Wolf Pts' : 'Net vs Par';
+
+  let html = `<div style="font-size:11px;color:var(--muted);margin-bottom:10px">${esc(round.course)} &middot; ${holesLabel}</div>`;
+  html += `<table class="standings-table">
+    <thead><tr><th class="pos">#</th><th>Player</th><th>${colHead}</th></tr></thead>
+    <tbody>`;
+  rows.forEach((row, i) => {
+    const isLeader = i === 0 && row.primary !== Infinity;
+    let primaryStr;
+    if (isStbl || isWolf) {
+      primaryStr = row.primary !== 0 || row.gross > 0 ? `${isWolf && row.primary >= 0 ? '+' : ''}${row.primary}` : '-';
+    } else {
+      primaryStr = row.primary === Infinity ? '-' : dStr(row.primary);
+    }
+    html += `<tr class="${isLeader ? 'leader' : ''}">
+      <td class="pos">${i + 1}</td>
+      <td>
+        <div style="font-weight:700">${esc(row.p.name)}</div>
+        <div style="font-size:11px;color:var(--muted)">${row.secondary}</div>
+      </td>
+      <td style="font-size:18px;font-weight:800;color:var(--green)">${primaryStr}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+function buildNineHoleSummaryHTML(round) {
+  const front = round.holes.filter(h => h.n <= 9);
+  const fpar  = front.reduce((s, h) => s + h.par, 0);
+  const isStbl = round.format === 'stableford';
+
+  const rows = round.players.map(p => {
+    const gross = grossTotal(round, p.id, 1, 9);
+    const chcp  = courseHcp(p, round);
+    const net   = isStbl ? null : front.reduce((s, h) => {
+      const g = round.scores[p.id]?.[h.n]?.s || 0;
+      return g ? s + g - siStrokes(chcp, h.si, round.holes.length) : s;
+    }, 0);
+    const stbPts = isStbl ? front.reduce((s, h) => {
+      const g = round.scores[p.id]?.[h.n]?.s || 0;
+      const pts = stablefordPts(g, h.par, siStrokes(chcp, h.si, round.holes.length));
+      return s + (pts || 0);
+    }, 0) : null;
+    return { p, gross, net, stbPts, chcp };
+  }).sort((a, b) => isStbl ? b.stbPts - a.stbPts : (a.net || 999) - (b.net || 999));
+
+  let html = `<div class="nine-hole-title">Halfway — Front 9</div>
+    <div style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:14px">Par ${fpar} &middot; ${esc(round.course)}</div>
+    <table class="standings-table">
+      <thead><tr><th class="pos">#</th><th>Player</th><th>${isStbl ? 'Points' : 'vs Par'}</th></tr></thead>
+      <tbody>`;
+  rows.forEach((row, i) => {
+    const grossVsPar = row.gross ? row.gross - fpar : null;
+    const scored = round.holes.filter(h => h.n <= 9 && round.scores[row.p.id]?.[h.n]?.s).length;
+    const scoredPar = round.holes.filter(h => h.n <= 9 && round.scores[row.p.id]?.[h.n]?.s).reduce((s, h) => s + h.par, 0);
+    const netVsPar = row.net ? row.net - scoredPar : null;
+    let primary, sub;
+    if (isStbl) {
+      primary = `${row.stbPts} pts`;
+      sub = row.gross ? `gross ${row.gross}` : '-';
+    } else {
+      primary = netVsPar !== null ? dStr(netVsPar) : '-';
+      sub = row.gross ? `gross ${row.gross} (${dStr(grossVsPar)}) · HCP ${row.chcp}` : 'No scores';
+    }
+    html += `<tr class="${i === 0 ? 'leader' : ''}">
+      <td class="pos">${i + 1}</td>
+      <td>
+        <div style="font-weight:700">${esc(row.p.name)}</div>
+        <div style="font-size:11px;color:var(--muted)">${sub}</div>
+      </td>
+      <td style="font-size:18px;font-weight:800;color:var(--green)">${primary}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+function suggestHcpIndex(name, rounds) {
+  const diffs = [];
+  for (const r of rounds) {
+    if (!r.done || !r.courseRating || !r.slopeRating) continue;
+    const p = r.players.find(pl => pl.name === name);
+    if (!p) continue;
+    const pid = p.id;
+    if (!r.holes.every(h => r.scores[pid]?.[h.n]?.s)) continue;
+    const gross = grossTotal(r, pid);
+    const diff  = (gross - parseFloat(r.courseRating)) * (113 / parseFloat(r.slopeRating));
+    diffs.push({ diff, date: r.date, course: r.course });
+  }
+  if (!diffs.length) return null;
+  diffs.sort((a, b) => new Date(b.date) - new Date(a.date));
+  const recent = diffs.slice(0, 20);
+  recent.sort((a, b) => a.diff - b.diff);
+  const useN = Math.min(8, recent.length);
+  const avg  = recent.slice(0, useN).reduce((s, x) => s + x.diff, 0) / useN;
+  return { index: Math.round(avg * 0.96 * 10) / 10, roundsUsed: recent.length, best: useN };
 }
 
 // ═══════════════════════════════════════════
@@ -3606,6 +3901,7 @@ function renderSummary(c) {
       <h2>${esc(round.course)}</h2>
       <p>${dateStr}${fmtLabel}</p>
       ${courseInfo ? `<p>${courseInfo}</p>` : ''}
+      ${round.comments ? `<p style="font-style:italic;opacity:.9;margin-top:4px">&ldquo;${esc(round.comments)}&rdquo;</p>` : ''}
     </div>
     ${mainContent}
     ${playerScorecardSection}
@@ -4173,6 +4469,20 @@ function renderStats(c) {
   const finishBanner   = rivalryBannerHtml(S.justFinishedRoundId, allRounds);
   const rivalrySection = rivalrySectionHtml(allRounds);
 
+  // Handicap index suggestion
+  const hcpSuggest = suggestHcpIndex(selPs.name, allRounds);
+  const hcpSuggestSection = hcpSuggest ? (() => {
+    const currentHcp = loadPlayers().find(p => p.name === selPs.name)?.handicapIndex;
+    const diff = currentHcp !== undefined && currentHcp !== null && currentHcp !== ''
+      ? Math.round((hcpSuggest.index - parseFloat(currentHcp)) * 10) / 10 : null;
+    const diffStr = diff !== null ? (diff >= 0 ? ` (+${diff})` : ` (${diff})`) : '';
+    return `<div class="hcp-suggest-card">
+      <div class="hcp-suggest-title">&#127933; Handicap Index Suggestion (WHS)</div>
+      <div class="hcp-suggest-val">${hcpSuggest.index}${diffStr}</div>
+      <div class="hcp-suggest-sub">Based on best ${hcpSuggest.best} of ${hcpSuggest.roundsUsed} recent scored round${hcpSuggest.roundsUsed!==1?'s':''} with course rating &amp; slope &middot; &times;0.96 adjustment</div>
+    </div>`;
+  })() : '';
+
   c.innerHTML = `<div id="view-stats">
     <div style="background:var(--green)">
       ${pills}
@@ -4184,6 +4494,7 @@ function renderStats(c) {
         <h2>${esc(selPs.name)}</h2>
         <p>${totalUniqueRounds} round${totalUniqueRounds!==1?'s':''} completed</p>
       </div>
+      ${hcpSuggestSection}
       ${strokeSection}
       ${stablefordSection}
       ${wolfSection}

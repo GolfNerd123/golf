@@ -105,12 +105,16 @@ function downloadRoundBackup() {}
 
 // Global mutable state (mirrors index.html globals)
 let _rounds = [], _players = [], _courseOverrides = [], _auditFlushTimer = null;
-const S = { view: 'home', roundId: null, hole: 1, numpadPid: null, showLayout: false, nr: {}, playerEdit: null };
+const S = {
+  view: 'home', roundId: null, hole: 1, numpadPid: null, showLayout: false, nr: {}, playerEdit: null,
+  showRoundSummary: false, showNineHoleSummary: false, finishComment: null,
+};
 
 function resetState() {
   _rounds = []; _players = []; _courseOverrides = []; _auditFlushTimer = null;
   _lsStore = {}; _fsStore = {};
   S.view = 'home'; S.roundId = null; S.hole = 1; S.numpadPid = null;
+  S.showRoundSummary = false; S.showNineHoleSummary = false; S.finishComment = null;
 }
 function getChangeLog() {
   try { return JSON.parse(localStorage.getItem(CHANGE_LOG_KEY) || '[]'); } catch { return []; }
@@ -351,9 +355,44 @@ function nav(view, params) {
 function gotoHole(n) {
   const round=byId(S.roundId); if(!round||n<1||n>round.holes.length) return;
   _flushAudit(round,'hole_'+n);
+  const prevHole=S.hole;
   S.hole=n; S.showLayout=false;
+  if (prevHole===9&&n===10&&round.holes.length===18) S.showNineHoleSummary=true;
   try{localStorage.setItem(NAV_KEY,JSON.stringify({roundId:S.roundId,hole:n}));}catch{}
   renderScorecard();
+}
+function finishRound() {
+  const round=byId(S.roundId); if(!round) return;
+  S.finishComment='';
+}
+function submitFinishComment() {
+  const round=byId(S.roundId); if(!round) return;
+  const comment=(S.finishComment||'').trim();
+  if(comment) round.comments=comment;
+  round.done=true; saveRound(round); S.finishComment=null;
+}
+function skipFinishComment() {
+  const round=byId(S.roundId); if(!round) return;
+  round.done=true; saveRound(round); S.finishComment=null;
+}
+function updateFinishComment(val) { S.finishComment=val; }
+function suggestHcpIndex(name, rounds) {
+  const diffs=[];
+  for (const r of rounds) {
+    if(!r.done||!r.courseRating||!r.slopeRating) continue;
+    const p=r.players.find(pl=>pl.name===name); if(!p) continue;
+    const pid=p.id;
+    if(!r.holes.every(h=>r.scores[pid]?.[h.n]?.s)) continue;
+    const gross=grossTotal(r,pid);
+    diffs.push({diff:(gross-parseFloat(r.courseRating))*(113/parseFloat(r.slopeRating)),date:r.date,course:r.course});
+  }
+  if(!diffs.length) return null;
+  diffs.sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const recent=diffs.slice(0,20);
+  recent.sort((a,b)=>a.diff-b.diff);
+  const useN=Math.min(8,recent.length);
+  const avg=recent.slice(0,useN).reduce((s,x)=>s+x.diff,0)/useN;
+  return {index:Math.round(avg*0.96*10)/10,roundsUsed:recent.length,best:useN};
 }
 function adjScore(pid, delta) {
   const round=byId(S.roundId); if(!round) return;
@@ -1363,6 +1402,174 @@ test('delete course: logs deleted entry', () => {
   saveCourseData({id:'c1',name:'Hlíðavöllur',holes:9,pars:[4,4,3,4,5,3,4,4,5],si:[1,3,9,5,7,11,13,15,17],descriptions:Array(9).fill(''),tees:[]});
   deleteCourseData('c1');
   eq(getChangeLog()[0].action,'deleted'); eq(getChangeLog()[0].entityName,'Hlíðavöllur');
+});
+
+// ── gotoHole 9→10 interstitial ────────────────────────────────────────────────
+suite('gotoHole — 9-hole interstitial');
+test('navigating 9→10 on 18-hole round sets showNineHoleSummary', () => {
+  resetState();
+  const r = makeRound18();
+  saveRound(r); S.roundId = r.id; S.hole = 9;
+  gotoHole(10);
+  assert(S.showNineHoleSummary === true, 'showNineHoleSummary should be true');
+  eq(S.hole, 10);
+});
+test('navigating 8→9 does NOT set showNineHoleSummary', () => {
+  resetState();
+  const r = makeRound18();
+  saveRound(r); S.roundId = r.id; S.hole = 8;
+  gotoHole(9);
+  assert(S.showNineHoleSummary === false, 'showNineHoleSummary should remain false');
+});
+test('navigating 9→10 on 9-hole round does NOT set showNineHoleSummary', () => {
+  resetState();
+  const holes = makeHoles9();
+  const r = { id:'r9', date:'2026-05-02T10:00:00Z', course:'9-Hole', courseRating:36, slopeRating:113,
+    players:[{id:'p1',name:'Alice',handicapIndex:10}], holes, scores:{p1:{}}, done:false, format:'stroke' };
+  saveRound(r); S.roundId = r.id; S.hole = 9;
+  gotoHole(9); // can't go to 10 (out of range), so try hole 9 again
+  assert(S.showNineHoleSummary === false);
+});
+
+// ── Round comments ────────────────────────────────────────────────────────────
+suite('Round comments — finishRound / submitFinishComment');
+test('finishRound sets finishComment to empty string', () => {
+  resetState();
+  const r = makeRound18();
+  saveRound(r); S.roundId = r.id;
+  finishRound();
+  eq(S.finishComment, '');
+});
+test('submitFinishComment saves comment to round and marks done', () => {
+  resetState();
+  const r = makeRound18();
+  saveRound(r); S.roundId = r.id;
+  finishRound();
+  updateFinishComment('First eagle for Bob!');
+  submitFinishComment();
+  const saved = byId(r.id);
+  eq(saved.comments, 'First eagle for Bob!');
+  assert(saved.done === true, 'round should be done');
+  eq(S.finishComment, null);
+});
+test('submitFinishComment with empty comment does not set comments', () => {
+  resetState();
+  const r = makeRound18();
+  saveRound(r); S.roundId = r.id;
+  finishRound();
+  updateFinishComment('  '); // whitespace only
+  submitFinishComment();
+  const saved = byId(r.id);
+  assert(!saved.comments, 'comments should not be set for whitespace input');
+  assert(saved.done === true);
+});
+test('skipFinishComment marks round done without setting comment', () => {
+  resetState();
+  const r = makeRound18();
+  saveRound(r); S.roundId = r.id;
+  finishRound();
+  skipFinishComment();
+  const saved = byId(r.id);
+  assert(!saved.comments, 'comments should not be set when skipped');
+  assert(saved.done === true);
+  eq(S.finishComment, null);
+});
+
+// ── Handicap index suggestion ─────────────────────────────────────────────────
+suite('suggestHcpIndex');
+function makeFinishedRound(pid, name, hcpIdx, gross, cr, sr, date) {
+  const holes = makeHoles18();
+  const scores = {};
+  scores[pid] = {};
+  holes.forEach((h, i) => {
+    const perHole = Math.round(gross / holes.length);
+    // Distribute evenly; last hole gets any remainder
+    const s = i === holes.length - 1 ? gross - (holes.length - 1) * perHole : perHole;
+    scores[pid][h.n] = { s: Math.max(1, s) };
+  });
+  return {
+    id: 'r_' + pid + '_' + date,
+    date,
+    course: 'Test',
+    courseRating: cr,
+    slopeRating: sr,
+    players: [{ id: pid, name, handicapIndex: hcpIdx }],
+    holes,
+    scores,
+    done: true,
+    format: 'stroke',
+  };
+}
+test('returns null when no rounds with CR/SR', () => {
+  resetState();
+  eq(suggestHcpIndex('Alice', []), null);
+});
+test('returns null when all rounds lack courseRating', () => {
+  resetState();
+  const r = makeRound18({ done: true });
+  delete r.courseRating;
+  eq(suggestHcpIndex('Alice', [r]), null);
+});
+test('single round: correct differential formula', () => {
+  resetState();
+  // gross=80, CR=72, SR=113 → diff=(80-72)*(113/113)=8.0 → index=8.0*0.96=7.7
+  const r = makeFinishedRound('p1', 'Alice', 10, 80, 72, 113, '2026-01-01T10:00:00Z');
+  const res = suggestHcpIndex('Alice', [r]);
+  assert(res !== null);
+  assert(Math.abs(res.index - 7.7) < 0.05, `expected ~7.7, got ${res.index}`);
+  eq(res.best, 1);
+  eq(res.roundsUsed, 1);
+});
+test('uses best 8 of available rounds, ignores higher differentials', () => {
+  resetState();
+  const rounds = [];
+  // 8 rounds at gross 80 (diff=8.0) and 2 rounds at gross 90 (diff=18.0)
+  for (let i = 0; i < 10; i++) {
+    const gross = i < 8 ? 80 : 90;
+    rounds.push(makeFinishedRound('p1', 'Alice', 10, gross, 72, 113,
+      `2026-0${i < 9 ? (i+1) : '9'}-01T10:00:00Z`));
+  }
+  const res = suggestHcpIndex('Alice', rounds);
+  assert(res !== null);
+  // best 8 are the 80-gross rounds: diff=8.0 each, avg=8.0, ×0.96=7.68 → 7.7
+  assert(Math.abs(res.index - 7.7) < 0.1, `expected ~7.7, got ${res.index}`);
+  eq(res.best, 8);
+  eq(res.roundsUsed, 10);
+});
+test('ignores rounds with incomplete scores', () => {
+  resetState();
+  const r = makeFinishedRound('p1', 'Alice', 10, 80, 72, 113, '2026-01-01T10:00:00Z');
+  // Remove one score to make it incomplete
+  delete r.scores.p1[1];
+  eq(suggestHcpIndex('Alice', [r]), null);
+});
+test('slope rating affects differential', () => {
+  resetState();
+  // gross=80, CR=72, SR=140 → diff=(80-72)*(113/140)=8*(0.8071...)=6.457
+  const r = makeFinishedRound('p1', 'Alice', 10, 80, 72, 140, '2026-01-01T10:00:00Z');
+  const res = suggestHcpIndex('Alice', [r]);
+  const expected = Math.round((80 - 72) * (113 / 140) * 0.96 * 10) / 10;
+  assert(Math.abs(res.index - expected) < 0.05, `expected ${expected}, got ${res.index}`);
+});
+
+// ── Net score during round (netTotal helper) ──────────────────────────────────
+suite('Net score during round — partial netTotal');
+test('netTotal with 0 hcp equals gross scored', () => {
+  resetState();
+  const r = makeRound18({ players: [{ id:'p1', name:'Alice', courseHcpOverride:0 }] });
+  r.scores.p1[1] = { s: 5 };
+  r.scores.p1[2] = { s: 4 };
+  // par for holes 1+2 = 4+4 = 8; gross = 9; net = 9; net vs par = 9-8 = +1
+  eq(netTotal(r, 'p1'), 9);
+});
+test('netTotal with positive hcp subtracts strokes on high-SI holes', () => {
+  resetState();
+  const r = makeRound18({ players: [{ id:'p1', name:'Alice', courseHcpOverride:1 }] });
+  // With chcp=1, only hole with SI=1 gets 1 extra stroke. SI=1 is hole index 0 (hole n=1).
+  r.scores.p1[1] = { s: 5 }; // par 4, SI 1, gets 1 stroke → net = 5-1 = 4
+  r.scores.p1[2] = { s: 4 }; // par 4, SI 9, no stroke → net = 4
+  // total net = 4+4 = 8
+  eq(netTotal(r, 'p1'), 8);
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
