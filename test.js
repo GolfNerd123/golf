@@ -223,6 +223,13 @@ function wolfTotalPts(round, pid) {
   return t;
 }
 
+function buildDeleteRoundMessage(round) {
+  if (!round) return 'Delete this round?\n\nThis cannot be undone.';
+  const dateStr = new Date(round.date).toLocaleDateString('en-GB',
+    { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  return `Delete this round?\n\n📍 ${round.course}\n📅 ${dateStr}\n\nThis cannot be undone.`;
+}
+
 // ── STATEFUL FUNCTIONS (copied, use mock deps) ────────────────────────────────
 function loadRounds()  { return _rounds; }
 function loadPlayers() { return _players; }
@@ -1904,6 +1911,46 @@ test('overwriting pref updates stored value', () => {
   _saveTeePrefs('p1', 'c1', 0);
   _saveTeePrefs('p1', 'c1', 2);
   eq(_loadTeePref('p1', 'c1'), 2);
+});
+
+// ── Delete round confirmation message ────────────────────────────────────────
+suite('buildDeleteRoundMessage — confirmation text');
+test('includes course name', () => {
+  const r = makeRound18({ course: 'Hlíðavöllur' });
+  const msg = buildDeleteRoundMessage(r);
+  assert(msg.includes('Hlíðavöllur'), `expected course name in: ${msg}`);
+});
+test('includes formatted date', () => {
+  const r = makeRound18({ date: '2026-05-09T10:00:00Z' });
+  const msg = buildDeleteRoundMessage(r);
+  // Should contain year and some month/day content
+  assert(msg.includes('2026'), `expected year in: ${msg}`);
+  assert(msg.includes('May') || msg.includes('9'), `expected date detail in: ${msg}`);
+});
+test('starts with delete prompt', () => {
+  const r = makeRound18();
+  const msg = buildDeleteRoundMessage(r);
+  assert(msg.startsWith('Delete this round?'), `expected prompt at start: ${msg}`);
+});
+test('includes cannot be undone warning', () => {
+  const r = makeRound18();
+  const msg = buildDeleteRoundMessage(r);
+  assert(msg.includes('cannot be undone'), `expected warning in: ${msg}`);
+});
+test('null round returns safe fallback', () => {
+  const msg = buildDeleteRoundMessage(null);
+  assert(msg.startsWith('Delete this round?'), `expected fallback: ${msg}`);
+  assert(msg.includes('cannot be undone'));
+});
+test('course and date appear on separate lines', () => {
+  const r = makeRound18({ course: 'Grafarholt' });
+  const msg = buildDeleteRoundMessage(r);
+  const lines = msg.split('\n');
+  const courseLine = lines.find(l => l.includes('Grafarholt'));
+  const dateLine   = lines.find(l => l.includes('2026'));
+  assert(courseLine !== undefined, 'course should be on its own line');
+  assert(dateLine   !== undefined, 'date should be on its own line');
+  assert(courseLine !== dateLine,  'course and date should be on different lines');
 });
 
 // ═════════════════════════════════════════════════════════════════════════════

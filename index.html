@@ -201,6 +201,28 @@
     padding: 1px 6px; margin-left: 4px;
   }
 
+  /* App Changelog view */
+  .cl-section { margin-bottom: 28px; }
+  .cl-month {
+    font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); margin-bottom: 12px; padding-left: 2px;
+  }
+  .cl-card {
+    background: #fff; border-radius: 14px; padding: 14px 16px;
+    margin-bottom: 10px; box-shadow: var(--shadow);
+    border-left: 3px solid var(--green-mid);
+  }
+  .cl-card.cl-fix { border-left-color: #e09f3e; }
+  .cl-card.cl-new { border-left-color: var(--green); }
+  .cl-tag {
+    display: inline-block; font-size: 10px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: .6px; padding: 2px 7px; border-radius: 8px; margin-bottom: 6px;
+  }
+  .cl-tag-new { background: #e8f5ee; color: var(--green); }
+  .cl-tag-fix { background: #fef3e2; color: #a36200; }
+  .cl-card-title { font-size: 15px; font-weight: 700; color: #1a1a1a; margin-bottom: 4px; }
+  .cl-card-desc  { font-size: 13px; color: #555; line-height: 1.5; }
+
   /* Change History view */
   .hist-entry {
     background: #fff; border-radius: var(--radius);
@@ -1058,6 +1080,10 @@
   <div id="hamburger-overlay" onclick="closeHamburger()">
     <div id="hamburger-sheet" onclick="event.stopPropagation()">
       <div class="hm-header">Menu</div>
+      <div class="hm-item" onclick="closeHamburger();nav('changelog')">
+        <span class="hm-item-icon">&#10024;</span>
+        <span class="hm-item-label">What's New</span>
+      </div>
       <div class="hm-item" onclick="closeHamburger();nav('history')">
         <span class="hm-item-icon">&#128203;</span>
         <span class="hm-item-label">Change History</span>
@@ -1731,7 +1757,7 @@ function render() {
     home: 'Golf Scorecard', players: 'Players', courses: 'Courses',
     'new-round': 'New Round', stats: 'Statistics',
     scorecard: S.roundId ? (byId(S.roundId)?.course || 'Scorecard') : 'Scorecard',
-    summary: 'Round Summary', history: 'Change History', errors: 'Error Log',
+    summary: 'Round Summary', history: 'Change History', errors: 'Error Log', changelog: "What's New",
   };
   title.textContent = titles[S.view] || 'Golf Scorecard';
   back.classList.toggle('show', S.view !== 'home');
@@ -1740,7 +1766,7 @@ function render() {
     home: renderHome, players: renderPlayers, courses: renderCourses,
     'new-round': renderNewRound, scorecard: renderScorecard,
     summary: renderSummary, stats: renderStats,
-    history: renderHistory, errors: renderErrorLog,
+    history: renderHistory, errors: renderErrorLog, changelog: renderChangelog,
   };
   (views[S.view] || renderHome)(main);
 
@@ -4654,10 +4680,18 @@ function editRound() {
   }
   nav('scorecard', { roundId: id, hole: start });
 }
+function buildDeleteRoundMessage(round) {
+  if (!round) return 'Delete this round?\n\nThis cannot be undone.';
+  const dateStr = new Date(round.date).toLocaleDateString('en-GB',
+    { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  return `Delete this round?\n\n📍 ${round.course}\n📅 ${dateStr}\n\nThis cannot be undone.`;
+}
+
 function confirmDeleteRound() {
   const id = _actionRoundId;
+  const r  = byId(id);
   closeRoundActions();
-  if (confirm('Delete this round?')) { removeRound(id); render(); }
+  if (confirm(buildDeleteRoundMessage(r))) { removeRound(id); render(); }
 }
 
 function dismissRivalryBanner() {
@@ -4946,6 +4980,79 @@ function clearErrors() {
   if (!confirm('Clear all error logs?')) return;
   localStorage.removeItem(ERROR_LOG_KEY);
   render();
+}
+
+// ═══════════════════════════════════════════
+// APP CHANGELOG VIEW
+// ═══════════════════════════════════════════
+function renderChangelog(c) {
+  function entry(type, icon, title, desc) {
+    const tagCls  = type === 'fix' ? 'cl-tag-fix' : 'cl-tag-new';
+    const tagLbl  = type === 'fix' ? 'Fix' : 'New';
+    const cardCls = type === 'fix' ? 'cl-fix' : 'cl-new';
+    return `<div class="cl-card ${cardCls}">
+      <div><span class="cl-tag ${tagCls}">${tagLbl}</span></div>
+      <div class="cl-card-title">${icon} ${esc(title)}</div>
+      <div class="cl-card-desc">${desc}</div>
+    </div>`;
+  }
+  function section(month, entries) {
+    return `<div class="cl-section">
+      <div class="cl-month">${esc(month)}</div>
+      ${entries.join('')}
+    </div>`;
+  }
+
+  const html = [
+    section('May 2026', [
+      entry('fix',  '📊', 'Standings shows stroke totals',
+        'The live standings during a round now show each player\'s actual stroke total (e.g. 47 strokes) as the main number, with gross vs par and net vs par shown underneath.'),
+      entry('fix',  '⛳', 'Holes played count corrected',
+        'The "X holes played" label in standings now only counts holes where every player has a score — so one player scoring hole 10 alone no longer bumps the count.'),
+      entry('new',  '🔖', 'Remember tee selection per course',
+        'When starting a new round on a course you\'ve played before, each player\'s last-used tee is automatically pre-selected for them.'),
+      entry('new',  '📊', 'Live standings during a round',
+        'Tap the Standings button at the top of the scoring screen to see a ranked table of all players — sorted by net vs par for stroke play, or by points for Stableford and Wolf.'),
+      entry('new',  '⛳', 'Front-9 summary between holes',
+        'In 18-hole rounds, a halfway summary sheet pops up automatically when you move from hole 9 to hole 10, showing front-9 scores and standings.'),
+      entry('new',  '📝', 'Round notes on finish',
+        'When you tap Finish Round you\'re invited to jot down a note for the round — conditions, highlights, first eagle, anything memorable. Notes appear on the round summary page.'),
+      entry('new',  '🏌️', 'Handicap index suggestion',
+        'Your Statistics page now shows a suggested handicap index calculated from your best 8 of your last 20 completed rounds using the WHS score differential formula (requires course rating and slope on each round).'),
+      entry('new',  '🔢', 'Net score shown during play',
+        'On the scoring screen, each player\'s info line now shows both gross strokes and net-to-par side by side, so you can see your net position without finishing the round.'),
+    ]),
+    section('April 2026', [
+      entry('new',  '🗑️', 'Round deletions logged',
+        'Deleting a round is now recorded in Change History, just like deleting a player or course.'),
+      entry('new',  '➕', 'Score snaps to par on first entry',
+        'Pressing + or − on an empty score now starts at par plus any handicap strokes for that hole, rather than at zero. Makes entering scores much faster.'),
+      entry('new',  '☰', 'Hamburger menu',
+        'A small menu button (☰) in the top-right corner gives quick access to Change History, the Error Log, and now What\'s New — without cluttering the main navigation.'),
+      entry('new',  '📋', 'Change history',
+        'Every edit to a player, course, or score is recorded with a before-and-after view. Find it under ☰ → Change History.'),
+      entry('new',  '🐞', 'Error log',
+        'Any app errors are now captured automatically. If something looks wrong, ☰ → Error Log shows what happened and when.'),
+    ]),
+    section('Early 2026', [
+      entry('new',  '📈', 'Statistics &amp; rivalry tracking',
+        'Full stroke, Stableford and Wolf statistics per player — averages, bests, scoring distributions and a progress chart. Head-to-head rivalry summaries when multiple players share rounds.'),
+      entry('new',  '🐺', 'Wolf format',
+        'Support for the Wolf side-game: automatic wolf rotation, partner or lone-wolf decisions per hole, and wolf points tracked throughout the round.'),
+      entry('new',  '★',  'Stableford scoring',
+        'Stableford points calculated automatically per hole based on net score vs par. Totals shown live during the round and in statistics.'),
+      entry('new',  '🏌️', 'Per-player tee &amp; handicap setup',
+        'Each player can be assigned a specific tee when starting a round. Course handicap is calculated automatically from handicap index, course rating and slope.'),
+      entry('new',  '🏁', 'Course management',
+        'Add your own courses with par and stroke index per hole, course rating, slope rating, tee options and hole images or descriptions.'),
+      entry('new',  '👤', 'Player profiles',
+        'Save players with their handicap index, home club, gender and default tee. Profiles carry forward to every new round automatically.'),
+      entry('new',  '📱', 'Installable app (PWA)',
+        'Add the app to your home screen on iPhone, Android or desktop for a full-screen, offline-capable experience — no app store needed.'),
+    ]),
+  ].join('');
+
+  c.innerHTML = `<div id="view-changelog" style="padding:16px 16px 48px">${html}</div>`;
 }
 
 // ═══════════════════════════════════════════
