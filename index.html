@@ -1393,6 +1393,8 @@ function saveCourseData(course) {
         if (op !== np) changes.push({ field: 'Par H' + (h + 1), from: op, to: np });
         const os = old.si?.[h] ?? null, ns = meta.si?.[h] ?? null;
         if (os !== ns) changes.push({ field: 'SI H' + (h + 1), from: os, to: ns });
+        const od = (old.descriptions?.[h] || '').trim(), nd = (meta.descriptions?.[h] || '').trim();
+        if (od !== nd) changes.push({ field: 'Description H' + (h + 1), from: od || '—', to: nd || '—' });
       }
       const oldT = JSON.stringify((old.tees||[]).map(t=>({n:t.name,cr:t.cr,s:t.slope,p:t.par,g:t.gender})));
       const newT = JSON.stringify((meta.tees||[]).map(t=>({n:t.name,cr:t.cr,s:t.slope,p:t.par,g:t.gender})));

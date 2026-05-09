@@ -65,6 +65,8 @@ function eq(a, b, msg) {
 const ROUNDS_KEY     = 'TEST_golf_rounds';
 const PLAYERS_KEY    = 'TEST_golf_players';
 const AUDIT_KEY      = 'TEST_golf_audit';
+const CHANGE_LOG_KEY = 'TEST_golf_changes';
+const ERROR_LOG_KEY  = 'TEST_golf_errors';
 const NAV_KEY        = 'TEST_golf_nav';
 const COURSE_IMG_PFX = 'TEST_golf_img_';
 
@@ -109,6 +111,9 @@ function resetState() {
   _rounds = []; _players = []; _courseOverrides = []; _auditFlushTimer = null;
   _lsStore = {}; _fsStore = {};
   S.view = 'home'; S.roundId = null; S.hole = 1; S.numpadPid = null;
+}
+function getChangeLog() {
+  try { return JSON.parse(localStorage.getItem(CHANGE_LOG_KEY) || '[]'); } catch { return []; }
 }
 
 // ── CONSTANTS (copied from index.html) ───────────────────────────────────────
@@ -259,11 +264,78 @@ function persistPlayers(arr) {
   localStorage.setItem(PLAYERS_KEY,JSON.stringify(arr));
   _db.collection('meta').doc('players').set({list:arr}).catch(()=>{});
 }
-function upsertPlayer(p) {
-  const all=loadPlayers(),i=all.findIndex(x=>x.id===p.id);
-  if(i>=0)all[i]=p;else all.push(p); persistPlayers(all);
+function _logChange(entity, entityId, entityName, action, changes) {
+  if (action === 'updated' && (!changes || !changes.length)) return;
+  const entry = { id:'h'+Date.now(), timestamp:new Date().toISOString(), entity, entityId, entityName, action, changes:changes||[] };
+  try {
+    const log = JSON.parse(localStorage.getItem(CHANGE_LOG_KEY)||'[]');
+    log.unshift(entry);
+    localStorage.setItem(CHANGE_LOG_KEY, JSON.stringify(log.slice(0,500)));
+  } catch {}
+  _db.collection('changeLog').doc(entry.id).set(entry).catch(()=>{});
 }
-function deletePlayer(id){persistPlayers(loadPlayers().filter(p=>p.id!==id));}
+function upsertPlayer(p) {
+  const all=loadPlayers(), i=all.findIndex(x=>x.id===p.id);
+  if (i>=0) {
+    const old=all[i], changes=[];
+    [['name','Name'],['handicapIndex','Handicap Index'],['club','Home Club'],['gender','Gender'],['defaultTee','Default Tee']].forEach(([k,l])=>{
+      const ov=old[k]??null, nv=p[k]??null;
+      if(String(ov)!==String(nv)) changes.push({field:l,from:ov,to:nv});
+    });
+    _logChange('player',p.id,p.name||old.name,'updated',changes);
+    all[i]=p;
+  } else {
+    _logChange('player',p.id,p.name,'created',[]);
+    all.push(p);
+  }
+  persistPlayers(all);
+}
+function deletePlayer(id) {
+  const all=loadPlayers(), p=all.find(x=>x.id===id);
+  if(p) _logChange('player',id,p.name,'deleted',[]);
+  persistPlayers(all.filter(x=>x.id!==id));
+}
+function saveCourseImgs(){}
+function _persistCoursesToFirestore(){
+  _db.collection('meta').doc('courses').set({list:_courseOverrides}).catch(()=>{});
+}
+function saveCourseData(course) {
+  const {imgs,...meta}=course;
+  meta.imgs=(imgs||[]).map(img=>(img&&img.startsWith('http'))?img:'');
+  meta.updatedAt=Date.now();
+  const i=_courseOverrides.findIndex(o=>o.id===meta.id);
+  if (i>=0) {
+    const old=_courseOverrides[i], changes=[];
+    [['name','Name'],['club','Club'],['holes','Holes'],['courseRating','Course Rating'],['slopeRating','Slope Rating']].forEach(([k,l])=>{
+      const ov=old[k]??null, nv=meta[k]??null;
+      if(String(ov)!==String(nv)) changes.push({field:l,from:ov,to:nv});
+    });
+    const nh=meta.holes||18;
+    for (let h=0;h<nh;h++) {
+      const op=old.pars?.[h]??null, np=meta.pars?.[h]??null;
+      if(op!==np) changes.push({field:'Par H'+(h+1),from:op,to:np});
+      const os=old.si?.[h]??null, ns=meta.si?.[h]??null;
+      if(os!==ns) changes.push({field:'SI H'+(h+1),from:os,to:ns});
+      const od=(old.descriptions?.[h]||'').trim(), nd=(meta.descriptions?.[h]||'').trim();
+      if(od!==nd) changes.push({field:'Description H'+(h+1),from:od||'—',to:nd||'—'});
+    }
+    const oldT=JSON.stringify((old.tees||[]).map(t=>({n:t.name,cr:t.cr,s:t.slope,p:t.par,g:t.gender})));
+    const newT=JSON.stringify((meta.tees||[]).map(t=>({n:t.name,cr:t.cr,s:t.slope,p:t.par,g:t.gender})));
+    if(oldT!==newT) changes.push({field:'Tees',from:(old.tees||[]).map(t=>t.name).join(', ')||'—',to:(meta.tees||[]).map(t=>t.name).join(', ')||'—'});
+    _logChange('course',meta.id,meta.name,'updated',changes);
+    _courseOverrides[i]=meta;
+  } else {
+    _logChange('course',meta.id,meta.name,'created',[]);
+    _courseOverrides.push(meta);
+  }
+  try{localStorage.setItem('TEST_golf_courses',JSON.stringify(_courseOverrides));}catch{}
+  _persistCoursesToFirestore();
+}
+function deleteCourseData(id) {
+  const co=_courseOverrides.find(o=>o.id===id);
+  if(co) _logChange('course',id,co.name,'deleted',[]);
+  _courseOverrides=_courseOverrides.filter(o=>o.id!==id);
+}
 
 function nav(view, params) {
   if (params) Object.assign(S,params);
@@ -1127,6 +1199,108 @@ test('totalRounds is sum of all included players rounds', () => {
     { name:'C', stroke:{ rounds:0, avgNetToPar:0 } },
   ];
   eq(buildTeamSummary(ps).totalRounds, 10);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CHANGE LOG
+// ═════════════════════════════════════════════════════════════════════════════
+suite('Change log — player');
+test('new player: created entry, no changes array required', () => {
+  resetState();
+  upsertPlayer({id:'p1',name:'Jón',handicapIndex:12,gender:'karlar'});
+  const log=getChangeLog();
+  eq(log.length,1); eq(log[0].action,'created'); eq(log[0].entityName,'Jón');
+});
+test('edit name: logs Name change', () => {
+  resetState();
+  upsertPlayer({id:'p1',name:'Jón',  handicapIndex:12,gender:'karlar'});
+  upsertPlayer({id:'p1',name:'Jónas',handicapIndex:12,gender:'karlar'});
+  const log=getChangeLog();
+  eq(log[0].action,'updated');
+  eq(log[0].changes.length,1);
+  eq(log[0].changes[0].field,'Name');
+  eq(log[0].changes[0].from,'Jón'); eq(log[0].changes[0].to,'Jónas');
+});
+test('edit handicap: logs Handicap Index change', () => {
+  resetState();
+  upsertPlayer({id:'p1',name:'Jón',handicapIndex:18.4,gender:'karlar'});
+  upsertPlayer({id:'p1',name:'Jón',handicapIndex:16.2,gender:'karlar'});
+  const log=getChangeLog();
+  eq(log[0].changes[0].field,'Handicap Index');
+  eq(log[0].changes[0].from,18.4); eq(log[0].changes[0].to,16.2);
+});
+test('no diff: update with identical data logs nothing', () => {
+  resetState();
+  upsertPlayer({id:'p1',name:'Jón',handicapIndex:12,gender:'karlar'});
+  const before=getChangeLog().length;
+  upsertPlayer({id:'p1',name:'Jón',handicapIndex:12,gender:'karlar'});
+  eq(getChangeLog().length, before);
+});
+test('delete player: logs deleted entry', () => {
+  resetState();
+  upsertPlayer({id:'p1',name:'Jón',handicapIndex:12,gender:'karlar'});
+  deletePlayer('p1');
+  const log=getChangeLog();
+  eq(log[0].action,'deleted'); eq(log[0].entityName,'Jón');
+});
+
+suite('Change log — course');
+test('new course: created entry', () => {
+  resetState();
+  saveCourseData({id:'c1',name:'Hlíðavöllur',holes:9,pars:[4,4,3,4,5,3,4,4,5],si:[1,3,9,5,7,11,13,15,17],descriptions:Array(9).fill(''),tees:[]});
+  const log=getChangeLog();
+  eq(log[0].action,'created'); eq(log[0].entityName,'Hlíðavöllur');
+});
+test('edit course name: logs Name change', () => {
+  resetState();
+  saveCourseData({id:'c1',name:'Hlíðavöllur', holes:9,pars:[4,4,3,4,5,3,4,4,5],si:[1,3,9,5,7,11,13,15,17],descriptions:Array(9).fill(''),tees:[]});
+  saveCourseData({id:'c1',name:'Hlíðavöllur 2',holes:9,pars:[4,4,3,4,5,3,4,4,5],si:[1,3,9,5,7,11,13,15,17],descriptions:Array(9).fill(''),tees:[]});
+  const log=getChangeLog();
+  eq(log[0].changes[0].field,'Name');
+  eq(log[0].changes[0].from,'Hlíðavöllur'); eq(log[0].changes[0].to,'Hlíðavöllur 2');
+});
+test('edit par on hole 3: logs Par H3 change', () => {
+  resetState();
+  const pars=[4,4,3,4,5,3,4,4,5];
+  saveCourseData({id:'c1',name:'Test',holes:9,pars:[...pars],si:[1,3,9,5,7,11,13,15,17],descriptions:Array(9).fill(''),tees:[]});
+  pars[2]=4;
+  saveCourseData({id:'c1',name:'Test',holes:9,pars:[...pars],si:[1,3,9,5,7,11,13,15,17],descriptions:Array(9).fill(''),tees:[]});
+  const ch=getChangeLog()[0].changes;
+  eq(ch.length,1); eq(ch[0].field,'Par H3'); eq(ch[0].from,3); eq(ch[0].to,4);
+});
+test('edit description hole 2: logs Description H2 change', () => {
+  resetState();
+  const descs=Array(9).fill('');
+  saveCourseData({id:'c1',name:'Hlíðavöllur',holes:9,pars:[4,4,3,4,5,3,4,4,5],si:[1,3,9,5,7,11,13,15,17],descriptions:[...descs],tees:[]});
+  descs[1]='Dogleg right, bunker left';
+  saveCourseData({id:'c1',name:'Hlíðavöllur',holes:9,pars:[4,4,3,4,5,3,4,4,5],si:[1,3,9,5,7,11,13,15,17],descriptions:[...descs],tees:[]});
+  const ch=getChangeLog()[0].changes;
+  eq(ch.length,1); eq(ch[0].field,'Description H2');
+  eq(ch[0].from,'—'); eq(ch[0].to,'Dogleg right, bunker left');
+});
+test('edit description hole 2 to empty: logs from value to —', () => {
+  resetState();
+  const descs=['','Dogleg right',...Array(7).fill('')];
+  saveCourseData({id:'c1',name:'Hlíðavöllur',holes:9,pars:[4,4,3,4,5,3,4,4,5],si:[1,3,9,5,7,11,13,15,17],descriptions:[...descs],tees:[]});
+  descs[1]='';
+  saveCourseData({id:'c1',name:'Hlíðavöllur',holes:9,pars:[4,4,3,4,5,3,4,4,5],si:[1,3,9,5,7,11,13,15,17],descriptions:[...descs],tees:[]});
+  const ch=getChangeLog()[0].changes;
+  eq(ch.length,1); eq(ch[0].field,'Description H2');
+  eq(ch[0].from,'Dogleg right'); eq(ch[0].to,'—');
+});
+test('no diff: saving course with identical descriptions logs nothing', () => {
+  resetState();
+  const descs=['','Dogleg right',...Array(7).fill('')];
+  saveCourseData({id:'c1',name:'Hlíðavöllur',holes:9,pars:[4,4,3,4,5,3,4,4,5],si:[1,3,9,5,7,11,13,15,17],descriptions:[...descs],tees:[]});
+  const before=getChangeLog().length;
+  saveCourseData({id:'c1',name:'Hlíðavöllur',holes:9,pars:[4,4,3,4,5,3,4,4,5],si:[1,3,9,5,7,11,13,15,17],descriptions:[...descs],tees:[]});
+  eq(getChangeLog().length, before);
+});
+test('delete course: logs deleted entry', () => {
+  resetState();
+  saveCourseData({id:'c1',name:'Hlíðavöllur',holes:9,pars:[4,4,3,4,5,3,4,4,5],si:[1,3,9,5,7,11,13,15,17],descriptions:Array(9).fill(''),tees:[]});
+  deleteCourseData('c1');
+  eq(getChangeLog()[0].action,'deleted'); eq(getChangeLog()[0].entityName,'Hlíðavöllur');
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
