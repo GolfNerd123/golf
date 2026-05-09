@@ -195,6 +195,7 @@
   .hm-item:active { background: var(--bg); }
   .hm-item-icon { font-size: 20px; width: 24px; text-align: center; }
   .hm-item-label { flex: 1; }
+  .hm-divider { height: 1px; background: #e8e8e8; margin: 4px 0; }
   .err-count-badge {
     display: inline-block; background: #c84b11; color: #fff;
     border-radius: 10px; font-size: 10px; font-weight: 700;
@@ -1091,6 +1092,11 @@
       <div class="hm-item" id="hm-errors-item" onclick="closeHamburger();nav('errors')">
         <span class="hm-item-icon">&#9888;</span>
         <span class="hm-item-label">Error Log</span>
+      </div>
+      <div class="hm-divider"></div>
+      <div class="hm-item" onclick="closeHamburger();exportAllData()">
+        <span class="hm-item-icon">&#128190;</span>
+        <span class="hm-item-label">Export backup</span>
       </div>
     </div>
   </div>
@@ -4688,6 +4694,49 @@ function editRound() {
   }
   nav('scorecard', { roundId: id, hole: start });
 }
+function buildBackupPayload() {
+  const read = key => { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } };
+  const imgs = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(COURSE_IMG_PFX)) imgs[k] = localStorage.getItem(k);
+  }
+  return {
+    version:    2,
+    exportedAt: new Date().toISOString(),
+    data: {
+      rounds:     read(ROUNDS_KEY)      || [],
+      players:    read(PLAYERS_KEY)     || [],
+      courses:    read(COURSES_KEY)     || [],
+      changes:    read(CHANGE_LOG_KEY)  || [],
+      audit:      read(AUDIT_KEY)       || [],
+      errors:     read(ERROR_LOG_KEY)   || [],
+      teePrefs:   read(TEE_PREFS_KEY)   || {},
+      courseImgs: imgs,
+    },
+  };
+}
+
+function exportAllData() {
+  try {
+    const backup = buildBackupPayload();
+
+    const json = JSON.stringify(backup, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const date = new Date().toISOString().slice(0, 10);
+    a.href     = url;
+    a.download = `golf-backup-${date}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('Backup failed: ' + e.message);
+  }
+}
+
 function parseDateInput(dateVal) {
   // Treat a YYYY-MM-DD string as noon UTC to avoid date shifting across timezones
   return dateVal ? (dateVal + 'T12:00:00.000Z') : new Date().toISOString();
@@ -5012,6 +5061,8 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('new',  '💾', 'Export data backup',
+        'Tap ☰ → Export backup to download a complete backup of all your rounds, players, courses, change history and course images as a single JSON file. Keep a copy somewhere safe.'),
       entry('new',  '📅', 'Custom round date',
         'When creating a new round the date defaults to today, but you can change it to any past date — making it easy to enter scores from older rounds you played without the app.'),
       entry('new',  '⚠️', 'Delete round confirmation',

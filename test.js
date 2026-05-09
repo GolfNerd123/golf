@@ -69,7 +69,8 @@ const CHANGE_LOG_KEY = 'TEST_golf_changes';
 const ERROR_LOG_KEY  = 'TEST_golf_errors';
 const TEE_PREFS_KEY  = 'TEST_golf_tee_prefs';
 const NAV_KEY        = 'TEST_golf_nav';
-const COURSE_IMG_PFX = 'TEST_golf_img_';
+const COURSE_IMG_PFX  = 'TEST_golf_img_';
+const COURSES_KEY     = 'TEST_golf_courses';
 
 // Mock localStorage (Node.js has none)
 let _lsStore = {};
@@ -78,6 +79,8 @@ const localStorage = {
   setItem:    (k, v) => { _lsStore[k] = String(v); },
   removeItem: k      => { delete _lsStore[k]; },
   clear:      ()     => { _lsStore = {}; },
+  get length()       { return Object.keys(_lsStore).length; },
+  key:        i      => Object.keys(_lsStore)[i] ?? null,
 };
 
 // Mock Firestore
@@ -221,6 +224,29 @@ function wolfTotalPts(round, pid) {
   let t=0;
   for (const hole of round.holes){const p=wolfHolePoints(round,hole.n);if(p)t+=p[pid]||0;}
   return t;
+}
+
+function buildBackupPayload() {
+  const read = key => { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } };
+  const imgs = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(COURSE_IMG_PFX)) imgs[k] = localStorage.getItem(k);
+  }
+  return {
+    version:    2,
+    exportedAt: new Date().toISOString(),
+    data: {
+      rounds:     read(ROUNDS_KEY)      || [],
+      players:    read(PLAYERS_KEY)     || [],
+      courses:    read(COURSES_KEY)     || [],
+      changes:    read(CHANGE_LOG_KEY)  || [],
+      audit:      read(AUDIT_KEY)       || [],
+      errors:     read(ERROR_LOG_KEY)   || [],
+      teePrefs:   read(TEE_PREFS_KEY)   || {},
+      courseImgs: imgs,
+    },
+  };
 }
 
 function parseDateInput(dateVal) {
@@ -1915,6 +1941,61 @@ test('overwriting pref updates stored value', () => {
   _saveTeePrefs('p1', 'c1', 0);
   _saveTeePrefs('p1', 'c1', 2);
   eq(_loadTeePref('p1', 'c1'), 2);
+});
+
+// ── buildBackupPayload ────────────────────────────────────────────────────────
+suite('buildBackupPayload — data export');
+test('backup has version 2 and exportedAt', () => {
+  resetState();
+  const b = buildBackupPayload();
+  eq(b.version, 2);
+  assert(typeof b.exportedAt === 'string' && b.exportedAt.length > 10);
+});
+test('rounds are included from localStorage', () => {
+  resetState();
+  const r = makeRound18({ done: true });
+  saveRound(r);
+  const b = buildBackupPayload();
+  eq(b.data.rounds.length, 1);
+  eq(b.data.rounds[0].id, r.id);
+});
+test('players are included', () => {
+  resetState();
+  upsertPlayer({ id:'p1', name:'Alice', handicapIndex:10 });
+  const b = buildBackupPayload();
+  eq(b.data.players.length, 1);
+  eq(b.data.players[0].name, 'Alice');
+});
+test('change log is included', () => {
+  resetState();
+  upsertPlayer({ id:'p1', name:'Alice', handicapIndex:10 });
+  const b = buildBackupPayload();
+  assert(b.data.changes.length >= 1, 'changes should include player creation');
+});
+test('empty store produces empty arrays not nulls', () => {
+  resetState();
+  const b = buildBackupPayload();
+  assert(Array.isArray(b.data.rounds),   'rounds should be array');
+  assert(Array.isArray(b.data.players),  'players should be array');
+  assert(Array.isArray(b.data.courses),  'courses should be array');
+  assert(Array.isArray(b.data.changes),  'changes should be array');
+  assert(typeof b.data.teePrefs === 'object', 'teePrefs should be object');
+});
+test('course images are included by prefix', () => {
+  resetState();
+  localStorage.setItem(COURSE_IMG_PFX + 'c1_0', 'data:image/jpeg;base64,abc');
+  localStorage.setItem(COURSE_IMG_PFX + 'c1_1', 'data:image/jpeg;base64,def');
+  localStorage.setItem('unrelated_key', 'should not appear');
+  const b = buildBackupPayload();
+  eq(Object.keys(b.data.courseImgs).length, 2);
+  assert(b.data.courseImgs[COURSE_IMG_PFX + 'c1_0'] === 'data:image/jpeg;base64,abc');
+  assert(!b.data.courseImgs['unrelated_key']);
+});
+test('tee prefs are included', () => {
+  resetState();
+  _saveTeePrefs('p1', 'c1', 2);
+  const b = buildBackupPayload();
+  eq(b.data.teePrefs['p1_c1'], 2);
 });
 
 // ── parseDateInput ────────────────────────────────────────────────────────────
