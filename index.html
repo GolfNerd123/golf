@@ -92,7 +92,7 @@
 
   /* Home */
   #view-home { display: flex; flex-direction: column; height: 100%; }
-  #rounds-list { flex: 1; overflow-y: auto; padding: 14px; padding-bottom: 100px; }
+  #rounds-list { flex: 1; overflow-y: auto; padding: 14px; padding-bottom: 130px; }
 
   .empty-state {
     height: 50vh; display: flex; flex-direction: column;
@@ -154,12 +154,53 @@
 
   .home-footer {
     position: fixed; bottom: 0; left: 0; right: 0;
-    display: flex; gap: 8px; padding: 10px 14px;
-    padding-bottom: max(18px, var(--safe-bottom));
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 8px 14px;
+    padding-bottom: max(12px, var(--safe-bottom));
     background: var(--bg); border-top: 1px solid var(--border);
   }
-  .home-footer .btn { flex: 1; padding: 11px 4px; font-size: 12px; }
-  .home-footer .btn-green { flex: 2; font-size: 13px; }
+  .home-footer-nav { display: flex; gap: 6px; }
+  .home-footer-nav .btn { flex: 1; padding: 9px 2px; font-size: 11px; }
+  .home-footer .btn-green { font-size: 14px; padding: 13px; }
+  .err-count-badge {
+    display: inline-block; background: #c84b11; color: #fff;
+    border-radius: 10px; font-size: 10px; font-weight: 700;
+    padding: 1px 5px; margin-left: 2px; vertical-align: middle;
+  }
+
+  /* Change History view */
+  .hist-entry {
+    background: #fff; border-radius: var(--radius);
+    padding: 12px 14px; margin-bottom: 10px; box-shadow: var(--shadow);
+  }
+  .hist-header { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+  .hist-icon   { font-size: 18px; }
+  .hist-name   { font-weight: 700; font-size: 15px; flex: 1; }
+  .hist-badge  { color: #fff; font-size: 11px; font-weight: 700; border-radius: 8px; padding: 2px 8px; }
+  .hist-time   { font-size: 11px; color: var(--muted); margin-bottom: 5px; }
+  .hist-change { font-size: 13px; margin-top: 4px; color: #444; }
+  .hist-field  { font-weight: 600; }
+  .hist-arrow  { color: var(--muted); margin: 0 3px; }
+
+  /* Error Log view */
+  .err-entry {
+    background: #fff; border-radius: var(--radius);
+    padding: 12px 14px; margin-bottom: 10px; box-shadow: var(--shadow);
+    border-left: 3px solid #c84b11;
+  }
+  .err-header  { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+  .err-badge   { color: #fff; font-size: 11px; font-weight: 700; border-radius: 8px; padding: 2px 8px; }
+  .err-view    { font-size: 11px; color: var(--muted); }
+  .err-time    { font-size: 11px; color: var(--muted); margin-bottom: 5px; }
+  .err-msg     { font-size: 13px; font-weight: 600; word-break: break-word; }
+  .err-ctx     { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .err-stack-wrap { margin-top: 8px; }
+  .err-stack-wrap summary { font-size: 12px; color: var(--muted); cursor: pointer; }
+  .err-stack   {
+    font-size: 10px; margin-top: 6px; overflow-x: auto;
+    background: #f8f8f5; border-radius: 6px; padding: 8px;
+    white-space: pre-wrap; word-break: break-all; color: #555;
+  }
 
   /* Players screen */
   #view-players { padding: 16px; padding-bottom: 48px; }
@@ -922,7 +963,22 @@
 window.onerror = function(msg, src, line, col, err) {
   var el = document.getElementById('js-err');
   if (el) el.innerHTML = '<b>JS ERROR</b><br>' + msg + '<br>line ' + line + ', col ' + col + '<br>' + (err && err.stack ? err.stack.replace(/</g,'&lt;') : '');
+  try {
+    var entry = { id: 'e'+Date.now()+Math.random().toString(36).slice(2,5), timestamp: new Date().toISOString(), type: 'runtime', message: String(msg).slice(0,1000) + ' (line '+line+', col '+col+')', stack: err&&err.stack ? String(err.stack).slice(0,2000) : null, context: null, view: null };
+    var log = JSON.parse(localStorage.getItem('golf_errors_v1') || '[]');
+    log.unshift(entry); localStorage.setItem('golf_errors_v1', JSON.stringify(log.slice(0,200)));
+  } catch {}
 };
+window.addEventListener('unhandledrejection', function(e) {
+  try {
+    var msg = e.reason instanceof Error ? e.reason.message : String(e.reason);
+    var stack = e.reason instanceof Error ? e.reason.stack : null;
+    var view = typeof S !== 'undefined' ? S.view : null;
+    var entry = { id: 'e'+Date.now()+Math.random().toString(36).slice(2,5), timestamp: new Date().toISOString(), type: 'promise', message: String(msg).slice(0,1000), stack: stack ? String(stack).slice(0,2000) : null, context: null, view: view };
+    var log = JSON.parse(localStorage.getItem('golf_errors_v1') || '[]');
+    log.unshift(entry); localStorage.setItem('golf_errors_v1', JSON.stringify(log.slice(0,200)));
+  } catch {}
+});
 // ═══════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════
@@ -936,6 +992,8 @@ const COURSES_KEY     = 'golf_courses_v1';
 const COURSE_IMG_PFX  = 'golf_img_v1_';
 const NAV_KEY         = 'golf_nav_v1';
 const AUDIT_KEY       = 'golf_audit_v1';
+const CHANGE_LOG_KEY  = 'golf_changes_v1';
+const ERROR_LOG_KEY   = 'golf_errors_v1';
 
 // ═══════════════════════════════════════════
 // FIREBASE
@@ -1141,6 +1199,46 @@ function _flushAudit(round, event) {
   _writeAuditEntry(round, event);
 }
 
+// ═══════════════════════════════════════════
+// CHANGE LOG — field-level diffs for players/courses
+// ═══════════════════════════════════════════
+function _logChange(entity, entityId, entityName, action, changes) {
+  if (action === 'updated' && (!changes || !changes.length)) return;
+  const entry = {
+    id: 'h' + Date.now() + Math.random().toString(36).slice(2, 5),
+    timestamp: new Date().toISOString(),
+    entity, entityId, entityName, action,
+    changes: changes || []
+  };
+  try {
+    const log = JSON.parse(localStorage.getItem(CHANGE_LOG_KEY) || '[]');
+    log.unshift(entry);
+    localStorage.setItem(CHANGE_LOG_KEY, JSON.stringify(log.slice(0, 500)));
+  } catch {}
+  if (_db) _db.collection('changeLog').doc(entry.id).set(entry).catch(() => {});
+}
+
+// ═══════════════════════════════════════════
+// ERROR LOG — manual calls from within the app
+// ═══════════════════════════════════════════
+function _logError(message, context) {
+  const entry = {
+    id: 'e' + Date.now() + Math.random().toString(36).slice(2, 5),
+    timestamp: new Date().toISOString(),
+    type: 'manual',
+    message: String(message).slice(0, 1000),
+    stack: null,
+    context: context || null,
+    view: S.view || null,
+  };
+  try {
+    const log = JSON.parse(localStorage.getItem(ERROR_LOG_KEY) || '[]');
+    log.unshift(entry);
+    localStorage.setItem(ERROR_LOG_KEY, JSON.stringify(log.slice(0, 200)));
+  } catch {}
+  if (_db) _db.collection('errorLog').doc(entry.id).set(entry).catch(() => {});
+}
+
 function byId(id) { return _rounds.find(r => r.id === id) || null; }
 
 function removeRound(id) {
@@ -1164,10 +1262,27 @@ function persistPlayers(arr) {
 function upsertPlayer(p) {
   const all = loadPlayers();
   const i = all.findIndex(x => x.id === p.id);
-  if (i >= 0) all[i] = p; else all.push(p);
+  if (i >= 0) {
+    const old = all[i];
+    const changes = [];
+    [['name','Name'],['handicapIndex','Handicap Index'],['club','Home Club'],['gender','Gender'],['defaultTee','Default Tee']].forEach(([k,l]) => {
+      const ov = old[k] ?? null, nv = p[k] ?? null;
+      if (String(ov) !== String(nv)) changes.push({ field: l, from: ov, to: nv });
+    });
+    _logChange('player', p.id, p.name || old.name, 'updated', changes);
+    all[i] = p;
+  } else {
+    _logChange('player', p.id, p.name, 'created', []);
+    all.push(p);
+  }
   persistPlayers(all);
 }
-function deletePlayer(id) { persistPlayers(loadPlayers().filter(p => p.id !== id)); }
+function deletePlayer(id) {
+  const all = loadPlayers();
+  const p = all.find(x => x.id === id);
+  if (p) _logChange('player', id, p.name, 'deleted', []);
+  persistPlayers(all.filter(x => x.id !== id));
+}
 
 // ═══════════════════════════════════════════
 // STORAGE — COURSES
@@ -1218,7 +1333,29 @@ function saveCourseData(course) {
     meta.imgs = (imgs || []).map(img => (img && img.startsWith('http')) ? img : '');
     meta.updatedAt = Date.now();
     const i = _courseOverrides.findIndex(o => o.id === meta.id);
-    if (i >= 0) _courseOverrides[i] = meta; else _courseOverrides.push(meta);
+    if (i >= 0) {
+      const old = _courseOverrides[i];
+      const changes = [];
+      [['name','Name'],['club','Club'],['holes','Holes'],['courseRating','Course Rating'],['slopeRating','Slope Rating']].forEach(([k,l]) => {
+        const ov = old[k] ?? null, nv = meta[k] ?? null;
+        if (String(ov) !== String(nv)) changes.push({ field: l, from: ov, to: nv });
+      });
+      const nh = meta.holes || 18;
+      for (let h = 0; h < nh; h++) {
+        const op = old.pars?.[h] ?? null, np = meta.pars?.[h] ?? null;
+        if (op !== np) changes.push({ field: 'Par H' + (h + 1), from: op, to: np });
+        const os = old.si?.[h] ?? null, ns = meta.si?.[h] ?? null;
+        if (os !== ns) changes.push({ field: 'SI H' + (h + 1), from: os, to: ns });
+      }
+      const oldT = JSON.stringify((old.tees||[]).map(t=>({n:t.name,cr:t.cr,s:t.slope,p:t.par,g:t.gender})));
+      const newT = JSON.stringify((meta.tees||[]).map(t=>({n:t.name,cr:t.cr,s:t.slope,p:t.par,g:t.gender})));
+      if (oldT !== newT) changes.push({ field: 'Tees', from: (old.tees||[]).map(t=>t.name).join(', ') || '—', to: (meta.tees||[]).map(t=>t.name).join(', ') || '—' });
+      _logChange('course', meta.id, meta.name, 'updated', changes);
+      _courseOverrides[i] = meta;
+    } else {
+      _logChange('course', meta.id, meta.name, 'created', []);
+      _courseOverrides.push(meta);
+    }
     try { localStorage.setItem(COURSES_KEY, JSON.stringify(_courseOverrides)); } catch {}
     if (imgs) saveCourseImgs(meta.id, imgs); // keep base64 in localStorage as local fallback
     _persistCoursesToFirestore();
@@ -1228,6 +1365,8 @@ function saveCourseData(course) {
 }
 function deleteCourseData(id) {
   try {
+    const co = _courseOverrides.find(o => o.id === id);
+    if (co) _logChange('course', id, co.name, 'deleted', []);
     _courseOverrides = _courseOverrides.filter(o => o.id !== id);
     try { localStorage.setItem(COURSES_KEY, JSON.stringify(_courseOverrides)); } catch {}
     deleteCourseImgs(id);
@@ -1458,7 +1597,7 @@ function render() {
     home: 'Golf Scorecard', players: 'Players', courses: 'Courses',
     'new-round': 'New Round', stats: 'Statistics',
     scorecard: S.roundId ? (byId(S.roundId)?.course || 'Scorecard') : 'Scorecard',
-    summary: 'Round Summary',
+    summary: 'Round Summary', history: 'Change History', errors: 'Error Log',
   };
   title.textContent = titles[S.view] || 'Golf Scorecard';
   back.classList.toggle('show', S.view !== 'home');
@@ -1467,6 +1606,7 @@ function render() {
     home: renderHome, players: renderPlayers, courses: renderCourses,
     'new-round': renderNewRound, scorecard: renderScorecard,
     summary: renderSummary, stats: renderStats,
+    history: renderHistory, errors: renderErrorLog,
   };
   (views[S.view] || renderHome)(main);
 
@@ -1549,10 +1689,14 @@ function renderHome(c) {
   c.innerHTML = `<div id="view-home">
     <div id="rounds-list">${list}</div>
     <div class="home-footer">
-      <button class="btn btn-outline" onclick="nav('players')">Players</button>
-      <button class="btn btn-outline" onclick="nav('courses')">Courses</button>
-      <button class="btn btn-outline" onclick="nav('stats')">Stats</button>
-      <button class="btn btn-green"   onclick="nav('new-round')">+ New Round</button>
+      <div class="home-footer-nav">
+        <button class="btn btn-outline" onclick="nav('players')">Players</button>
+        <button class="btn btn-outline" onclick="nav('courses')">Courses</button>
+        <button class="btn btn-outline" onclick="nav('stats')">Stats</button>
+        <button class="btn btn-outline" onclick="nav('history')">History</button>
+        <button class="btn btn-outline hf-errors-btn" onclick="nav('errors')">${(()=>{ try { const n=JSON.parse(localStorage.getItem('golf_errors_v1')||'[]').length; return n ? 'Errors <span class="err-count-badge">'+n+'</span>' : 'Errors'; } catch { return 'Errors'; } })()}</button>
+      </div>
+      <button class="btn btn-green" onclick="nav('new-round')">+ New Round</button>
     </div>
   </div>`;
 
@@ -4275,6 +4419,118 @@ function toggleStatsIncludeStableford() {
     }
   });
 })();
+
+// ═══════════════════════════════════════════
+// CHANGE HISTORY VIEW
+// ═══════════════════════════════════════════
+function renderHistory(c) {
+  let log = [];
+  try { log = JSON.parse(localStorage.getItem(CHANGE_LOG_KEY) || '[]'); } catch {}
+
+  function fmtDate(iso) {
+    const d = new Date(iso);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  function fmtVal(v) {
+    if (v === null || v === undefined) return '<em style="color:var(--muted)">none</em>';
+    return esc(String(v));
+  }
+
+  const hdr = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <span style="font-size:13px;color:var(--muted)">${log.length} entries</span>
+    ${log.length ? `<button class="btn btn-outline" style="width:auto;padding:7px 16px;font-size:12px" onclick="clearHistory()">Clear all</button>` : ''}
+  </div>`;
+
+  if (!log.length) {
+    c.innerHTML = `<div id="view-history" style="padding:16px 16px 32px">${hdr}
+      <div class="empty-state" style="height:38vh">
+        <div class="ico" style="font-size:40px">&#128203;</div>
+        <h2>No changes yet</h2>
+        <p>Edits to players and courses will appear here</p>
+      </div></div>`;
+    return;
+  }
+
+  const rows = log.map(e => {
+    const icon   = e.entity === 'player' ? '&#128100;' : '&#127939;';
+    const actClr = e.action === 'created' ? 'var(--green-mid)' : e.action === 'deleted' ? '#c84b11' : '#555';
+    const actLbl = e.action === 'created' ? 'Created' : e.action === 'deleted' ? 'Deleted' : 'Updated';
+    const diffs  = (e.changes || []).map(ch =>
+      `<div class="hist-change"><span class="hist-field">${esc(ch.field)}:</span> ${fmtVal(ch.from)} <span class="hist-arrow">&#8594;</span> ${fmtVal(ch.to)}</div>`
+    ).join('');
+    return `<div class="hist-entry">
+      <div class="hist-header">
+        <span class="hist-icon">${icon}</span>
+        <span class="hist-name">${esc(e.entityName)}</span>
+        <span class="hist-badge" style="background:${actClr}">${actLbl}</span>
+      </div>
+      <div class="hist-time">${fmtDate(e.timestamp)}</div>
+      ${diffs}
+    </div>`;
+  }).join('');
+
+  c.innerHTML = `<div id="view-history" style="padding:16px 16px 32px">${hdr}${rows}</div>`;
+}
+
+function clearHistory() {
+  if (!confirm('Clear all change history?')) return;
+  localStorage.removeItem(CHANGE_LOG_KEY);
+  render();
+}
+
+// ═══════════════════════════════════════════
+// ERROR LOG VIEW
+// ═══════════════════════════════════════════
+function renderErrorLog(c) {
+  let log = [];
+  try { log = JSON.parse(localStorage.getItem(ERROR_LOG_KEY) || '[]'); } catch {}
+
+  function fmtDate(iso) {
+    const d = new Date(iso);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  const hdr = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <span style="font-size:13px;color:var(--muted)">${log.length} entries</span>
+    ${log.length ? `<button class="btn btn-outline" style="width:auto;padding:7px 16px;font-size:12px" onclick="clearErrors()">Clear all</button>` : ''}
+  </div>`;
+
+  if (!log.length) {
+    c.innerHTML = `<div id="view-errors" style="padding:16px 16px 32px">${hdr}
+      <div class="empty-state" style="height:38vh">
+        <div class="ico" style="font-size:40px">&#9989;</div>
+        <h2>No errors logged</h2>
+        <p>JavaScript errors and unhandled promise rejections will appear here</p>
+      </div></div>`;
+    return;
+  }
+
+  const rows = log.map(e => {
+    const typeClr = e.type === 'runtime' ? '#c84b11' : e.type === 'promise' ? '#b45309' : '#4338ca';
+    const typeLbl = e.type === 'runtime' ? 'Runtime' : e.type === 'promise' ? 'Promise' : 'Manual';
+    const ctx   = e.context ? `<div class="err-ctx">Context: ${esc(e.context)}</div>` : '';
+    const view  = e.view    ? ` &middot; view: ${esc(e.view)}` : '';
+    const stack = e.stack
+      ? `<details class="err-stack-wrap"><summary>Stack trace</summary><pre class="err-stack">${esc(e.stack)}</pre></details>`
+      : '';
+    return `<div class="err-entry">
+      <div class="err-header">
+        <span class="err-badge" style="background:${typeClr}">${typeLbl}</span>
+        <span class="err-view">${fmtDate(e.timestamp)}${view}</span>
+      </div>
+      <div class="err-msg">${esc(e.message)}</div>
+      ${ctx}${stack}
+    </div>`;
+  }).join('');
+
+  c.innerHTML = `<div id="view-errors" style="padding:16px 16px 32px">${hdr}${rows}</div>`;
+}
+
+function clearErrors() {
+  if (!confirm('Clear all error logs?')) return;
+  localStorage.removeItem(ERROR_LOG_KEY);
+  render();
+}
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
