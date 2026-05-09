@@ -1105,6 +1105,7 @@ const NAV_KEY         = 'golf_nav_v1';
 const AUDIT_KEY       = 'golf_audit_v1';
 const CHANGE_LOG_KEY  = 'golf_changes_v1';
 const ERROR_LOG_KEY   = 'golf_errors_v1';
+const TEE_PREFS_KEY   = 'golf_tee_prefs_v1';
 
 // ═══════════════════════════════════════════
 // FIREBASE
@@ -1537,9 +1538,24 @@ function getCourseTees(co, playerGender) {
   const key = playerGender === 'konur' ? 'konur' : 'karlar';
   return (co.tees[key] || []).map(t => ({ name: t.label || t.name, cr: t.cr, slope: t.slope, par: t.par }));
 }
+function _saveTeePrefs(pid, courseId, teeIdx) {
+  try {
+    const prefs = JSON.parse(localStorage.getItem(TEE_PREFS_KEY) || '{}');
+    prefs[pid + '_' + courseId] = teeIdx;
+    localStorage.setItem(TEE_PREFS_KEY, JSON.stringify(prefs));
+  } catch {}
+}
+function _loadTeePref(pid, courseId) {
+  try {
+    const prefs = JSON.parse(localStorage.getItem(TEE_PREFS_KEY) || '{}');
+    const v = prefs[pid + '_' + courseId];
+    return (v != null) ? v : null;
+  } catch { return null; }
+}
 function setPlayerTee(pid, teeIdx) {
   if (!S.nr.playerTee) S.nr.playerTee = {};
   S.nr.playerTee[pid] = teeIdx;
+  if (S.nr.courseId) _saveTeePrefs(pid, S.nr.courseId, teeIdx);
   const co = S.nr.courseId ? loadCourses().find(c => c.id === S.nr.courseId) : null;
   if (!co) return;
   const p = loadPlayers().find(x => x.id === pid);
@@ -2667,6 +2683,12 @@ function setCourse(id) {
       S.nr._rating = String(co.courseRating);
       S.nr._slope  = String(co.slopeRating);
     }
+    // Restore last-used tee for each already-selected player on this course
+    if (!S.nr.playerTee) S.nr.playerTee = {};
+    for (const pid of (S.nr.selPids || [])) {
+      const saved = _loadTeePref(pid, id);
+      if (saved !== null) S.nr.playerTee[pid] = saved;
+    }
   }
   render();
 }
@@ -2716,7 +2738,17 @@ function toggleSelPlayer(pid) {
     S.nr.selPids.splice(idx, 1);
   } else {
     const guests = S.nr.guests.filter(g => g.name.trim()).length;
-    if (S.nr.selPids.length + guests < 4) S.nr.selPids.push(pid);
+    if (S.nr.selPids.length + guests < 4) {
+      S.nr.selPids.push(pid);
+      // Restore last-used tee for this player on the currently selected course
+      if (S.nr.courseId) {
+        const saved = _loadTeePref(pid, S.nr.courseId);
+        if (saved !== null) {
+          if (!S.nr.playerTee) S.nr.playerTee = {};
+          S.nr.playerTee[pid] = saved;
+        }
+      }
+    }
   }
   render();
 }

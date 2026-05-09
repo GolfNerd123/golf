@@ -67,6 +67,7 @@ const PLAYERS_KEY    = 'TEST_golf_players';
 const AUDIT_KEY      = 'TEST_golf_audit';
 const CHANGE_LOG_KEY = 'TEST_golf_changes';
 const ERROR_LOG_KEY  = 'TEST_golf_errors';
+const TEE_PREFS_KEY  = 'TEST_golf_tee_prefs';
 const NAV_KEY        = 'TEST_golf_nav';
 const COURSE_IMG_PFX = 'TEST_golf_img_';
 
@@ -115,6 +116,7 @@ function resetState() {
   _lsStore = {}; _fsStore = {};
   S.view = 'home'; S.roundId = null; S.hole = 1; S.numpadPid = null;
   S.showRoundSummary = false; S.showNineHoleSummary = false; S.finishComment = null;
+  S.nr = { holes:18, selPids:[], courseId:null, playerTee:{}, guests:[], chcp:{} };
 }
 function getChangeLog() {
   try { return JSON.parse(localStorage.getItem(CHANGE_LOG_KEY) || '[]'); } catch { return []; }
@@ -224,7 +226,55 @@ function wolfTotalPts(round, pid) {
 // ── STATEFUL FUNCTIONS (copied, use mock deps) ────────────────────────────────
 function loadRounds()  { return _rounds; }
 function loadPlayers() { return _players; }
+function loadCourses() { return _courseOverrides; }
 function byId(id)      { return _rounds.find(r=>r.id===id)||null; }
+
+function _saveTeePrefs(pid, courseId, teeIdx) {
+  try {
+    const prefs = JSON.parse(localStorage.getItem(TEE_PREFS_KEY) || '{}');
+    prefs[pid + '_' + courseId] = teeIdx;
+    localStorage.setItem(TEE_PREFS_KEY, JSON.stringify(prefs));
+  } catch {}
+}
+function _loadTeePref(pid, courseId) {
+  try {
+    const prefs = JSON.parse(localStorage.getItem(TEE_PREFS_KEY) || '{}');
+    const v = prefs[pid + '_' + courseId];
+    return (v != null) ? v : null;
+  } catch { return null; }
+}
+function setPlayerTee(pid, teeIdx) {
+  if (!S.nr.playerTee) S.nr.playerTee = {};
+  S.nr.playerTee[pid] = teeIdx;
+  if (S.nr.courseId) _saveTeePrefs(pid, S.nr.courseId, teeIdx);
+}
+function setCourse(id) {
+  S.nr.courseId = id;
+  if (id) {
+    if (!S.nr.playerTee) S.nr.playerTee = {};
+    for (const pid of (S.nr.selPids || [])) {
+      const saved = _loadTeePref(pid, id);
+      if (saved !== null) S.nr.playerTee[pid] = saved;
+    }
+  }
+}
+function toggleSelPlayer(pid) {
+  const idx = S.nr.selPids.indexOf(pid);
+  if (idx >= 0) {
+    S.nr.selPids.splice(idx, 1);
+  } else {
+    if (S.nr.selPids.length < 4) {
+      S.nr.selPids.push(pid);
+      if (S.nr.courseId) {
+        const saved = _loadTeePref(pid, S.nr.courseId);
+        if (saved !== null) {
+          if (!S.nr.playerTee) S.nr.playerTee = {};
+          S.nr.playerTee[pid] = saved;
+        }
+      }
+    }
+  }
+}
 
 function _writeAuditEntry(round, event) {
   const entry={
@@ -1724,6 +1774,103 @@ test('player with no front-9 scores sorts last', () => {
   const rows = buildNineHoleSummaryHTML(r);
   eq(rows[0].p.name, 'Alice');
   eq(rows[1].p.name, 'Bob');
+});
+
+// ── Tee preference persistence ────────────────────────────────────────────────
+suite('Tee preference — persist and restore');
+test('_saveTeePrefs / _loadTeePref round-trip', () => {
+  resetState();
+  _saveTeePrefs('p1', 'course_A', 2);
+  eq(_loadTeePref('p1', 'course_A'), 2);
+});
+test('different players on same course stored independently', () => {
+  resetState();
+  _saveTeePrefs('p1', 'c1', 0);
+  _saveTeePrefs('p2', 'c1', 2);
+  eq(_loadTeePref('p1', 'c1'), 0);
+  eq(_loadTeePref('p2', 'c1'), 2);
+});
+test('same player on different courses stored independently', () => {
+  resetState();
+  _saveTeePrefs('p1', 'c1', 1);
+  _saveTeePrefs('p1', 'c2', 3);
+  eq(_loadTeePref('p1', 'c1'), 1);
+  eq(_loadTeePref('p1', 'c2'), 3);
+});
+test('_loadTeePref returns null when no pref saved', () => {
+  resetState();
+  eq(_loadTeePref('p1', 'c1'), null);
+});
+test('setPlayerTee persists pref when courseId is set', () => {
+  resetState();
+  S.nr.courseId = 'c1';
+  setPlayerTee('p1', 2);
+  eq(_loadTeePref('p1', 'c1'), 2);
+  eq(S.nr.playerTee['p1'], 2);
+});
+test('setPlayerTee does not persist when no courseId', () => {
+  resetState();
+  S.nr.courseId = null;
+  setPlayerTee('p1', 2);
+  eq(S.nr.playerTee['p1'], 2);
+  eq(_loadTeePref('p1', 'anything'), null);
+});
+test('setCourse restores saved pref for already-selected player', () => {
+  resetState();
+  _saveTeePrefs('p1', 'c1', 2);
+  S.nr.selPids = ['p1'];
+  setCourse('c1');
+  eq(S.nr.playerTee['p1'], 2);
+});
+test('setCourse restores prefs for multiple players', () => {
+  resetState();
+  _saveTeePrefs('p1', 'c1', 1);
+  _saveTeePrefs('p2', 'c1', 3);
+  S.nr.selPids = ['p1', 'p2'];
+  setCourse('c1');
+  eq(S.nr.playerTee['p1'], 1);
+  eq(S.nr.playerTee['p2'], 3);
+});
+test('setCourse leaves playerTee unchanged when no pref saved for player', () => {
+  resetState();
+  S.nr.selPids = ['p1'];
+  S.nr.playerTee = { p1: 0 };
+  setCourse('c1');
+  eq(S.nr.playerTee['p1'], 0); // unchanged — no saved pref, so default stays
+});
+test('setCourse does not restore pref for different course', () => {
+  resetState();
+  _saveTeePrefs('p1', 'c2', 3);
+  S.nr.selPids = ['p1'];
+  setCourse('c1');
+  eq(S.nr.playerTee['p1'], undefined); // no pref for c1
+});
+test('toggleSelPlayer restores saved pref when adding player with course set', () => {
+  resetState();
+  _saveTeePrefs('p1', 'c1', 2);
+  S.nr.courseId = 'c1';
+  toggleSelPlayer('p1');
+  eq(S.nr.selPids.includes('p1'), true);
+  eq(S.nr.playerTee['p1'], 2);
+});
+test('toggleSelPlayer does not set playerTee when no pref exists', () => {
+  resetState();
+  S.nr.courseId = 'c1';
+  toggleSelPlayer('p1');
+  eq(S.nr.playerTee['p1'], undefined);
+});
+test('toggleSelPlayer does not restore pref when no course selected', () => {
+  resetState();
+  _saveTeePrefs('p1', 'c1', 2);
+  S.nr.courseId = null;
+  toggleSelPlayer('p1');
+  eq(S.nr.playerTee['p1'], undefined);
+});
+test('overwriting pref updates stored value', () => {
+  resetState();
+  _saveTeePrefs('p1', 'c1', 0);
+  _saveTeePrefs('p1', 'c1', 2);
+  eq(_loadTeePref('p1', 'c1'), 2);
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
