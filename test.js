@@ -2158,6 +2158,89 @@ test('editCourseFromAction records the course id and clears action state', () =>
   assert(_actionCourseId === null, '_actionCourseId should be cleared after edit');
 });
 
+// ─── Player action sheet stubs ───────────────────────────────────────────────
+let _actionPlayerId = null;
+let _lastPlayerActionShown = null;
+let _playerDeleteCalledFor = null;
+let _playerDeleteConfirmResult = true;
+let _lastEditedPlayerId = null;
+
+function showPlayerActions(id) {
+  const p = loadPlayers().find(x => x.id === id);
+  if (!p) return;
+  _actionPlayerId = id;
+  _lastPlayerActionShown = { id, name: p.name };
+}
+function closePlayerActions() { _actionPlayerId = null; }
+function editPlayerForm(id)   { _lastEditedPlayerId = id; }
+function editPlayerFromAction() {
+  const id = _actionPlayerId;
+  closePlayerActions();
+  editPlayerForm(id);
+}
+function deletePlayerFromAction() {
+  const id = _actionPlayerId;
+  const p = loadPlayers().find(x => x.id === id);
+  closePlayerActions();
+  if (p && _playerDeleteConfirmResult) {
+    _playerDeleteCalledFor = id;
+    deletePlayer(id);
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PLAYER ACTION SHEET (long-press / context menu)
+// ═════════════════════════════════════════════════════════════════════════════
+suite('Player action sheet — long press / context menu');
+
+test('showPlayerActions populates title with player name', () => {
+  resetState(); _players = [{ id: 'pl1', name: 'Jón', handicapIndex: 10, gender: 'karlar' }];
+  _lastPlayerActionShown = null;
+  showPlayerActions('pl1');
+  assert(_lastPlayerActionShown !== null);
+  eq(_lastPlayerActionShown.name, 'Jón');
+});
+
+test('showPlayerActions with unknown id does nothing', () => {
+  resetState();
+  _lastPlayerActionShown = null;
+  showPlayerActions('nobody');
+  assert(_lastPlayerActionShown === null);
+});
+
+test('deletePlayerFromAction removes the player', () => {
+  resetState(); _players = [{ id: 'pl1', name: 'Jón', handicapIndex: 10, gender: 'karlar' }];
+  _playerDeleteConfirmResult = true;
+  showPlayerActions('pl1');
+  deletePlayerFromAction();
+  assert(_players.length === 0, 'player should be deleted');
+});
+
+test('deletePlayerFromAction does not delete when user cancels', () => {
+  resetState(); _players = [{ id: 'pl1', name: 'Jón', handicapIndex: 10, gender: 'karlar' }];
+  _playerDeleteConfirmResult = false;
+  showPlayerActions('pl1');
+  deletePlayerFromAction();
+  assert(_players.length === 1, 'player should remain when cancelled');
+  _playerDeleteConfirmResult = true;
+});
+
+test('deletePlayerFromAction clears _actionPlayerId', () => {
+  resetState(); _players = [{ id: 'pl1', name: 'Jón', handicapIndex: 10, gender: 'karlar' }];
+  showPlayerActions('pl1');
+  deletePlayerFromAction();
+  assert(_actionPlayerId === null);
+});
+
+test('editPlayerFromAction records player id and clears action state', () => {
+  resetState(); _players = [{ id: 'pl1', name: 'Jón', handicapIndex: 10, gender: 'karlar' }];
+  _lastEditedPlayerId = null;
+  showPlayerActions('pl1');
+  editPlayerFromAction();
+  eq(_lastEditedPlayerId, 'pl1');
+  assert(_actionPlayerId === null);
+});
+
 // ═════════════════════════════════════════════════════════════════════════════
 // PRINT RESULTS
 // ═════════════════════════════════════════════════════════════════════════════

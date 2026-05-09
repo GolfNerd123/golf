@@ -276,11 +276,11 @@
     background: #fff; border-radius: var(--radius);
     box-shadow: var(--shadow); padding: 14px 16px;
     display: flex; align-items: center; gap: 12px;
+    cursor: pointer; user-select: none;
   }
   .player-item-info { flex: 1; }
   .player-item-name { font-size: 16px; font-weight: 700; }
   .player-item-hcp  { font-size: 13px; color: var(--muted); margin-top: 2px; }
-  .player-item-actions { display: flex; gap: 8px; }
 
   .icon-btn {
     width: 36px; height: 36px; border: none; border-radius: 10px;
@@ -1078,6 +1078,15 @@
     <button class="action-btn ab-edit"   onclick="editCourseFromAction()">Edit course</button>
     <button class="action-btn ab-delete" id="course-action-delete" onclick="deleteCourseFromAction()">Delete course</button>
     <button class="action-btn ab-cancel" onclick="closeCourseActions()">Cancel</button>
+  </div>
+</div>
+
+<div id="player-action-overlay" class="action-overlay" onclick="closePlayerActions()">
+  <div class="action-sheet" onclick="event.stopPropagation()">
+    <div class="action-title" id="player-action-title"></div>
+    <button class="action-btn ab-edit"   onclick="editPlayerFromAction()">Edit player</button>
+    <button class="action-btn ab-delete" onclick="deletePlayerFromAction()">Delete player</button>
+    <button class="action-btn ab-cancel" onclick="closePlayerActions()">Cancel</button>
   </div>
 </div>
 
@@ -1954,14 +1963,10 @@ function renderPlayers(c) {
     const genderTxt = p.gender === 'konur' ? 'Konur' : 'Karlar';
     const teeTxt    = p.defaultTee
       ? ` &middot; ${(TEE_COLORS[p.gender||'karlar']||[]).find(t=>t.color===p.defaultTee)?.label || p.defaultTee}` : '';
-    return `<div class="player-item">
+    return `<div class="player-item" data-id="${p.id}">
       <div class="player-item-info">
         <div class="player-item-name">${esc(p.name)}</div>
         <div class="player-item-hcp">${hcpText}${clubText} &middot; ${genderTxt}${teeTxt}</div>
-      </div>
-      <div class="player-item-actions">
-        <button class="icon-btn icon-btn-edit" onclick="editPlayerForm('${p.id}')">&#9998;</button>
-        <button class="icon-btn icon-btn-del"  onclick="confirmDeletePlayer('${p.id}')">&#10005;</button>
       </div>
     </div>`;
   }).join('');
@@ -1973,14 +1978,48 @@ function renderPlayers(c) {
     ${addBtnHTML}
   </div>`;
 
+  c.querySelectorAll('.player-item').forEach(card => {
+    const id = card.dataset.id;
+    let t, _lp = false;
+    card.addEventListener('touchstart', () => { _lp = false; t = setTimeout(() => { _lp = true; showPlayerActions(id); }, 600); }, {passive:true});
+    card.addEventListener('touchend',   () => clearTimeout(t), {passive:true});
+    card.addEventListener('touchmove',  () => clearTimeout(t), {passive:true});
+    card.addEventListener('contextmenu', e => { e.preventDefault(); showPlayerActions(id); });
+    card.addEventListener('click', () => { if (!_lp) editPlayerForm(id); });
+  });
+
   if (showForm || editId) {
     setTimeout(() => document.getElementById('pf-name')?.focus(), 50);
   }
 }
 
-function newPlayerForm()        { S.playerEdit = 'new'; renderPlayers(document.getElementById('main')); }
-function editPlayerForm(id)     { S.playerEdit = id;    renderPlayers(document.getElementById('main')); }
-function cancelPlayerEdit()     { S.playerEdit = null;  renderPlayers(document.getElementById('main')); }
+function newPlayerForm()    { S.playerEdit = 'new'; renderPlayers(document.getElementById('main')); }
+function editPlayerForm(id) { S.playerEdit = id;    renderPlayers(document.getElementById('main')); }
+function cancelPlayerEdit() { S.playerEdit = null;  renderPlayers(document.getElementById('main')); }
+
+let _actionPlayerId = null;
+function showPlayerActions(id) {
+  const p = loadPlayers().find(x => x.id === id);
+  if (!p) return;
+  _actionPlayerId = id;
+  document.getElementById('player-action-title').textContent = p.name;
+  document.getElementById('player-action-overlay').classList.add('open');
+}
+function closePlayerActions() {
+  document.getElementById('player-action-overlay').classList.remove('open');
+  _actionPlayerId = null;
+}
+function editPlayerFromAction() {
+  const id = _actionPlayerId;
+  closePlayerActions();
+  editPlayerForm(id);
+}
+function deletePlayerFromAction() {
+  const id = _actionPlayerId;
+  const p = loadPlayers().find(x => x.id === id);
+  closePlayerActions();
+  if (p && confirm(`Delete "${p.name}"?`)) { deletePlayer(id); render(); }
+}
 function confirmDeletePlayer(id) {
   const p = loadPlayers().find(x => x.id === id);
   if (p && confirm(`Delete "${p.name}"?`)) { deletePlayer(id); render(); }
@@ -2172,11 +2211,12 @@ function renderCourses(c) {
 
   c.querySelectorAll('.course-item').forEach(card => {
     const id = card.dataset.id;
-    let t;
-    card.addEventListener('touchstart', () => { t = setTimeout(() => showCourseActions(id), 600); }, {passive:true});
+    let t, _lp = false;
+    card.addEventListener('touchstart', () => { _lp = false; t = setTimeout(() => { _lp = true; showCourseActions(id); }, 600); }, {passive:true});
     card.addEventListener('touchend',   () => clearTimeout(t), {passive:true});
     card.addEventListener('touchmove',  () => clearTimeout(t), {passive:true});
     card.addEventListener('contextmenu', e => { e.preventDefault(); showCourseActions(id); });
+    card.addEventListener('click', () => { if (!_lp) editCourse(id); });
   });
 }
 
