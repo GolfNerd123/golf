@@ -255,7 +255,9 @@ function saveRound(r, auditEvent) {
   if (r.done){try{downloadRoundBackup(r);}catch(e){}}
 }
 function removeRound(id) {
-  _rounds=_rounds.filter(r=>r.id!==id);
+  const r=_rounds.find(x=>x.id===id);
+  if(r) _logChange('round',id,r.course+(r.date?' — '+r.date.slice(0,10):''),'deleted',[]);
+  _rounds=_rounds.filter(x=>x.id!==id);
   localStorage.setItem(ROUNDS_KEY,JSON.stringify(_rounds));
   _db.collection('rounds').doc(id).delete().catch(()=>{});
 }
@@ -639,6 +641,12 @@ test('removeRound clears memory + localStorage + Firestore',()=>{
   resetState();saveRound(makeRound18(),'round_created');removeRound('r1');
   eq(_rounds.length,0);eq(JSON.parse(localStorage.getItem(ROUNDS_KEY)).length,0);
   assert(_fsStore['rounds/r1']===undefined);
+});
+test('removeRound logs deleted entry to change log',()=>{
+  resetState();saveRound(makeRound18(),'round_created');removeRound('r1');
+  const log=getChangeLog();
+  eq(log.length,1);eq(log[0].action,'deleted');eq(log[0].entity,'round');
+  assert(log[0].entityName.includes('Test Course'));
 });
 
 suite('Player storage');

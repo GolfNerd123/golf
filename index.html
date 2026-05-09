@@ -1289,7 +1289,9 @@ function _logError(message, context) {
 function byId(id) { return _rounds.find(r => r.id === id) || null; }
 
 function removeRound(id) {
-  _rounds = _rounds.filter(r => r.id !== id);
+  const r = _rounds.find(x => x.id === id);
+  if (r) _logChange('round', id, r.course + (r.date ? ' — ' + r.date.slice(0, 10) : ''), 'deleted', []);
+  _rounds = _rounds.filter(x => x.id !== id);
   localStorage.setItem(ROUNDS_KEY, JSON.stringify(_rounds));
   if (_db) _db.collection('rounds').doc(id).delete().catch(() => {});
 }
