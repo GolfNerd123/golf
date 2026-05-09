@@ -4886,9 +4886,8 @@ function renderHistory(c) {
     return esc(String(v));
   }
 
-  const hdr = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+  const hdr = `<div style="margin-bottom:14px">
     <span style="font-size:13px;color:var(--muted)">${log.length} entries</span>
-    ${log.length ? `<button class="btn btn-outline" style="width:auto;padding:7px 16px;font-size:12px" onclick="clearHistory()">Clear all</button>` : ''}
   </div>`;
 
   if (!log.length) {
@@ -4922,11 +4921,6 @@ function renderHistory(c) {
   c.innerHTML = `<div id="view-history" style="padding:16px 16px 32px">${hdr}${rows}</div>`;
 }
 
-function clearHistory() {
-  if (!confirm('Clear all change history?')) return;
-  localStorage.removeItem(CHANGE_LOG_KEY);
-  render();
-}
 
 // ═══════════════════════════════════════════
 // ERROR LOG VIEW
