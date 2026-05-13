@@ -1207,65 +1207,6 @@ function normName(s) {
 // First word of normalized name — used to match "Sigurjón Atli Sigurðsson" → "sigurjon"
 function firstNorm(s) { return normName(s).split(/\s+/)[0]; }
 
-// Icelandic courses within ~100 km of Reykjavik.
-// Grafarholt back-9 par/SI from public scorecards; all other data estimated.
-const COURSES = [
-  { id:'grafarholt', name:'Grafarholt', club:'Reykjavík Golf Club', holes:18,
-    courseRating:70.5, slopeRating:121,
-    pars:[4,3,5,4,4,3,4,4,4, 4,3,5,4,4,5,4,3,4],
-    si:  [1,17,5,9,3,15,13,11,7, 8,6,12,16,18,2,4,10,14] },
-  { id:'korpa', name:'Korpa', club:'Reykjavík Golf Club', holes:18,
-    courseRating:72.3, slopeRating:132,
-    pars:[4,4,3,5,4,3,4,4,5, 4,3,5,4,4,3,4,4,5],
-    si:  [3,11,17,1,7,15,9,5,13, 4,18,2,10,12,16,8,6,14] },
-  { id:'keilir', name:'Keilir', club:'Golfklúbburinn Keilir', holes:18,
-    courseRating:70.1, slopeRating:123,
-    pars:[4,3,4,4,5,3,4,4,4, 4,3,4,5,4,3,5,4,4],
-    si:  [5,15,11,1,9,17,3,7,13, 2,18,10,6,14,16,4,8,12] },
-  { id:'leynir', name:'Leynir', club:'Golfklúbburinn Leynir', holes:18,
-    courseRating:71.0, slopeRating:134,
-    pars:[4,4,3,5,4,4,3,4,5, 4,3,5,4,4,3,4,5,4],
-    si:  [7,3,17,1,11,5,15,9,13, 6,18,2,10,14,16,4,8,12] },
-  { id:'hlidavollur', name:'Hlíðavöllur', club:'Golfklúbbur Mosfellsbæjar', holes:18,
-    courseRating:70.2, slopeRating:131,
-    pars:[4,3,5,4,4,3,4,5,4, 4,5,4,4,3,5,4,3,4],
-    si:  [5,15,1,11,3,17,9,7,13, 4,2,14,8,18,6,10,16,12],
-    tees: {
-      karlar: [
-        { color:'hvítir', label:'Hvítir', cr:70.2, slope:131, par:71 },
-        { color:'gulir',  label:'Gulir',  cr:68.0, slope:123, par:71 },
-        { color:'blár',   label:'Blár',   cr:65.5, slope:115, par:71 },
-        { color:'rauður', label:'Rauður', cr:63.5, slope:108, par:71 },
-      ],
-      konur: [
-        { color:'blár',   label:'Blár',   cr:72.0, slope:128, par:72 },
-        { color:'rauður', label:'Rauður', cr:69.5, slope:120, par:72 },
-      ],
-    } },
-  { id:'bakkakot', name:'Bakkakot', club:'Golfklúbbur Mosfellsbæjar', holes:9,
-    courseRating:31.3, slopeRating:107,
-    pars:[4,3,5,4,4,3,4,4,4],
-    si:  [1,9,17,5,3,13,7,11,15] },
-  // Pars & SI estimated from known layout (par 70, H4=par3, H5=par5, front/back each par 35)
-  // CR/Slope from official GHI course handicap chart 2021
-  { id:'strandarvollur', name:'Strandarvöllur', club:'Golfklúbbur Hellu', holes:18,
-    courseRating:70.0, slopeRating:116,
-    pars:[4,4,4,3,5,4,4,4,3, 4,3,5,4,3,4,4,3,5],
-    si:  [7,15,3,17,1,11,9,5,13, 8,16,2,14,18,6,12,10,4],
-    tees: {
-      karlar: [
-        { color:'hvítir', label:'Hvítir', cr:70.0, slope:116, par:70 },
-        { color:'gulir',  label:'Gulir',  cr:67.5, slope:114, par:70 },
-        { color:'blár',   label:'Blár',   cr:65.5, slope:108, par:70 },
-        { color:'rauður', label:'Rauður', cr:63.9, slope:102, par:70 },
-      ],
-      konur: [
-        { color:'gulir',  label:'Gulir',  cr:73.2, slope:124, par:70 },
-        { color:'blár',   label:'Blár',   cr:70.7, slope:117, par:70 },
-        { color:'rauður', label:'Rauður', cr:69.0, slope:114, par:70 },
-      ],
-    } },
-];
 
 // ═══════════════════════════════════════════
 // STATE
@@ -1477,19 +1418,15 @@ function deleteCourseImgs(courseId) {
 }
 function loadCourses() {
   try {
-    const overrides = _courseOverrides;
-    const presetIds = COURSES.map(c => c.id);
     const merge = co => {
       const n = co.holes || 18;
-      const fsImgs = co.imgs || [];           // Storage URLs from Firestore
-      const lsImgs = loadCourseImgs(co.id, n); // base64 fallback from localStorage
+      const fsImgs = co.imgs || [];
+      const lsImgs = loadCourseImgs(co.id, n);
       const imgs = Array.from({ length: n }, (_, i) => fsImgs[i] || lsImgs[i] || '');
       return { ...co, imgs };
     };
-    const result = COURSES.map(c => merge(overrides.find(o => o.id === c.id) || c));
-    overrides.filter(o => !presetIds.includes(o.id)).forEach(o => result.push(merge(o)));
-    return result;
-  } catch { return [...COURSES]; }
+    return _courseOverrides.map(merge);
+  } catch { return []; }
 }
 function _persistCoursesToFirestore() {
   if (_db) _db.collection('meta').doc('courses').set({ list: _courseOverrides }).catch(() => {});
@@ -1543,7 +1480,6 @@ function deleteCourseData(id) {
     _persistCoursesToFirestore();
   } catch {}
 }
-function isPresetCourse(id) { return COURSES.some(c => c.id === id); }
 
 // ═══════════════════════════════════════════
 // SCORING HELPERS
@@ -2187,7 +2123,6 @@ function renderCourses(c) {
   }
 
   const list = courses.map(co => {
-    const isCustom = !isPresetCourse(co.id);
     const parTot   = co.pars.reduce((a,b)=>a+b,0);
     const crInfo   = co.courseRating ? `CR ${co.courseRating}` : '';
     const srInfo   = co.slopeRating  ? `Slope ${co.slopeRating}` : '';
@@ -4742,8 +4677,7 @@ function showCourseActions(id) {
   if (!co) return;
   _actionCourseId = id;
   document.getElementById('course-action-title').textContent = co.name;
-  const isCustom = !isPresetCourse(id);
-  document.getElementById('course-action-delete').style.display = isCustom ? '' : 'none';
+  document.getElementById('course-action-delete').style.display = '';
   document.getElementById('course-action-overlay').classList.add('open');
 }
 function closeCourseActions() {
