@@ -1257,6 +1257,7 @@ const S = {
 function loadRounds() { return _rounds; }
 
 function saveRound(r, auditEvent) {
+  r.lastModified = Date.now();
   const i = _rounds.findIndex(x => x.id === r.id);
   if (i >= 0) _rounds[i] = r; else _rounds.unshift(r);
   localStorage.setItem(ROUNDS_KEY, JSON.stringify(_rounds));
@@ -4960,19 +4961,25 @@ function toggleStatsIncludeStableford() {
         n + Object.values(r.scores[p.id] || {}).filter(h => h?.s).length, 0);
     }
 
-    // Rounds: score-count wins — never let an older Firestore snapshot clobber local scores
+    // Rounds: local wins if it has more scores OR a newer lastModified timestamp
+    function _roundWinner(local, fsR) {
+      const lc = _scoreCount(local), fc = _scoreCount(fsR);
+      if (lc !== fc) return lc > fc ? local : fsR;
+      // Same score count — trust whichever was saved most recently
+      return (local.lastModified || 0) >= (fsR.lastModified || 0) ? local : fsR;
+    }
     const fsRounds = rSnap.docs.map(d => d.data());
     const fsRoundIds = new Set(fsRounds.map(r => r.id));
     const localRoundMap = new Map(_rounds.map(r => [r.id, r]));
     const mergedRounds = fsRounds.map(fsR => {
       const local = localRoundMap.get(fsR.id);
       if (!local) return fsR;
-      if (_scoreCount(local) > _scoreCount(fsR)) {
+      const winner = _roundWinner(local, fsR);
+      if (winner === local) {
         // Local is ahead — push it back so Firestore catches up
         _db.collection('rounds').doc(local.id).set(local).catch(() => {});
-        return local;
       }
-      return fsR;
+      return winner;
     });
     const localOnlyRounds = _rounds.filter(r => !fsRoundIds.has(r.id));
     _rounds = [...mergedRounds, ...localOnlyRounds].sort((a, b) => (b.date > a.date ? 1 : -1));
@@ -5006,16 +5013,22 @@ function toggleStatsIncludeStableford() {
     _courseOverrides = Array.from(merged.values());
     _persistCoursesToFirestore(); // push merged state back to Firestore
 
-    // Auto-recover: if any round has fewer scores than its best audit log snapshot,
-    // restore from the audit log (which Firestore never overwrites).
+    // Auto-recover: if any round in the audit log is better than the current version
+    // (more scores OR newer lastModified), restore it.
     try {
       const auditLog = JSON.parse(localStorage.getItem(AUDIT_KEY) || '[]');
       for (const r of _rounds) {
-        const current = _scoreCount(r);
         const candidates = auditLog.filter(e => e.roundId === r.id && e.round);
         if (!candidates.length) continue;
-        const best = candidates.reduce((a, b) => _scoreCount(a.round) >= _scoreCount(b.round) ? a : b);
-        if (_scoreCount(best.round) > current) {
+        const best = candidates.reduce((a, b) => {
+          const ac = _scoreCount(a.round), bc = _scoreCount(b.round);
+          if (ac !== bc) return ac > bc ? a : b;
+          return (a.round.lastModified||0) >= (b.round.lastModified||0) ? a : b;
+        });
+        const current = _scoreCount(r);
+        const bestCount = _scoreCount(best.round);
+        const bestNewer = (best.round.lastModified||0) > (r.lastModified||0);
+        if (bestCount > current || (bestCount === current && bestNewer)) {
           const idx = _rounds.findIndex(x => x.id === r.id);
           if (idx >= 0) {
             _rounds[idx] = best.round;
@@ -5032,10 +5045,11 @@ function toggleStatsIncludeStableford() {
   } catch(e) { /* offline – local data already shown */ }
 
   // Real-time listeners for live sync
-  function _fsScoreCount(r) {
-    if (!r || !r.players || !r.scores) return 0;
-    return r.players.reduce((n, p) =>
-      n + Object.values(r.scores[p.id] || {}).filter(h => h?.s).length, 0);
+  function _snapWinner(local, incoming) {
+    const lc = (local.players||[]).reduce((n,p)=>n+Object.values(local.scores?.[p.id]||{}).filter(h=>h?.s).length,0);
+    const ic = (incoming.players||[]).reduce((n,p)=>n+Object.values(incoming.scores?.[p.id]||{}).filter(h=>h?.s).length,0);
+    if (ic !== lc) return ic > lc ? incoming : local;
+    return (incoming.lastModified||0) >= (local.lastModified||0) ? incoming : local;
   }
   if (_db) _db.collection('rounds').onSnapshot(snap => {
     snap.docChanges().forEach(ch => {
@@ -5044,12 +5058,12 @@ function toggleStatsIncludeStableford() {
         const i = _rounds.findIndex(x => x.id === incoming.id);
         if (i >= 0) {
           const local = _rounds[i];
-          // Never let a stale Firestore snapshot overwrite more scores we already have locally
-          if (_fsScoreCount(incoming) >= _fsScoreCount(local)) {
-            _rounds[i] = incoming;
-          } else {
+          const winner = _snapWinner(local, incoming);
+          if (winner === local) {
             // Local is ahead — push it back to Firestore so other devices catch up
             _db.collection('rounds').doc(local.id).set(local).catch(() => {});
+          } else {
+            _rounds[i] = incoming;
           }
         } else {
           _rounds.unshift(incoming);
