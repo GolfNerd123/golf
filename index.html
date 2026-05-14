@@ -949,7 +949,7 @@
   .np-cancel:active { background: #c84b11; color: #fff; }
 
   /* Standings / 9-hole / comment overlays */
-  .sc-top-bar { padding: 8px 16px 0; display: flex; justify-content: flex-end; }
+  .sc-top-bar { padding: 8px 16px 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .standings-btn {
     padding: 6px 14px; background: var(--green); color: #fff;
     border: none; border-radius: 20px; font-size: 13px; font-weight: 700;
@@ -1229,6 +1229,7 @@ const S = {
   showLayout: false,
   showRoundSummary: false,
   showNineHoleSummary: false,
+  showStrokesCard: false,
   finishComment: null,
 
   nr: {
@@ -3190,6 +3191,20 @@ function renderScorecard(c) {
       </div>
     </div>` : '';
 
+  const strokesCardOverlay = S.showStrokesCard ? `
+    <div class="overlay-dim" onclick="closeStrokesCard()">
+      <div class="overlay-card" style="max-width:520px" onclick="event.stopPropagation()">
+        <div class="overlay-head">
+          <span>&#128203; Scorecard</span>
+          <button onclick="closeStrokesCard()" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer;line-height:1">&#10005;</button>
+        </div>
+        <div class="overlay-body" style="padding:12px">${buildStrokesCardHTML(round)}</div>
+        <div class="overlay-foot">
+          <button class="btn btn-outline" style="flex:1" onclick="closeStrokesCard()">Close</button>
+        </div>
+      </div>
+    </div>` : '';
+
   // 9-hole summary overlay
   const nineHoleOverlay = S.showNineHoleSummary ? `
     <div class="nine-hole-dim" onclick="continueToBackNine()"></div>
@@ -3214,6 +3229,7 @@ function renderScorecard(c) {
 
   c.innerHTML = `<div id="view-scorecard"${isCompact ? ' class="compact"' : ''}>
     <div class="sc-top-bar">
+      <button class="standings-btn" onclick="openStrokesCard()">&#128203; Scorecard</button>
       <button class="standings-btn" onclick="openRoundSummary()">&#128202; Standings</button>
     </div>
     <div class="hole-hdr">
@@ -3240,6 +3256,7 @@ function renderScorecard(c) {
     ${numpad}
     ${layoutModal}
     ${standingsOverlay}
+    ${strokesCardOverlay}
     ${nineHoleOverlay}
     ${commentSheet}
   </div>`;
@@ -3406,6 +3423,102 @@ function openRoundSummary() {
 function closeRoundSummary() {
   S.showRoundSummary = false;
   renderScorecard(document.getElementById('main'));
+}
+
+function openStrokesCard() {
+  S.showStrokesCard = true;
+  renderScorecard(document.getElementById('main'));
+}
+
+function closeStrokesCard() {
+  S.showStrokesCard = false;
+  renderScorecard(document.getElementById('main'));
+}
+
+function buildStrokesCardHTML(round) {
+  const nh   = round.holes.length;
+  const half = Math.floor(nh / 2);
+  const front = round.holes.filter(h => h.n <= half);
+  const back  = round.holes.filter(h => h.n > half);
+  const fpar  = parSum(round, 1, half);
+  const bpar  = parSum(round, half+1, nh);
+  const tpar  = fpar + bpar;
+
+  function cell(s, par) {
+    if (!s) return `<span style="color:#ddd">-</span>`;
+    const d = s - par, col = scoreColor(s, par);
+    if (d <= -1) return `<span class="s-circle" style="border-color:${col};color:${col}">${s}</span>`;
+    if (d >= 1)  return `<span class="s-square"  style="border-color:${col};color:${col}">${s}</span>`;
+    return `<span style="color:${col};font-weight:700">${s}</span>`;
+  }
+
+  let thead = `<tr><th class="nc">Player</th>`;
+  for (const h of front) thead += `<th>${h.n}</th>`;
+  thead += `<th class="sc">${nh === 18 ? 'OUT' : 'F'}</th>`;
+  for (const h of back)  thead += `<th>${h.n}</th>`;
+  if (nh === 18) thead += `<th class="sc">IN</th>`;
+  thead += `<th class="sc" style="color:var(--green-pale)">TOT</th></tr>`;
+
+  let parRow = `<tr class="par-row"><td class="nc">Par</td>`;
+  for (const h of front) parRow += `<td>${h.par}</td>`;
+  parRow += `<td class="sc">${fpar}</td>`;
+  for (const h of back)  parRow += `<td>${h.par}</td>`;
+  if (nh === 18) parRow += `<td class="sc">${bpar}</td>`;
+  parRow += `<td class="sc"><strong>${tpar}</strong></td></tr>`;
+
+  let siRow = `<tr class="si-row"><td class="nc">HCP</td>`;
+  for (const h of front) siRow += `<td>${h.si}</td>`;
+  siRow += `<td class="sc"></td>`;
+  for (const h of back)  siRow += `<td>${h.si}</td>`;
+  if (nh === 18) siRow += `<td class="sc"></td>`;
+  siRow += `<td class="sc"></td></tr>`;
+
+  const sorted = [...round.players].sort((a, b) => {
+    const ga = grossTotal(round, a.id) || 9999;
+    const gb = grossTotal(round, b.id) || 9999;
+    return ga - gb;
+  });
+  const winId = sorted[0]?.id;
+
+  let pRows = '';
+  for (const p of round.players) {
+    const chcp = courseHcp(p, round);
+    const isW = p.id === winId && round.players.length > 1;
+    let f = 0, b = 0;
+    for (const h of front) f += round.scores[p.id]?.[h.n]?.s || 0;
+    for (const h of back)  b += round.scores[p.id]?.[h.n]?.s || 0;
+    const tot = f + b;
+    const d   = tot - tpar;
+    const hcpLabel = chcp > 0 ? ` <span style="font-size:9px;font-weight:400;color:#aaa">(HCP ${chcp})</span>` : '';
+    pRows += `<tr ${isW ? 'class="win-row"' : ''}>
+      <td class="nc" style="font-weight:700;color:${isW?'#8B6914':'#1a1a1a'}">${esc(p.name.split(' ')[0])}${hcpLabel}</td>`;
+    for (const h of front) {
+      const g  = round.scores[p.id]?.[h.n]?.s || 0;
+      const hs = siStrokes(chcp, h.si, nh);
+      const dot = hs > 0 ? `<sup style="color:#e63946;font-size:8px">${hs > 1 ? '••' : '•'}</sup>` : '';
+      pRows += `<td>${cell(g, h.par)}${dot}</td>`;
+    }
+    pRows += `<td class="sc" style="font-weight:700">${f || '-'}</td>`;
+    for (const h of back) {
+      const g  = round.scores[p.id]?.[h.n]?.s || 0;
+      const hs = siStrokes(chcp, h.si, nh);
+      const dot = hs > 0 ? `<sup style="color:#e63946;font-size:8px">${hs > 1 ? '••' : '•'}</sup>` : '';
+      pRows += `<td>${cell(g, h.par)}${dot}</td>`;
+    }
+    if (nh === 18) pRows += `<td class="sc" style="font-weight:700">${b || '-'}</td>`;
+    const diffSpan = tot ? `<br><span style="font-size:9px;color:${d<=0?'#e63946':'#888'}">${dStr(d)}</span>` : '';
+    pRows += `<td class="sc"><strong style="color:${isW?'#8B6914':'#1a1a1a'}">${tot || '-'}</strong>${diffSpan}</td></tr>`;
+  }
+
+  const legend = `<div style="font-size:11px;color:#888;margin-top:8px">
+    <sup style="color:#e63946">•</sup> = 1 handicap stroke &nbsp;&nbsp;
+    <sup style="color:#e63946">••</sup> = 2 handicap strokes
+  </div>`;
+
+  return `<div class="tbl-wrap"><table class="sc-tbl">
+    <thead>${thead}</thead>
+    <tbody>${parRow}${siRow}${pRows}</tbody>
+  </table></div>${legend}`;
 }
 
 function continueToBackNine() {
@@ -5079,6 +5192,8 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('new',  '📋', 'Scorecard in strokes during a round',
+        'Tap the Scorecard button at the top of the scoring screen to see a full stroke scorecard for all players — showing each hole, par, handicap index (SI), and every player\'s scores with handicap stroke indicators.'),
       entry('fix',  '📋', 'Course data no longer resets on new devices',
         'Preset courses (Grafarholt, Korpa, Hlíðavöllur, etc.) have been removed from the app\'s code. All course data now lives exclusively in your saved courses — so edits you\'ve made to pars, stroke indexes and tee boxes stay correct everywhere, on every device.'),
       entry('new',  '👆', 'Tap to edit courses and players',
