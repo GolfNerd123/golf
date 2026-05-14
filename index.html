@@ -93,6 +93,11 @@
   /* Home */
   #view-home { display: flex; flex-direction: column; height: 100%; }
   #rounds-list { flex: 1; overflow-y: auto; padding: 14px; padding-bottom: 100px; }
+  .recovery-banner {
+    background: #1a7a4a; color: #fff; padding: 12px 14px;
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+    font-size: 13px; line-height: 1.4;
+  }
 
   .empty-state {
     height: 50vh; display: flex; flex-direction: column;
@@ -1116,6 +1121,10 @@
         <span class="hm-item-icon">&#128190;</span>
         <span class="hm-item-label">Export backup</span>
       </div>
+      <div class="hm-item" onclick="closeHamburger();importBackup()">
+        <span class="hm-item-icon">&#128228;</span>
+        <span class="hm-item-label">Import backup</span>
+      </div>
     </div>
   </div>
   <main id="main"><p id="js-err" style="padding:2rem;color:red;font-family:monospace">Loading…</p></main>
@@ -1183,6 +1192,7 @@ let _rounds          = [];
 let _players         = [];
 let _courseOverrides = [];
 let _auditFlushTimer = null;
+let _recoveryAlert   = null; // set when auto-recovery restores scores; shown once then dismissed
 
 const SCORE_TYPES = [
   { key:'holesInOne',   label:'Hole in One',  color:'#FFD700' },
@@ -1288,9 +1298,9 @@ function _writeAuditEntry(round, event) {
   try {
     const log = JSON.parse(localStorage.getItem(AUDIT_KEY) || '[]');
     log.unshift(entry);
-    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
     localStorage.setItem(AUDIT_KEY, JSON.stringify(
-      log.filter(e => new Date(e.timestamp).getTime() > cutoff).slice(0, 100)
+      log.filter(e => new Date(e.timestamp).getTime() > cutoff).slice(0, 300)
     ));
   } catch {}
   // Firestore — append-only document, never updated or deleted
@@ -1298,6 +1308,25 @@ function _writeAuditEntry(round, event) {
 }
 
 function _scheduleAudit(round) {
+  // Write snapshot to localStorage immediately — synchronous, covers app crashes mid-round.
+  // Update the most recent snapshot entry in-place if it's for the same round, so we don't
+  // flood the log with one entry per tap.
+  try {
+    const snap = JSON.parse(JSON.stringify(round));
+    const log  = JSON.parse(localStorage.getItem(AUDIT_KEY) || '[]');
+    if (log.length && log[0].roundId === round.id && log[0].event === 'scores_snapshot') {
+      log[0] = { ...log[0], round: snap, timestamp: new Date().toISOString() };
+    } else {
+      log.unshift({ id: 'a' + Date.now() + Math.random().toString(36).slice(2, 6),
+        roundId: round.id, course: round.course,
+        timestamp: new Date().toISOString(), event: 'scores_snapshot', round: snap });
+    }
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    localStorage.setItem(AUDIT_KEY, JSON.stringify(
+      log.filter(e => new Date(e.timestamp).getTime() > cutoff).slice(0, 300)
+    ));
+  } catch {}
+  // Debounce Firestore write to avoid flooding
   clearTimeout(_auditFlushTimer);
   _auditFlushTimer = setTimeout(() => _writeAuditEntry(round, 'scores_snapshot'), 30000);
 }
@@ -1809,7 +1838,14 @@ function renderHome(c) {
     }
   }
 
+  const recoveryBanner = _recoveryAlert ? `
+    <div class="recovery-banner" id="recovery-banner">
+      <span>&#9989; <strong>Scores recovered:</strong> ${esc(_recoveryAlert)}</span>
+      <button onclick="dismissRecoveryAlert()" style="background:none;border:none;color:inherit;font-size:18px;cursor:pointer;padding:0 0 0 10px;line-height:1">&#10005;</button>
+    </div>` : '';
+
   c.innerHTML = `<div id="view-home">
+    ${recoveryBanner}
     <div id="rounds-list">${list}</div>
     <div class="home-footer">
       <button class="btn btn-outline" onclick="nav('players')">Players</button>
@@ -4849,6 +4885,12 @@ function buildBackupPayload() {
   };
 }
 
+function dismissRecoveryAlert() {
+  _recoveryAlert = null;
+  const el = document.getElementById('recovery-banner');
+  if (el) el.remove();
+}
+
 function exportAllData() {
   try {
     const backup = buildBackupPayload();
@@ -4867,6 +4909,96 @@ function exportAllData() {
   } catch (e) {
     alert('Backup failed: ' + e.message);
   }
+}
+
+function importBackup() {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.json,application/json';
+  inp.style.cssText = 'position:fixed;top:-200px;left:-200px;opacity:0';
+  document.body.appendChild(inp);
+  inp.onchange = e => {
+    document.body.removeChild(inp);
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = re => {
+      try {
+        const backup = JSON.parse(re.result);
+        if (!backup?.data?.rounds) { alert('Invalid backup file.'); return; }
+        const data = backup.data;
+
+        function _impScoreCount(r) {
+          if (!r?.players || !r?.scores) return 0;
+          return r.players.reduce((n, p) =>
+            n + Object.values(r.scores[p.id] || {}).filter(h => h?.s).length, 0);
+        }
+        function _impWinner(local, incoming) {
+          const lc = _impScoreCount(local), ic = _impScoreCount(incoming);
+          if (lc !== ic) return lc > ic ? local : incoming;
+          return (local.lastModified || 0) >= (incoming.lastModified || 0) ? local : incoming;
+        }
+
+        let addedRounds = 0, updatedRounds = 0;
+        const localMap = new Map(_rounds.map(r => [r.id, r]));
+        for (const r of (data.rounds || [])) {
+          if (!r?.id) continue;
+          const local = localMap.get(r.id);
+          if (!local) {
+            _rounds.push(r);
+            if (_db) _db.collection('rounds').doc(r.id).set(r).catch(() => {});
+            addedRounds++;
+          } else {
+            const winner = _impWinner(local, r);
+            if (winner !== local) {
+              const idx = _rounds.findIndex(x => x.id === r.id);
+              if (idx >= 0) {
+                _rounds[idx] = winner;
+                if (_db) _db.collection('rounds').doc(winner.id).set(winner).catch(() => {});
+                updatedRounds++;
+              }
+            }
+          }
+        }
+        _rounds.sort((a, b) => (b.date > a.date ? 1 : -1));
+        localStorage.setItem(ROUNDS_KEY, JSON.stringify(_rounds));
+
+        // Players: add any that don't exist locally
+        let addedPlayers = 0;
+        const localPids = new Set(_players.map(p => p.id));
+        for (const p of (data.players || [])) {
+          if (p?.id && !localPids.has(p.id)) { _players.push(p); addedPlayers++; }
+        }
+        if (addedPlayers) {
+          localStorage.setItem(PLAYERS_KEY, JSON.stringify(_players));
+          if (_db) _db.collection('meta').doc('players').set({ list: _players }).catch(() => {});
+        }
+
+        // Courses: add any that don't exist locally
+        let addedCourses = 0;
+        const localCids = new Set(_courseOverrides.map(c => c.id));
+        for (const c of (data.courses || [])) {
+          if (c?.id && !localCids.has(c.id)) { _courseOverrides.push(c); addedCourses++; }
+        }
+        if (addedCourses) {
+          try { localStorage.setItem(COURSES_KEY, JSON.stringify(_courseOverrides)); } catch {}
+          _persistCoursesToFirestore();
+        }
+
+        const parts = [];
+        if (addedRounds)   parts.push(`${addedRounds} round${addedRounds>1?'s':''} added`);
+        if (updatedRounds) parts.push(`${updatedRounds} round${updatedRounds>1?'s':''} updated with more scores`);
+        if (addedPlayers)  parts.push(`${addedPlayers} player${addedPlayers>1?'s':''} added`);
+        if (addedCourses)  parts.push(`${addedCourses} course${addedCourses>1?'s':''} added`);
+        alert(parts.length ? 'Import complete: ' + parts.join(', ') + '.' : 'Import complete — nothing new to restore.');
+        render();
+      } catch (err) {
+        alert('Import failed: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+  inp.click();
 }
 
 function parseDateInput(dateVal) {
@@ -5033,6 +5165,8 @@ function toggleStatsIncludeStableford() {
           if (idx >= 0) {
             _rounds[idx] = best.round;
             _db.collection('rounds').doc(best.round.id).set(best.round).catch(() => {});
+            const players = (best.round.players || []).map(p => p.name).join(' & ');
+            _recoveryAlert = `Scores restored from backup for "${best.round.course}" (${players}) — ${bestCount} hole scores recovered.`;
           }
         }
       }
@@ -5235,6 +5369,10 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('new',  '📥', 'Import backup',
+        'Tap ☰ → Import backup to restore rounds, players and courses from a previously exported backup file. Merges safely — existing rounds with more scores are never overwritten, so you can import without fear of losing anything.'),
+      entry('fix',  '🛡️', 'Score sync hardened further against data loss',
+        'Audit snapshots are now written to local storage immediately on every score entry (not after a 30-second delay), and the recovery window has been extended from 7 to 30 days. A green banner now appears at the top of the home screen whenever scores are auto-recovered, so you know to verify them.'),
       entry('fix',  '🛡️', 'Scores no longer vanish after finishing a round',
         'Fixed a critical data-loss bug where Firestore sync could overwrite a fully-scored round with an older, partial snapshot — causing scores for holes 3-18 (or more) to disappear. The app now always keeps whichever version has the most scores, and automatically restores from the local audit log if a round is found to have fewer scores than its backup.'),
       entry('new',  '📋', 'Scorecard in strokes during a round',
