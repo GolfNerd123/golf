@@ -4953,11 +4953,29 @@ function toggleStatsIncludeStableford() {
       _db.collection('meta').doc('courses').get(),
     ]);
 
-    // Rounds: Firestore wins for rounds it knows about; keep and re-upload local-only rounds
+    // Helper: count total scored holes across all players in a round
+    function _scoreCount(r) {
+      if (!r || !r.players || !r.scores) return 0;
+      return r.players.reduce((n, p) =>
+        n + Object.values(r.scores[p.id] || {}).filter(h => h?.s).length, 0);
+    }
+
+    // Rounds: score-count wins — never let an older Firestore snapshot clobber local scores
     const fsRounds = rSnap.docs.map(d => d.data());
     const fsRoundIds = new Set(fsRounds.map(r => r.id));
+    const localRoundMap = new Map(_rounds.map(r => [r.id, r]));
+    const mergedRounds = fsRounds.map(fsR => {
+      const local = localRoundMap.get(fsR.id);
+      if (!local) return fsR;
+      if (_scoreCount(local) > _scoreCount(fsR)) {
+        // Local is ahead — push it back so Firestore catches up
+        _db.collection('rounds').doc(local.id).set(local).catch(() => {});
+        return local;
+      }
+      return fsR;
+    });
     const localOnlyRounds = _rounds.filter(r => !fsRoundIds.has(r.id));
-    _rounds = [...fsRounds, ...localOnlyRounds].sort((a, b) => (b.date > a.date ? 1 : -1));
+    _rounds = [...mergedRounds, ...localOnlyRounds].sort((a, b) => (b.date > a.date ? 1 : -1));
     for (const r of localOnlyRounds) {
       _db.collection('rounds').doc(r.id).set(r).catch(() => {});
     }
@@ -4988,25 +5006,20 @@ function toggleStatsIncludeStableford() {
     _courseOverrides = Array.from(merged.values());
     _persistCoursesToFirestore(); // push merged state back to Firestore
 
-    // Auto-recover: if an in-progress round has no scores (Firestore only had the empty shell),
-    // restore from the local audit log which Firestore never overwrites.
+    // Auto-recover: if any round has fewer scores than its best audit log snapshot,
+    // restore from the audit log (which Firestore never overwrites).
     try {
-      const navState = JSON.parse(localStorage.getItem(NAV_KEY) || 'null');
-      if (navState?.roundId) {
-        const r = _rounds.find(x => x.id === navState.roundId);
-        if (r && !r.done) {
-          const scoredCount = r.players.reduce((n, p) =>
-            n + Object.values(r.scores[p.id] || {}).filter(h => h?.s).length, 0);
-          if (scoredCount === 0) {
-            const auditLog = JSON.parse(localStorage.getItem(AUDIT_KEY) || '[]');
-            const best = auditLog.find(e => e.roundId === navState.roundId && e.round);
-            if (best) {
-              const idx = _rounds.findIndex(x => x.id === navState.roundId);
-              if (idx >= 0) {
-                _rounds[idx] = best.round;
-                _db.collection('rounds').doc(best.round.id).set(best.round).catch(() => {});
-              }
-            }
+      const auditLog = JSON.parse(localStorage.getItem(AUDIT_KEY) || '[]');
+      for (const r of _rounds) {
+        const current = _scoreCount(r);
+        const candidates = auditLog.filter(e => e.roundId === r.id && e.round);
+        if (!candidates.length) continue;
+        const best = candidates.reduce((a, b) => _scoreCount(a.round) >= _scoreCount(b.round) ? a : b);
+        if (_scoreCount(best.round) > current) {
+          const idx = _rounds.findIndex(x => x.id === r.id);
+          if (idx >= 0) {
+            _rounds[idx] = best.round;
+            _db.collection('rounds').doc(best.round.id).set(best.round).catch(() => {});
           }
         }
       }
@@ -5019,12 +5032,28 @@ function toggleStatsIncludeStableford() {
   } catch(e) { /* offline – local data already shown */ }
 
   // Real-time listeners for live sync
+  function _fsScoreCount(r) {
+    if (!r || !r.players || !r.scores) return 0;
+    return r.players.reduce((n, p) =>
+      n + Object.values(r.scores[p.id] || {}).filter(h => h?.s).length, 0);
+  }
   if (_db) _db.collection('rounds').onSnapshot(snap => {
     snap.docChanges().forEach(ch => {
       if (ch.type === 'added' || ch.type === 'modified') {
-        const r = ch.doc.data();
-        const i = _rounds.findIndex(x => x.id === r.id);
-        if (i >= 0) _rounds[i] = r; else _rounds.unshift(r);
+        const incoming = ch.doc.data();
+        const i = _rounds.findIndex(x => x.id === incoming.id);
+        if (i >= 0) {
+          const local = _rounds[i];
+          // Never let a stale Firestore snapshot overwrite more scores we already have locally
+          if (_fsScoreCount(incoming) >= _fsScoreCount(local)) {
+            _rounds[i] = incoming;
+          } else {
+            // Local is ahead — push it back to Firestore so other devices catch up
+            _db.collection('rounds').doc(local.id).set(local).catch(() => {});
+          }
+        } else {
+          _rounds.unshift(incoming);
+        }
       } else if (ch.type === 'removed') {
         _rounds = _rounds.filter(x => x.id !== ch.doc.id);
       }
@@ -5192,6 +5221,8 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('fix',  '🛡️', 'Scores no longer vanish after finishing a round',
+        'Fixed a critical data-loss bug where Firestore sync could overwrite a fully-scored round with an older, partial snapshot — causing scores for holes 3-18 (or more) to disappear. The app now always keeps whichever version has the most scores, and automatically restores from the local audit log if a round is found to have fewer scores than its backup.'),
       entry('new',  '📋', 'Scorecard in strokes during a round',
         'Tap the Scorecard button at the top of the scoring screen to see a full stroke scorecard for all players — showing each hole, par, handicap index (SI), and every player\'s scores with handicap stroke indicators.'),
       entry('fix',  '📋', 'Course data no longer resets on new devices',
