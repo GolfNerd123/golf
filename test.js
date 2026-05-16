@@ -597,16 +597,22 @@ function setScoreNumpad(pid, score) {
 }
 
 // ── MERGE / RECOVERY (extracted from init for unit testing) ──────────────────
+function _roundSortCmp(a, b) {
+  if (b.date !== a.date) return b.date > a.date ? 1 : -1;
+  const ta = parseInt(a.id.slice(1), 10) || 0;
+  const tb = parseInt(b.id.slice(1), 10) || 0;
+  return tb - ta;
+}
 function mergeRounds(fsRounds, localRounds) {
   const fsIds=new Set(fsRounds.map(r=>r.id));
   const localOnly=localRounds.filter(r=>!fsIds.has(r.id));
-  return [...fsRounds,...localOnly].sort((a,b)=>(b.date>a.date?1:-1));
+  return [...fsRounds,...localOnly].sort(_roundSortCmp);
 }
 // Mirror of init's tombstone-aware merge
 function mergeRoundsWithTombstone(fsRounds, localRounds, deletedIds) {
   const fsIds = new Set(fsRounds.map(r => r.id));
   const localOnly = localRounds.filter(r => !fsIds.has(r.id) && !deletedIds.has(r.id));
-  return [...fsRounds, ...localOnly].sort((a,b) => (b.date > a.date ? 1 : -1));
+  return [...fsRounds, ...localOnly].sort(_roundSortCmp);
 }
 // Mirror of the Firestore onSnapshot echo-skip guard
 function snapShouldUpdate(local, incoming) {
@@ -1090,6 +1096,13 @@ test('sorted newest first',()=>{
   eq(m[0].id,'r2');eq(m[1].id,'r1');
 });
 test('both empty → empty',()=>eq(mergeRounds([],[]).length,0));
+test('same-day rounds ordered by creation timestamp in ID',()=>{
+  const earlier = { id:'r1000', date:'2026-05-16T12:00:00.000Z', course:'First' };
+  const later   = { id:'r2000', date:'2026-05-16T12:00:00.000Z', course:'Second' };
+  const m = mergeRounds([earlier, later], []);
+  eq(m[0].id, 'r2000', 'later round should be first');
+  eq(m[1].id, 'r1000');
+});
 
 // ── 12. AUTO-RECOVERY ─────────────────────────────────────────────────────────
 suite('tryRecoverRound — auto-recovery from audit log');

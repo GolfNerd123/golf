@@ -1282,6 +1282,17 @@ const S = {
 // ═══════════════════════════════════════════
 // STORAGE — ROUNDS
 // ═══════════════════════════════════════════
+
+// Sort comparator: newest first by date, tiebroken by creation timestamp in the ID.
+// r.date is always noon UTC on the selected day so same-day rounds are identical —
+// without the tiebreaker the sort is unstable and rounds flicker between renders.
+function _roundSortCmp(a, b) {
+  if (b.date !== a.date) return b.date > a.date ? 1 : -1;
+  const ta = parseInt(a.id.slice(1), 10) || 0;
+  const tb = parseInt(b.id.slice(1), 10) || 0;
+  return tb - ta;
+}
+
 function loadRounds() { return _rounds; }
 
 function saveRound(r, auditEvent) {
@@ -5302,7 +5313,7 @@ function importBackup() {
             }
           }
         }
-        _rounds.sort((a, b) => (b.date > a.date ? 1 : -1));
+        _rounds.sort(_roundSortCmp);
         localStorage.setItem(ROUNDS_KEY, JSON.stringify(_rounds));
 
         // Players: add any that don't exist locally
@@ -5477,7 +5488,7 @@ function toggleStatsIncludeStableford() {
     });
     // Local-only rounds: only upload ones NOT in the tombstone (not previously deleted by any device)
     const localOnlyRounds = _rounds.filter(r => !fsRoundIds.has(r.id) && !_deletedRoundIds.has(r.id));
-    _rounds = [...mergedRounds, ...localOnlyRounds].sort((a, b) => (b.date > a.date ? 1 : -1));
+    _rounds = [...mergedRounds, ...localOnlyRounds].sort(_roundSortCmp);
     for (const r of localOnlyRounds) {
       _db.collection('rounds').doc(r.id).set(r).catch(() => {});
     }
@@ -5580,7 +5591,7 @@ function toggleStatsIncludeStableford() {
         localStorage.setItem(DELETED_KEY, JSON.stringify([..._deletedRoundIds]));
       }
     });
-    _rounds.sort((a, b) => (b.date > a.date ? 1 : -1));
+    _rounds.sort(_roundSortCmp);
     localStorage.setItem(ROUNDS_KEY, JSON.stringify(_rounds));
     if (['home', 'stats', 'summary'].includes(S.view)) render();
     else if (S.view === 'scorecard' && !S.numpadPid && _currentRoundChanged) render();
@@ -5743,6 +5754,8 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('fix',  '🔀', 'Same-day rounds no longer flicker',
+        'Two rounds played on the same day used to fight for the top spot and flicker on every sync. They are now sorted stably by start time, so the most recently started round always appears first.'),
       entry('fix',  '🗑️', 'Delete confirmation shows start time',
         'The "Delete this round?" prompt now shows the time the round was started alongside the date, making it easier to tell apart multiple rounds on the same day before confirming.'),
       entry('new',  '👥', 'Team scores at top of Standings',
