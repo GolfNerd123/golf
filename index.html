@@ -5145,7 +5145,8 @@ function editRound() {
   for (const h of r.holes) {
     if (!r.players.every(p => r.scores[p.id]?.[h.n]?.s)) { start = h.n; break; }
   }
-  nav('scorecard', { roundId: id, hole: start });
+  // Defer past any synchronous Firestore onSnapshot callbacks triggered by saveRound
+  requestAnimationFrame(() => nav('scorecard', { roundId: id, hole: start }));
 }
 function buildBackupPayload() {
   const read = key => { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } };
@@ -5485,8 +5486,11 @@ function toggleStatsIncludeStableford() {
             // Local is ahead — push it back to Firestore so other devices catch up
             _db.collection('rounds').doc(local.id).set(local).catch(() => {});
           } else {
-            if (incoming.id === S.roundId) _currentRoundChanged = true;
-            _rounds[i] = incoming;
+            // Skip if this is just a Firestore echo of our own write (same lastModified)
+            if (incoming.lastModified !== local.lastModified || incoming.done !== local.done) {
+              if (incoming.id === S.roundId) _currentRoundChanged = true;
+              _rounds[i] = incoming;
+            }
           }
         } else {
           _rounds.unshift(incoming);
@@ -5661,7 +5665,7 @@ function renderChangelog(c) {
   const html = [
     section('May 2026', [
       entry('fix',  '✏️', 'Re-opened rounds are now fully editable',
-        'Fixed a bug where tapping "Edit scores" on a completed round opened the scorecard but left it unresponsive — buttons wouldn\'t register and the hole stayed stuck. All overlays are now properly dismissed before the scorecard opens, and Firestore can no longer re-deliver the completed snapshot and override the edit.'),
+        'Fixed a persistent bug where tapping "Edit scores" opened the scorecard but left it completely frozen — you couldn\'t change holes or scores. Navigation is now deferred past Firestore\'s synchronous callbacks, and echo writes no longer trigger spurious re-renders that replace the DOM mid-interaction.'),
       entry('new',  '🏠', 'Team result colour on home screen',
         'Rounds with all four players now show a pink/blue/green background on the home screen — pink for a Carlos & Ingibjörg win, blue for Sigurjón & Michael, green for a tie — plus each team\'s combined score.'),
       entry('new',  '🤝', 'Team scores in standings and round summary',
