@@ -139,6 +139,18 @@
   .badge-wolf       { background: #1a1a1a; color: #fff; }
   .badge-stroke     { background: #f0f7f4; color: var(--green-mid); }
 
+  .round-card.rc-a-wins { background: #eff6ff; }
+  .round-card.rc-b-wins { background: #fdf2f8; }
+  .round-card.rc-tie    { background: #f0fdf4; }
+  .rc-team-bar { display: flex; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(0,0,0,.07); }
+  .rc-team-pill { flex: 1; border-radius: 8px; padding: 5px 9px; display: flex; justify-content: space-between; align-items: center; }
+  .rc-team-a-pill { background: rgba(37,99,235,.1); }
+  .rc-team-b-pill { background: rgba(219,39,119,.1); }
+  .rc-team-pill-name  { font-size: 11px; font-weight: 600; color: #444; }
+  .rc-team-pill-score { font-size: 14px; font-weight: 800; }
+  .rc-team-a-pill .rc-team-pill-score { color: #1d4ed8; }
+  .rc-team-b-pill .rc-team-pill-score { color: #be185d; }
+
   .rivalry-finish-banner {
     background: linear-gradient(135deg, #1a4731 0%, #2d6a4f 100%);
     border-radius: 16px; padding: 18px 18px 16px; margin-bottom: 16px;
@@ -1769,6 +1781,28 @@ function render() {
 // ═══════════════════════════════════════════
 // HOME
 // ═══════════════════════════════════════════
+function roundCardRivalryData(r) {
+  if (!r.done) return null;
+  const allFour = [...RIVALRY_TEAM_A, ...RIVALRY_TEAM_B];
+  const names = r.players.map(p => firstNorm(p.name));
+  if (!allFour.every(n => names.includes(n))) return null;
+  if (!names.every(n => allFour.includes(n))) return null;
+  const findPid = nn => r.players.find(p => firstNorm(p.name) === nn)?.id;
+  const aPids = RIVALRY_TEAM_A.map(findPid).filter(Boolean);
+  const bPids = RIVALRY_TEAM_B.map(findPid).filter(Boolean);
+  if (aPids.length !== 2 || bPids.length !== 2) return null;
+  const isStbl = (r.format || 'stroke') === 'stableford';
+  const aScore = aPids.reduce((s, pid) => s + (isStbl ? stablefordTotal(r, pid) : netTotal(r, pid)), 0);
+  const bScore = bPids.reduce((s, pid) => s + (isStbl ? stablefordTotal(r, pid) : netTotal(r, pid)), 0);
+  const aWins = isStbl ? aScore > bScore : aScore < bScore;
+  const bWins = isStbl ? bScore > aScore : bScore < aScore;
+  const nm = rivalryNameMap([r]);
+  const aLabel = RIVALRY_TEAM_A.map(n => (nm[n] || n).split(' ')[0]).join(' & ');
+  const bLabel = RIVALRY_TEAM_B.map(n => (nm[n] || n).split(' ')[0]).join(' & ');
+  const unit = isStbl ? ' pts' : '';
+  return { aWins, bWins, aScore, bScore, aLabel, bLabel, unit };
+}
+
 function renderHome(c) {
   const rounds = loadRounds();
   let list = '';
@@ -1828,13 +1862,26 @@ function renderHome(c) {
       } else {
         bottom = '<span class="badge-prog">In Progress</span>';
       }
-      list += `<div class="round-card" data-id="${r.id}">
+      const rv = roundCardRivalryData(r);
+      const rvClass = rv ? (rv.aWins ? 'rc-a-wins' : rv.bWins ? 'rc-b-wins' : 'rc-tie') : '';
+      const teamBar = rv ? `<div class="rc-team-bar">
+        <div class="rc-team-pill rc-team-a-pill">
+          <span class="rc-team-pill-name">${esc(rv.aLabel)}</span>
+          <span class="rc-team-pill-score">${rv.aScore}${rv.unit}</span>
+        </div>
+        <div class="rc-team-pill rc-team-b-pill">
+          <span class="rc-team-pill-name">${esc(rv.bLabel)}</span>
+          <span class="rc-team-pill-score">${rv.bScore}${rv.unit}</span>
+        </div>
+      </div>` : '';
+      list += `<div class="round-card ${rvClass}" data-id="${r.id}">
         <div class="rc-top">
           <div class="rc-course">${esc(r.course)}${fmtBadge}</div>
           <div class="rc-date">${date}</div>
         </div>
         <div class="rc-players">${esc(names)} &middot; ${r.holes.length} holes</div>
         ${bottom}
+        ${teamBar}
       </div>`;
     }
   }
@@ -5572,6 +5619,8 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('new',  '🏠', 'Team result colour on home screen',
+        'Rounds with all four players now show a pink/blue/green background on the home screen — pink for a Carlos & Ingibjörg win, blue for Sigurjón & Michael, green for a tie — plus each team\'s combined score.'),
       entry('new',  '🤝', 'Team scores in standings and round summary',
         'For 4-player rounds, open Standings during a round (or the round summary afterward) to pick a team pairing — the app shows all 3 possible ways to split 4 players into 2 teams of 2. Once set, the team\'s combined Stableford points (or net strokes) appear alongside the individual standings.'),
       entry('fix',  '⛳', 'Correct course handicap on past rounds',
