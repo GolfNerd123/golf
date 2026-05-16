@@ -1508,9 +1508,14 @@ function saveCourseData(course) {
         const od = (old.descriptions?.[h] || '').trim(), nd = (meta.descriptions?.[h] || '').trim();
         if (od !== nd) changes.push({ field: 'Description H' + (h + 1), from: od || '—', to: nd || '—' });
       }
-      const oldT = JSON.stringify((old.tees||[]).map(t=>({n:t.name,cr:t.cr,s:t.slope,p:t.par,g:t.gender})));
-      const newT = JSON.stringify((meta.tees||[]).map(t=>({n:t.name,cr:t.cr,s:t.slope,p:t.par,g:t.gender})));
-      if (oldT !== newT) changes.push({ field: 'Tees', from: (old.tees||[]).map(t=>t.name).join(', ') || '—', to: (meta.tees||[]).map(t=>t.name).join(', ') || '—' });
+      const teeFmt = arr => (arr||[]).map(t=>({n:t.name,cr:t.cr,s:t.slope,p:t.par,g:t.gender}));
+      const oldT = JSON.stringify(teeFmt(old.tees));
+      const newT = JSON.stringify(teeFmt(meta.tees));
+      if (oldT !== newT) changes.push({
+        field: 'Tees',
+        from: old.tees  && (old.tees.length  || (old.tees.karlar||old.tees.konur))  ? JSON.stringify(teeFmt(old.tees))  : '—',
+        to:   meta.tees && meta.tees.length ? JSON.stringify(teeFmt(meta.tees)) : '—',
+      });
       _logChange('course', meta.id, meta.name, 'updated', changes);
       _courseOverrides[i] = meta;
     } else {
