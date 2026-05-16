@@ -1220,9 +1220,12 @@ const SCORE_TYPES = [
 ];
 
 // ── Team rivalry configuration ───────────────────────────────────────────────
-// Names are matched accent-insensitively, so "Sigurjón" == "Sigurjon", etc.
+// Stable teams for summer 2026 (and beyond):
+//   Team A: Sigurjón Atli Sigurðsson + Michael Given
+//   Team B: Ingibjörg Pálmadóttir   + Carlos Horacio Gimenez
+// Matched by normalised first name (accent-insensitive, lowercase).
 const RIVALRY_TEAM_A = ['sigurjon', 'michael'];
-const RIVALRY_TEAM_B = ['carlos', 'ingibjorg'];
+const RIVALRY_TEAM_B = ['ingibjorg', 'carlos'];
 
 // Strip diacritics and lowercase for fuzzy name matching
 function normName(s) {
