@@ -5691,6 +5691,8 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('new',  '🧪', 'Automated test coverage expanded',
+        'Added 22 new automated tests covering the deletion tombstone, Firestore echo-skip guard, and round start-time extraction — so regressions in these areas are caught before they ship.'),
       entry('fix',  '🗑️', 'Deleted rounds no longer reappear',
         'Rounds deleted on any device are now permanently tombstoned in Firestore, so they stay gone for everyone — even if a device was offline when the deletion happened and comes back online later.'),
       entry('new',  '🕐', 'Round start time on home screen',

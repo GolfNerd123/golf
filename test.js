@@ -71,6 +71,7 @@ const TEE_PREFS_KEY  = 'TEST_golf_tee_prefs';
 const NAV_KEY        = 'TEST_golf_nav';
 const COURSE_IMG_PFX  = 'TEST_golf_img_';
 const COURSES_KEY     = 'TEST_golf_courses';
+const DELETED_KEY     = 'TEST_golf_deleted_rounds';
 
 // Mock localStorage (Node.js has none)
 let _lsStore = {};
@@ -111,6 +112,7 @@ const document = { getElementById: id => _domElements[id] || null };
 
 // Global mutable state (mirrors index.html globals)
 let _rounds = [], _players = [], _courseOverrides = [], _auditFlushTimer = null;
+let _deletedRoundIds = new Set();
 const S = {
   view: 'home', roundId: null, hole: 1, numpadPid: null, showLayout: false, nr: {}, playerEdit: null,
   showRoundSummary: false, showNineHoleSummary: false, finishComment: null,
@@ -118,6 +120,7 @@ const S = {
 
 function resetState() {
   _rounds = []; _players = []; _courseOverrides = []; _auditFlushTimer = null;
+  _deletedRoundIds = new Set();
   _lsStore = {}; _fsStore = {}; _domElements = {};
   S.view = 'home'; S.roundId = null; S.hole = 1; S.numpadPid = null;
   S.showRoundSummary = false; S.showNineHoleSummary = false; S.finishComment = null;
@@ -352,8 +355,11 @@ function removeRound(id) {
   const r=_rounds.find(x=>x.id===id);
   if(r) _logChange('round',id,r.course+(r.date?' — '+r.date.slice(0,10):''),'deleted',[]);
   _rounds=_rounds.filter(x=>x.id!==id);
+  _deletedRoundIds.add(id);
   localStorage.setItem(ROUNDS_KEY,JSON.stringify(_rounds));
+  localStorage.setItem(DELETED_KEY,JSON.stringify([..._deletedRoundIds]));
   _db.collection('rounds').doc(id).delete().catch(()=>{});
+  _db.collection('meta').doc('deletedRounds').set({ids:[..._deletedRoundIds]}).catch(()=>{});
 }
 function persistPlayers(arr) {
   _players=arr;
@@ -590,6 +596,21 @@ function mergeRounds(fsRounds, localRounds) {
   const fsIds=new Set(fsRounds.map(r=>r.id));
   const localOnly=localRounds.filter(r=>!fsIds.has(r.id));
   return [...fsRounds,...localOnly].sort((a,b)=>(b.date>a.date?1:-1));
+}
+// Mirror of init's tombstone-aware merge
+function mergeRoundsWithTombstone(fsRounds, localRounds, deletedIds) {
+  const fsIds = new Set(fsRounds.map(r => r.id));
+  const localOnly = localRounds.filter(r => !fsIds.has(r.id) && !deletedIds.has(r.id));
+  return [...fsRounds, ...localOnly].sort((a,b) => (b.date > a.date ? 1 : -1));
+}
+// Mirror of the Firestore onSnapshot echo-skip guard
+function snapShouldUpdate(local, incoming) {
+  return incoming.lastModified !== local.lastModified || incoming.done !== local.done;
+}
+// Mirror of round-card time-from-ID extraction
+function roundCardTime(roundId) {
+  const ts = parseInt(roundId.slice(1), 10);
+  return isNaN(ts) ? null : ts;
 }
 function tryRecoverRound(rounds, navState, auditLog) {
   if (!navState?.roundId) return rounds;
@@ -2344,6 +2365,184 @@ test('players without handicapIndex are skipped', () => {
   _domElements['ch-edit-p1'] = { value: '12' };
   saveRoundCh(r.id);
   eq(byId(r.id).players[0].courseHcpOverride, undefined);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// DELETION TOMBSTONE — May 2026
+// Deleted rounds must never reappear on other devices that were offline when
+// the deletion happened. The tombstone records deleted IDs in both localStorage
+// and Firestore so the init merge can drop them instead of re-uploading them.
+// ═════════════════════════════════════════════════════════════════════════════
+suite('Deletion tombstone — removeRound');
+test('removeRound adds the ID to _deletedRoundIds', () => {
+  resetState();
+  const r = makeRound18(); saveRound(r);
+  removeRound(r.id);
+  assert(_deletedRoundIds.has(r.id), 'ID must be in tombstone set after deletion');
+});
+test('removeRound persists tombstone to localStorage', () => {
+  resetState();
+  const r = makeRound18(); saveRound(r);
+  removeRound(r.id);
+  const stored = JSON.parse(localStorage.getItem(DELETED_KEY) || '[]');
+  assert(stored.includes(r.id), 'ID must be in localStorage tombstone');
+});
+test('removeRound records deletion in Firestore meta/deletedRounds', () => {
+  resetState();
+  const r = makeRound18(); saveRound(r);
+  removeRound(r.id);
+  const fsDoc = _fsStore['meta/deletedRounds'];
+  assert(fsDoc && (fsDoc.ids || []).includes(r.id), 'ID must be in Firestore tombstone');
+});
+test('removeRound still removes round from _rounds', () => {
+  resetState();
+  const r = makeRound18(); saveRound(r);
+  eq(_rounds.length, 1);
+  removeRound(r.id);
+  eq(_rounds.length, 0, 'round must be removed from _rounds');
+});
+test('tombstone accumulates across multiple deletions', () => {
+  resetState();
+  const r1 = makeRound18({ id:'rA', date:'2026-05-01T10:00:00Z' });
+  const r2 = makeRound18({ id:'rB', date:'2026-05-02T10:00:00Z' });
+  saveRound(r1); saveRound(r2);
+  removeRound('rA'); removeRound('rB');
+  assert(_deletedRoundIds.has('rA') && _deletedRoundIds.has('rB'), 'both IDs in tombstone');
+  const stored = JSON.parse(localStorage.getItem(DELETED_KEY) || '[]');
+  assert(stored.includes('rA') && stored.includes('rB'), 'both IDs in localStorage');
+});
+test('removeRound logs the deletion to the change log', () => {
+  resetState();
+  const r = makeRound18({ course: 'Grafarholt' }); saveRound(r);
+  removeRound(r.id);
+  const log = getChangeLog();
+  assert(log.length > 0, 'change log should have an entry');
+  eq(log[0].action, 'deleted');
+  assert(log[0].entityName.includes('Grafarholt'), 'entity name should include course');
+});
+
+suite('Deletion tombstone — init merge filtering');
+test('tombstoned local round is not merged into result', () => {
+  const deleted = new Set(['rX']);
+  const result = mergeRoundsWithTombstone([], [{id:'rX', date:'2026-05-01', course:'Ghost', players:[], scores:{}, holes:[], done:false}], deleted);
+  eq(result.length, 0, 'tombstoned round should be dropped');
+});
+test('non-tombstoned local-only round is kept and uploaded', () => {
+  const deleted = new Set();
+  const local = [{id:'rNew', date:'2026-05-01', course:'New', players:[], scores:{}, holes:[], done:false}];
+  const result = mergeRoundsWithTombstone([], local, deleted);
+  eq(result.length, 1);
+  eq(result[0].id, 'rNew');
+});
+test('Firestore round with same ID as tombstoned local round is still kept', () => {
+  const deleted = new Set(['rX']);
+  const fs    = [{id:'rX', date:'2026-05-01', course:'FS', players:[], scores:{}, holes:[], done:false}];
+  const local = [{id:'rX', date:'2026-05-01', course:'Local', players:[], scores:{}, holes:[], done:false}];
+  const result = mergeRoundsWithTombstone(fs, local, deleted);
+  // Firestore won the merge for rX (it's in fsRounds), tombstone only affects localOnly
+  eq(result.length, 1);
+  eq(result[0].course, 'FS');
+});
+test('mix: one tombstoned local-only, one untombstoned local-only', () => {
+  const deleted = new Set(['rDead']);
+  const local = [
+    {id:'rDead', date:'2026-05-01', course:'Ghost', players:[], scores:{}, holes:[], done:false},
+    {id:'rLive', date:'2026-05-02', course:'Live',  players:[], scores:{}, holes:[], done:false},
+  ];
+  const result = mergeRoundsWithTombstone([], local, deleted);
+  eq(result.length, 1);
+  eq(result[0].id, 'rLive');
+});
+test('empty tombstone: all local-only rounds are kept', () => {
+  const deleted = new Set();
+  const local = [
+    {id:'r1', date:'2026-05-01', course:'A', players:[], scores:{}, holes:[], done:false},
+    {id:'r2', date:'2026-05-02', course:'B', players:[], scores:{}, holes:[], done:false},
+  ];
+  const result = mergeRoundsWithTombstone([], local, deleted);
+  eq(result.length, 2);
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// FIRESTORE ECHO-SKIP — May 2026
+// When Firestore echoes our own write back via onSnapshot, the incoming doc
+// has the same lastModified as what we already have. Applying it would
+// replace the DOM during an active interaction. The guard skips such echoes.
+// ═════════════════════════════════════════════════════════════════════════════
+suite('Firestore echo-skip — onSnapshot update guard');
+test('same lastModified and same done → skip (echo of own write)', () => {
+  const local    = { id:'r1', lastModified: 1000, done: false };
+  const incoming = { id:'r1', lastModified: 1000, done: false };
+  assert(!snapShouldUpdate(local, incoming), 'echo should be skipped');
+});
+test('different lastModified → update (genuine change from another device)', () => {
+  const local    = { id:'r1', lastModified: 1000, done: false };
+  const incoming = { id:'r1', lastModified: 2000, done: false };
+  assert(snapShouldUpdate(local, incoming), 'newer write should be applied');
+});
+test('same lastModified but done changed → update (another device finished the round)', () => {
+  const local    = { id:'r1', lastModified: 1000, done: false };
+  const incoming = { id:'r1', lastModified: 1000, done: true  };
+  assert(snapShouldUpdate(local, incoming), 'done-state change must not be silenced');
+});
+test('older lastModified → guard still allows update (winner decided by _snapWinner upstream)', () => {
+  const local    = { id:'r1', lastModified: 2000, done: false };
+  const incoming = { id:'r1', lastModified: 1000, done: false };
+  // lastModified differs → not an echo → guard allows it through
+  // (_snapWinner will have already chosen local in this case, so this branch is never actually reached)
+  assert(snapShouldUpdate(local, incoming), 'different lastModified values are never an echo');
+});
+test('missing lastModified on both → same (0===0) → skip', () => {
+  const local    = { id:'r1', done: false };
+  const incoming = { id:'r1', done: false };
+  assert(!snapShouldUpdate(local, incoming), 'both undefined treated as same → skip');
+});
+test('lastModified absent on incoming only → 0 !== 2000 → update', () => {
+  const local    = { id:'r1', lastModified: 2000, done: false };
+  const incoming = { id:'r1', done: false };
+  assert(snapShouldUpdate(local, incoming), 'missing incoming lastModified differs from local');
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ROUND START TIME — May 2026
+// Round cards on the home screen show the time the round was created,
+// extracted from the round ID which is 'r' + Date.now().
+// ═════════════════════════════════════════════════════════════════════════════
+suite('Round start time — time from round ID');
+test('standard ID format yields a valid timestamp', () => {
+  const ts = Date.now();
+  const id = 'r' + ts;
+  eq(roundCardTime(id), ts);
+});
+test('timestamp is usable as a Date', () => {
+  const created = new Date(2026, 4, 16, 10, 30, 0); // May 16 2026 10:30
+  const id = 'r' + created.getTime();
+  const ts = roundCardTime(id);
+  const recovered = new Date(ts);
+  eq(recovered.getFullYear(), 2026);
+  eq(recovered.getMonth(), 4);
+  eq(recovered.getDate(), 16);
+  eq(recovered.getHours(), 10);
+  eq(recovered.getMinutes(), 30);
+});
+test('non-numeric suffix returns null (no bogus time shown)', () => {
+  eq(roundCardTime('rabc'), null);
+});
+test('different IDs created one hour apart have correct time delta', () => {
+  const base = 1747385400000; // arbitrary fixed ms
+  const id1 = 'r' + base;
+  const id2 = 'r' + (base + 3600000);
+  const diff = roundCardTime(id2) - roundCardTime(id1);
+  eq(diff, 3600000, 'one hour apart in IDs → one hour apart in extracted times');
+});
+test('time extracted from saveRound ID matches creation moment', () => {
+  resetState();
+  const before = Date.now();
+  const r = makeRound18({ id: 'r' + Date.now() });
+  saveRound(r);
+  const after = Date.now();
+  const ts = roundCardTime(r.id);
+  assert(ts !== null && ts >= before && ts <= after, 'extracted time should be within creation window');
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
