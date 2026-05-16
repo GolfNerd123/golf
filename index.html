@@ -1759,6 +1759,10 @@ function nav(view, params) {
     S.showTeamSetup       = false;
     S.numpadPid           = null;
     S.finishComment       = null;
+    // Force-close all persistent body overlays so nothing blocks the scorecard
+    ['round-action-overlay','course-action-overlay','player-action-overlay','score-guide-overlay']
+      .forEach(eid => { try { document.getElementById(eid)?.classList.remove('open'); } catch {} });
+    try { document.getElementById('hamburger-overlay')?.classList.remove('open'); } catch {}
     try { localStorage.setItem(NAV_KEY, JSON.stringify({ roundId: S.roundId, hole: S.hole })); } catch {}
   } else {
     localStorage.removeItem(NAV_KEY);
@@ -5461,12 +5465,15 @@ function toggleStatsIncludeStableford() {
 
   // Real-time listeners for live sync
   function _snapWinner(local, incoming) {
+    // Never let Firestore revert an actively-edited round back to completed state
+    if (!local.done && incoming.done) return local;
     const lc = (local.players||[]).reduce((n,p)=>n+Object.values(local.scores?.[p.id]||{}).filter(h=>h?.s).length,0);
     const ic = (incoming.players||[]).reduce((n,p)=>n+Object.values(incoming.scores?.[p.id]||{}).filter(h=>h?.s).length,0);
     if (ic !== lc) return ic > lc ? incoming : local;
     return (incoming.lastModified||0) >= (local.lastModified||0) ? incoming : local;
   }
   if (_db) _db.collection('rounds').onSnapshot(snap => {
+    let _currentRoundChanged = false;
     snap.docChanges().forEach(ch => {
       if (ch.type === 'added' || ch.type === 'modified') {
         const incoming = ch.doc.data();
@@ -5478,19 +5485,22 @@ function toggleStatsIncludeStableford() {
             // Local is ahead — push it back to Firestore so other devices catch up
             _db.collection('rounds').doc(local.id).set(local).catch(() => {});
           } else {
+            if (incoming.id === S.roundId) _currentRoundChanged = true;
             _rounds[i] = incoming;
           }
         } else {
           _rounds.unshift(incoming);
+          if (incoming.id === S.roundId) _currentRoundChanged = true;
         }
       } else if (ch.type === 'removed') {
+        if (ch.doc.id === S.roundId) _currentRoundChanged = true;
         _rounds = _rounds.filter(x => x.id !== ch.doc.id);
       }
     });
     _rounds.sort((a, b) => (b.date > a.date ? 1 : -1));
     localStorage.setItem(ROUNDS_KEY, JSON.stringify(_rounds));
     if (['home', 'stats', 'summary'].includes(S.view)) render();
-    else if (S.view === 'scorecard' && !S.numpadPid) render();
+    else if (S.view === 'scorecard' && !S.numpadPid && _currentRoundChanged) render();
   });
 
   if (_db) _db.collection('meta').doc('players').onSnapshot(snap => {
@@ -5650,6 +5660,8 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('fix',  '✏️', 'Re-opened rounds are now fully editable',
+        'Fixed a bug where tapping "Edit scores" on a completed round opened the scorecard but left it unresponsive — buttons wouldn\'t register and the hole stayed stuck. All overlays are now properly dismissed before the scorecard opens, and Firestore can no longer re-deliver the completed snapshot and override the edit.'),
       entry('new',  '🏠', 'Team result colour on home screen',
         'Rounds with all four players now show a pink/blue/green background on the home screen — pink for a Carlos & Ingibjörg win, blue for Sigurjón & Michael, green for a tie — plus each team\'s combined score.'),
       entry('new',  '🤝', 'Team scores in standings and round summary',
