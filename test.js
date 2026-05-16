@@ -451,6 +451,18 @@ function gotoHole(n) {
   try{localStorage.setItem(NAV_KEY,JSON.stringify({roundId:S.roundId,hole:n}));}catch{}
   renderScorecard();
 }
+function saveRoundTeams(roundId, pairingIdx) {
+  const round=byId(roundId); if(!round||round.players.length!==4) return;
+  const pl=round.players;
+  const pairings=[[[0,1],[2,3]],[[0,2],[1,3]],[[0,3],[1,2]]];
+  const[t1i,t2i]=pairings[pairingIdx];
+  round.teams=[t1i.map(i=>pl[i].id),t2i.map(i=>pl[i].id)];
+  saveRound(round);
+}
+function clearRoundTeams(roundId) {
+  const round=byId(roundId); if(!round) return;
+  delete round.teams; saveRound(round);
+}
 function saveRoundCh(roundId) {
   const round=byId(roundId); if(!round) return;
   let changed=false;
@@ -2255,6 +2267,55 @@ test('editPlayerFromAction records player id and clears action state', () => {
   editPlayerFromAction();
   eq(_lastEditedPlayerId, 'pl1');
   assert(_actionPlayerId === null);
+});
+
+// ── saveRoundTeams / clearRoundTeams ─────────────────────────────────────────
+suite('saveRoundTeams');
+function make4PlayerRound() {
+  return makeRound18({ players: [
+    { id:'pA', name:'Michael',   courseHcpOverride:0 },
+    { id:'pB', name:'Sigurjon',  courseHcpOverride:0 },
+    { id:'pC', name:'Carlos',    courseHcpOverride:0 },
+    { id:'pD', name:'Ingibjorg', courseHcpOverride:0 },
+  ]});
+}
+test('pairing 0 → [pA,pB] vs [pC,pD]', () => {
+  resetState();
+  const r = make4PlayerRound(); saveRound(r);
+  saveRoundTeams(r.id, 0);
+  const teams = byId(r.id).teams;
+  eq(JSON.stringify(teams[0].sort()), JSON.stringify(['pA','pB']));
+  eq(JSON.stringify(teams[1].sort()), JSON.stringify(['pC','pD']));
+});
+test('pairing 1 → [pA,pC] vs [pB,pD]', () => {
+  resetState();
+  const r = make4PlayerRound(); saveRound(r);
+  saveRoundTeams(r.id, 1);
+  const teams = byId(r.id).teams;
+  eq(JSON.stringify(teams[0].sort()), JSON.stringify(['pA','pC']));
+  eq(JSON.stringify(teams[1].sort()), JSON.stringify(['pB','pD']));
+});
+test('pairing 2 → [pA,pD] vs [pB,pC]', () => {
+  resetState();
+  const r = make4PlayerRound(); saveRound(r);
+  saveRoundTeams(r.id, 2);
+  const teams = byId(r.id).teams;
+  eq(JSON.stringify(teams[0].sort()), JSON.stringify(['pA','pD']));
+  eq(JSON.stringify(teams[1].sort()), JSON.stringify(['pB','pC']));
+});
+test('clearRoundTeams removes teams', () => {
+  resetState();
+  const r = make4PlayerRound(); saveRound(r);
+  saveRoundTeams(r.id, 0);
+  assert(byId(r.id).teams != null, 'teams should be set');
+  clearRoundTeams(r.id);
+  assert(byId(r.id).teams == null, 'teams should be removed');
+});
+test('saveRoundTeams no-ops for non-4-player round', () => {
+  resetState();
+  const r = makeRound18(); saveRound(r);
+  saveRoundTeams(r.id, 0);
+  assert(byId(r.id).teams == null, 'teams should not be set for 2-player round');
 });
 
 // ── saveRoundCh ───────────────────────────────────────────────────────────────

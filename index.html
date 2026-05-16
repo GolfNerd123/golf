@@ -1240,6 +1240,7 @@ const S = {
   showRoundSummary: false,
   showNineHoleSummary: false,
   showStrokesCard: false,
+  showTeamSetup: false,
   finishComment: null,
 
   nr: {
@@ -3491,7 +3492,45 @@ function openRoundSummary() {
 
 function closeRoundSummary() {
   S.showRoundSummary = false;
+  S.showTeamSetup = false;
   renderScorecard(document.getElementById('main'));
+}
+
+function openTeamSetup() {
+  S.showTeamSetup = true;
+  openRoundSummary();
+}
+
+function saveRoundTeams(roundId, pairingIdx) {
+  const round = byId(roundId);
+  if (!round || round.players.length !== 4) return;
+  const pl = round.players;
+  const pairings = [[[0,1],[2,3]],[[0,2],[1,3]],[[0,3],[1,2]]];
+  const [t1i, t2i] = pairings[pairingIdx];
+  round.teams = [t1i.map(i => pl[i].id), t2i.map(i => pl[i].id)];
+  saveRound(round);
+  S.showTeamSetup = false;
+  openRoundSummary();
+}
+
+function clearRoundTeams(roundId) {
+  const round = byId(roundId);
+  if (!round) return;
+  delete round.teams;
+  saveRound(round);
+  S.showTeamSetup = false;
+  openRoundSummary();
+}
+
+function saveSummaryTeams(roundId, pairingIdx) {
+  const round = byId(roundId);
+  if (!round || round.players.length !== 4) return;
+  const pl = round.players;
+  const pairings = [[[0,1],[2,3]],[[0,2],[1,3]],[[0,3],[1,2]]];
+  const [t1i, t2i] = pairings[pairingIdx];
+  round.teams = [t1i.map(i => pl[i].id), t2i.map(i => pl[i].id)];
+  saveRound(round);
+  renderSummary(document.getElementById('main'));
 }
 
 function openStrokesCard() {
@@ -3657,6 +3696,64 @@ function buildRoundStandingsHTML(round) {
     </tr>`;
   });
   html += '</tbody></table>';
+
+  // ── Team scores (4-player rounds only) ──
+  if (round.players.length === 4) {
+    const pl = round.players;
+    html += `<div style="margin-top:16px;border-top:2px solid var(--border);padding-top:12px">`;
+
+    if (round.teams && !S.showTeamSetup) {
+      // Show team totals
+      const teamRows = round.teams.map(pids => {
+        const members = pids.map(pid => pl.find(p => p.id === pid)).filter(Boolean);
+        const names   = members.map(p => p.name.split(' ')[0]).join(' & ');
+        const score   = isStbl
+          ? members.reduce((s, p) => s + stablefordTotal(round, p.id), 0)
+          : members.reduce((s, p) => s + (netTotal(round, p.id) || grossTotal(round, p.id) || 0), 0);
+        return { names, score };
+      }).sort((a, b) => isStbl ? b.score - a.score : a.score - b.score);
+
+      const diff    = teamRows[0].score - teamRows[1].score;
+      const unit    = isStbl ? ' pts' : '';
+      const leadTxt = diff === 0 ? 'Tied' : `${esc(teamRows[0].names)} lead by ${diff}${unit}`;
+
+      html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.5px">Teams</div>
+        <button style="color:var(--muted);font-size:11px;background:none;border:none;cursor:pointer;padding:0" onclick="openTeamSetup()">Edit</button>
+      </div>`;
+      teamRows.forEach((t, i) => {
+        html += `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;margin-bottom:4px;${i===0?'background:#f0f7f4;':''}">
+          <div style="flex:1;font-size:14px;font-weight:700">${esc(t.names)}</div>
+          <div style="font-size:18px;font-weight:800;color:var(--green)">${t.score}${unit}</div>
+        </div>`;
+      });
+      html += `<div style="font-size:11px;color:var(--muted);text-align:center;margin-top:4px">${leadTxt}</div>`;
+
+    } else {
+      // Team setup / pairing picker
+      const pairings = [[[0,1],[2,3]],[[0,2],[1,3]],[[0,3],[1,2]]];
+      html += `<div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Set Teams</div>`;
+      pairings.forEach(([t1i, t2i], pi) => {
+        const n1 = pl[t1i[0]].name.split(' ')[0] + ' & ' + pl[t1i[1]].name.split(' ')[0];
+        const n2 = pl[t2i[0]].name.split(' ')[0] + ' & ' + pl[t2i[1]].name.split(' ')[0];
+        const isActive = round.teams &&
+          JSON.stringify([...round.teams[0]].sort()) === JSON.stringify([pl[t1i[0]].id, pl[t1i[1]].id].sort());
+        html += `<button onclick="saveRoundTeams('${round.id}', ${pi})"
+          style="display:flex;align-items:center;width:100%;background:${isActive?'#e8f5ee':'#f7f7f5'};border:2px solid ${isActive?'var(--green)':'var(--border)'};border-radius:10px;padding:10px 14px;margin-bottom:6px;cursor:pointer;gap:12px;font-family:inherit">
+          <div style="flex:1;text-align:left">
+            <div style="font-size:13px;font-weight:700;color:#1a1a1a">${esc(n1)}</div>
+            <div style="font-size:11px;color:var(--muted)">vs&nbsp;&nbsp;${esc(n2)}</div>
+          </div>
+          ${isActive ? '<div style="font-size:18px">✓</div>' : ''}
+        </button>`;
+      });
+      if (round.teams) {
+        html += `<button onclick="clearRoundTeams('${round.id}')" style="color:var(--muted);font-size:12px;background:none;border:none;cursor:pointer;padding:4px 0;display:block">Remove teams</button>`;
+      }
+    }
+    html += `</div>`;
+  }
+
   return html;
 }
 
@@ -4144,6 +4241,58 @@ function renderSummary(c) {
   ` : '';
 
   // Course handicap correction section — lets user fix wrong CH for any player
+  // ── Team scores section (summary page) ──
+  let teamSummarySection = '';
+  if (round.players.length === 4) {
+    const pl4 = round.players;
+    const pairings = [[[0,1],[2,3]],[[0,2],[1,3]],[[0,3],[1,2]]];
+    let teamScores = '';
+    if (round.teams) {
+      const teamRows = round.teams.map(pids => {
+        const members = pids.map(pid => pl4.find(p => p.id === pid)).filter(Boolean);
+        const names   = members.map(p => p.name.split(' ')[0]).join(' & ');
+        const score   = isStbl
+          ? members.reduce((s, p) => s + stablefordTotal(round, p.id), 0)
+          : members.reduce((s, p) => s + (netTotal(round, p.id) || grossTotal(round, p.id) || 0), 0);
+        return { names, score };
+      }).sort((a, b) => isStbl ? b.score - a.score : a.score - b.score);
+      const diff    = teamRows[0].score - teamRows[1].score;
+      const unit    = isStbl ? ' pts' : '';
+      const leadTxt = diff === 0 ? 'Tied' : `${esc(teamRows[0].names)} won by ${diff}${unit}`;
+      teamScores = teamRows.map((t, i) =>
+        `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;margin-bottom:4px;${i===0?'background:#f0f7f4;':''}">
+          <div style="flex:1;font-size:14px;font-weight:700">${esc(t.names)}</div>
+          <div style="font-size:18px;font-weight:800;color:var(--green)">${t.score}${unit}</div>
+        </div>`
+      ).join('') + `<div style="font-size:11px;color:var(--muted);text-align:center;margin-top:4px">${leadTxt}</div>`;
+    }
+
+    const pairingPicker = pairings.map(([t1i, t2i], pi) => {
+      const n1 = pl4[t1i[0]].name.split(' ')[0] + ' & ' + pl4[t1i[1]].name.split(' ')[0];
+      const n2 = pl4[t2i[0]].name.split(' ')[0] + ' & ' + pl4[t2i[1]].name.split(' ')[0];
+      const isActive = round.teams &&
+        JSON.stringify([...round.teams[0]].sort()) === JSON.stringify([pl4[t1i[0]].id, pl4[t1i[1]].id].sort());
+      return `<button onclick="saveSummaryTeams('${round.id}', ${pi})"
+        style="display:flex;align-items:center;width:100%;background:${isActive?'#e8f5ee':'#f7f7f5'};border:2px solid ${isActive?'var(--green)':'var(--border)'};border-radius:10px;padding:10px 14px;margin-bottom:6px;cursor:pointer;gap:12px;font-family:inherit">
+        <div style="flex:1;text-align:left">
+          <div style="font-size:13px;font-weight:700;color:#1a1a1a">${esc(n1)}</div>
+          <div style="font-size:11px;color:var(--muted)">vs&nbsp;&nbsp;${esc(n2)}</div>
+        </div>
+        ${isActive ? '<div style="font-size:18px">✓</div>' : ''}
+      </button>`;
+    }).join('');
+
+    teamSummarySection = `
+      <div class="sec">Teams</div>
+      <div style="padding:0 2px 12px">
+        ${teamScores}
+        <div style="margin-top:${round.teams ? 12 : 0}px">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:8px">${round.teams ? 'Change pairing:' : 'Select a pairing:'}</div>
+          ${pairingPicker}
+        </div>
+      </div>`;
+  }
+
   const chEditPlayers = round.players.filter(p => p.handicapIndex != null);
   const chEditSection = chEditPlayers.length ? `
     <div class="sec">Course Handicap</div>
@@ -4172,6 +4321,7 @@ function renderSummary(c) {
     </div>
     ${mainContent}
     ${playerScorecardSection}
+    ${teamSummarySection}
     ${chEditSection}
     <div class="act-row">
       <button class="btn btn-outline" onclick="nav('stats')">Statistics</button>
@@ -5422,6 +5572,8 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('new',  '🤝', 'Team scores in standings and round summary',
+        'For 4-player rounds, open Standings during a round (or the round summary afterward) to pick a team pairing — the app shows all 3 possible ways to split 4 players into 2 teams of 2. Once set, the team\'s combined Stableford points (or net strokes) appear alongside the individual standings.'),
       entry('fix',  '⛳', 'Correct course handicap on past rounds',
         'A "Course Handicap" section now appears on every round summary — showing each player\'s CH with an editable input and a Save button, so you can fix wrong handicap adjustments without touching strokes.'),
       entry('fix',  '⛳', 'Course handicap auto-fills more reliably',
