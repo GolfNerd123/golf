@@ -1752,6 +1752,13 @@ function nav(view, params) {
   S.view = view;
   history.pushState({ view, ...params }, '');
   if (view === 'scorecard') {
+    S.showRoundSummary    = false;
+    S.showNineHoleSummary = false;
+    S.showLayout          = false;
+    S.showStrokesCard     = false;
+    S.showTeamSetup       = false;
+    S.numpadPid           = null;
+    S.finishComment       = null;
     try { localStorage.setItem(NAV_KEY, JSON.stringify({ roundId: S.roundId, hole: S.hole })); } catch {}
   } else {
     localStorage.removeItem(NAV_KEY);
@@ -3427,7 +3434,10 @@ function renderScorecard(c) {
 
 function gotoHole(n) {
   const round = byId(S.roundId);
-  if (!round || n < 1 || n > round.holes.length) return;
+  if (!round) return;
+  const firstN = round.holes[0]?.n ?? 1;
+  const lastN  = round.holes[round.holes.length - 1]?.n ?? round.holes.length;
+  if (n < firstN || n > lastN) return;
   _flushAudit(round, 'hole_' + n);  // snapshot with current scores before moving
   const prevHole = S.hole;
   S.hole = n;
