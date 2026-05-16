@@ -1174,6 +1174,7 @@ const COURSES_KEY     = 'golf_courses_v1';
 const COURSE_IMG_PFX  = 'golf_img_v1_';
 const NAV_KEY         = 'golf_nav_v1';
 const AUDIT_KEY       = 'golf_audit_v1';
+const DELETED_KEY     = 'golf_deleted_rounds_v1';
 const CHANGE_LOG_KEY  = 'golf_changes_v1';
 const ERROR_LOG_KEY   = 'golf_errors_v1';
 const TEE_PREFS_KEY   = 'golf_tee_prefs_v1';
@@ -1203,6 +1204,7 @@ try {
 let _rounds          = [];
 let _players         = [];
 let _courseOverrides = [];
+let _deletedRoundIds = new Set();
 let _auditFlushTimer = null;
 let _recoveryAlert   = null; // set when auto-recovery restores scores; shown once then dismissed
 
@@ -1396,8 +1398,13 @@ function removeRound(id) {
   const r = _rounds.find(x => x.id === id);
   if (r) _logChange('round', id, r.course + (r.date ? ' — ' + r.date.slice(0, 10) : ''), 'deleted', []);
   _rounds = _rounds.filter(x => x.id !== id);
+  _deletedRoundIds.add(id);
   localStorage.setItem(ROUNDS_KEY, JSON.stringify(_rounds));
-  if (_db) _db.collection('rounds').doc(id).delete().catch(() => {});
+  localStorage.setItem(DELETED_KEY, JSON.stringify([..._deletedRoundIds]));
+  if (_db) {
+    _db.collection('rounds').doc(id).delete().catch(() => {});
+    _db.collection('meta').doc('deletedRounds').set({ ids: [..._deletedRoundIds] }).catch(() => {});
+  }
 }
 
 
@@ -5338,6 +5345,9 @@ function toggleStatsIncludeStableford() {
   try { _rounds          = JSON.parse(localStorage.getItem(ROUNDS_KEY)   || '[]'); } catch {}
   try { _players         = JSON.parse(localStorage.getItem(PLAYERS_KEY)  || '[]'); } catch {}
   try { _courseOverrides = JSON.parse(localStorage.getItem(COURSES_KEY)  || '[]'); } catch {}
+  try { _deletedRoundIds = new Set(JSON.parse(localStorage.getItem(DELETED_KEY) || '[]')); } catch {}
+  // Drop any locally-cached rounds that have already been tombstoned
+  _rounds = _rounds.filter(r => !_deletedRoundIds.has(r.id));
 
   // Restore in-progress scorecard session so a phone lock/reload returns to the right hole
   try {
@@ -5368,11 +5378,23 @@ function toggleStatsIncludeStableford() {
 
   // Load from Firestore — merge with local data so offline-only saves are not lost
   try {
-    const [rSnap, pSnap, cSnap] = await Promise.all([
+    const [rSnap, pSnap, cSnap, dSnap] = await Promise.all([
       _db.collection('rounds').get(),
       _db.collection('meta').doc('players').get(),
       _db.collection('meta').doc('courses').get(),
+      _db.collection('meta').doc('deletedRounds').get(),
     ]);
+
+    // Merge Firestore tombstone with local tombstone so all devices agree on what's deleted
+    const fsDeletedIds = dSnap.exists ? (dSnap.data().ids || []) : [];
+    const prevSize = _deletedRoundIds.size;
+    for (const id of fsDeletedIds) _deletedRoundIds.add(id);
+    if (_deletedRoundIds.size !== prevSize) {
+      localStorage.setItem(DELETED_KEY, JSON.stringify([..._deletedRoundIds]));
+      _db.collection('meta').doc('deletedRounds').set({ ids: [..._deletedRoundIds] }).catch(() => {});
+    }
+    // Remove any locally-cached rounds now known to be deleted
+    _rounds = _rounds.filter(r => !_deletedRoundIds.has(r.id));
 
     // Helper: count total scored holes across all players in a round
     function _scoreCount(r) {
@@ -5401,7 +5423,8 @@ function toggleStatsIncludeStableford() {
       }
       return winner;
     });
-    const localOnlyRounds = _rounds.filter(r => !fsRoundIds.has(r.id));
+    // Local-only rounds: only upload ones NOT in the tombstone (not previously deleted by any device)
+    const localOnlyRounds = _rounds.filter(r => !fsRoundIds.has(r.id) && !_deletedRoundIds.has(r.id));
     _rounds = [...mergedRounds, ...localOnlyRounds].sort((a, b) => (b.date > a.date ? 1 : -1));
     for (const r of localOnlyRounds) {
       _db.collection('rounds').doc(r.id).set(r).catch(() => {});
@@ -5501,6 +5524,8 @@ function toggleStatsIncludeStableford() {
       } else if (ch.type === 'removed') {
         if (ch.doc.id === S.roundId) _currentRoundChanged = true;
         _rounds = _rounds.filter(x => x.id !== ch.doc.id);
+        _deletedRoundIds.add(ch.doc.id);
+        localStorage.setItem(DELETED_KEY, JSON.stringify([..._deletedRoundIds]));
       }
     });
     _rounds.sort((a, b) => (b.date > a.date ? 1 : -1));
@@ -5666,6 +5691,8 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('fix',  '🗑️', 'Deleted rounds no longer reappear',
+        'Rounds deleted on any device are now permanently tombstoned in Firestore, so they stay gone for everyone — even if a device was offline when the deletion happened and comes back online later.'),
       entry('new',  '🕐', 'Round start time on home screen',
         'Each round card now shows the time it was started alongside the date, so you can tell apart multiple rounds played on the same day.'),
       entry('fix',  '✏️', 'Re-opened rounds are now fully editable',
