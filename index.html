@@ -3753,6 +3753,48 @@ function continueToBackNine() {
 function buildRoundStandingsHTML(round) {
   const isWolf = round.format === 'wolf';
   const isStbl = round.format === 'stableford';
+
+  // ── Auto-detect rivalry teams (works for in-progress rounds) ──
+  let _rivalryTeamBanner = '';
+  let _isRivalryRound = false;
+  {
+    const allFour = [...RIVALRY_TEAM_A, ...RIVALRY_TEAM_B];
+    const pNames  = round.players.map(p => firstNorm(p.name));
+    _isRivalryRound = round.players.length === 4 &&
+      allFour.every(n => pNames.includes(n)) && pNames.every(n => allFour.includes(n));
+    if (_isRivalryRound) {
+      const findPid = nn => round.players.find(p => firstNorm(p.name) === nn)?.id;
+      const aPids = RIVALRY_TEAM_A.map(findPid).filter(Boolean);
+      const bPids = RIVALRY_TEAM_B.map(findPid).filter(Boolean);
+      if (aPids.length === 2 && bPids.length === 2) {
+        const nm     = rivalryNameMap([round]);
+        const aLabel = RIVALRY_TEAM_A.map(n => (nm[n] || n).split(' ')[0]).join(' & ');
+        const bLabel = RIVALRY_TEAM_B.map(n => (nm[n] || n).split(' ')[0]).join(' & ');
+        const aScore = isStbl
+          ? aPids.reduce((s, pid) => s + stablefordTotal(round, pid), 0)
+          : aPids.reduce((s, pid) => s + netTotal(round, pid), 0);
+        const bScore = isStbl
+          ? bPids.reduce((s, pid) => s + stablefordTotal(round, pid), 0)
+          : bPids.reduce((s, pid) => s + netTotal(round, pid), 0);
+        const unit   = isStbl ? ' pts' : '';
+        const aLeads = isStbl ? aScore > bScore : aScore < bScore;
+        const bLeads = isStbl ? bScore > aScore : bScore < aScore;
+        const diff   = Math.abs(aScore - bScore);
+        const leadTxt = (!aLeads && !bLeads) ? 'Tied'
+          : `${esc(aLeads ? aLabel : bLabel)} lead by ${diff}${unit}`;
+        const row = (label, score, leading) =>
+          `<div style="display:flex;align-items:center;padding:8px 10px;border-radius:8px;margin-bottom:4px;${leading ? 'background:#e8f5ee;' : ''}">
+            <div style="flex:1;font-size:14px;font-weight:700">${esc(label)}</div>
+            <div style="font-size:20px;font-weight:800;color:var(--green)">${score}${unit}</div>
+          </div>`;
+        _rivalryTeamBanner = `<div style="border-radius:10px;border:1px solid var(--border);padding:10px 12px;margin-bottom:14px">
+          <div style="font-size:10px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Teams</div>
+          ${row(aLabel, aScore, aLeads)}${row(bLabel, bScore, bLeads)}
+          <div style="font-size:11px;color:var(--muted);text-align:center;margin-top:2px">${leadTxt}</div>
+        </div>`;
+      }
+    }
+  }
   // Only count a hole as "played" when every player has a score on it
   const holesPlayed = round.holes.filter(h => round.players.every(p => round.scores[p.id]?.[h.n]?.s)).length;
 
@@ -3789,6 +3831,7 @@ function buildRoundStandingsHTML(round) {
   const colHead = isStbl ? 'Points' : isWolf ? 'Wolf Pts' : 'Strokes';
 
   let html = `<div style="font-size:11px;color:var(--muted);margin-bottom:10px">${esc(round.course)} &middot; ${holesLabel}</div>`;
+  html += _rivalryTeamBanner;
   html += `<table class="standings-table">
     <thead><tr><th class="pos">#</th><th>Player</th><th>${colHead}</th></tr></thead>
     <tbody>`;
@@ -3813,8 +3856,9 @@ function buildRoundStandingsHTML(round) {
   });
   html += '</tbody></table>';
 
-  // ── Team scores (4-player rounds only) ──
-  if (round.players.length === 4) {
+  // ── Team scores (4-player rounds only, non-rivalry) ──
+  // Rivalry rounds already show team scores at the top via _rivalryTeamBanner
+  if (round.players.length === 4 && !_isRivalryRound) {
     const pl = round.players;
     html += `<div style="margin-top:16px;border-top:2px solid var(--border);padding-top:12px">`;
 
@@ -5691,6 +5735,8 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('new',  '👥', 'Team scores at top of Standings',
+        'When all four rivalry players are in a round, the Standings overlay now shows total team points at the top — above the individual rankings — so you can see the team result at a glance without scrolling.'),
       entry('new',  '🧪', 'Automated test coverage expanded',
         'Added 22 new automated tests covering the deletion tombstone, Firestore echo-skip guard, and round start-time extraction — so regressions in these areas are caught before they ship.'),
       entry('fix',  '🗑️', 'Deleted rounds no longer reappear',
