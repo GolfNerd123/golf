@@ -1595,13 +1595,17 @@ function setPlayerTee(pid, teeIdx) {
   const tee  = tees[teeIdx];
   if (!tee) return;
   const ch = calcTeeHcp(p.handicapIndex, tee);
-  if (!S.nr.chcp) S.nr.chcp = {};
-  S.nr.chcp[pid] = ch;
+  if (!S.nr.chcp)   S.nr.chcp   = {};
+  if (!S.nr.chInfo) S.nr.chInfo = {};
+  S.nr.chcp[pid]   = ch;
+  S.nr.chInfo[pid] = { slope: tee.slope, cr: tee.cr, par: tee.par };
   const safeId = pid.replace(/[^a-zA-Z0-9_-]/g, '_');
   const chEl    = document.getElementById('nr-ch-' + safeId);
   if (chEl) chEl.value = ch;
   const teeChEl = document.getElementById('tee-ch-' + safeId);
   if (teeChEl) teeChEl.textContent = 'CH ' + ch;
+  const formulaEl = document.getElementById('nr-ch-formula-' + safeId);
+  if (formulaEl) formulaEl.textContent = `slope ${tee.slope} · CR ${tee.cr} · par ${tee.par}`;
 }
 function courseHcp(player, round) {
   if (player.courseHcpOverride != null) return player.courseHcpOverride;
@@ -2491,6 +2495,7 @@ function renderNewRound(c) {
   // Pre-populate CH for selected players without a manually typed value.
   // Priority: 1) per-tee data  2) course-level rating/slope  3) round-level slope/rating.
   {
+    if (!nr.chInfo) nr.chInfo = {};
     const _co    = nr.courseId ? loadCourses().find(c => c.id === nr.courseId) : null;
     const _saved = loadPlayers();
     const nh     = nr.holes;
@@ -2506,7 +2511,11 @@ function renderNewRound(c) {
         const _tees = getCourseTees(_co, _p.gender);
         const _idx  = (nr.playerTee && nr.playerTee[pid] != null) ? nr.playerTee[pid] : 0;
         const _tee  = _tees[_idx];
-        if (_tee) { nr.chcp[pid] = calcTeeHcp(_p.handicapIndex, _tee); continue; }
+        if (_tee) {
+          nr.chcp[pid] = calcTeeHcp(_p.handicapIndex, _tee);
+          nr.chInfo[pid] = { slope: _tee.slope, cr: _tee.cr, par: _tee.par };
+          continue;
+        }
       }
       // 2) Course-level rating/slope fallback
       const fallbackCR    = parseFloat((_co && _co.courseRating) || nr._rating || 0);
@@ -2514,6 +2523,7 @@ function renderNewRound(c) {
       if (fallbackCR > 0) {
         const adj = nh === 9 ? hci / 2 : hci;
         nr.chcp[pid] = Math.round(adj * (fallbackSlope / 113) + (fallbackCR - par));
+        nr.chInfo[pid] = { slope: fallbackSlope, cr: fallbackCR, par, fallback: true };
       }
     }
   }
@@ -2542,6 +2552,14 @@ function renderNewRound(c) {
         const hcpTxt = p.handicapIndex != null ? `HCP ${p.handicapIndex}` : 'No HCP';
         const safeId = p.id.replace(/[^a-zA-Z0-9_-]/g, '_');
         const chVal  = nr.chcp?.[p.id] ?? '';
+        const chInfo = nr.chInfo?.[p.id];
+        const formulaLine = (isSel && chInfo)
+          ? `<div id="nr-ch-formula-${safeId}" style="font-size:10px;color:#aaa;margin-top:1px;line-height:1.2">${
+              chInfo.fallback
+                ? `slope&nbsp;${chInfo.slope}&nbsp;·&nbsp;CR&nbsp;${chInfo.cr}&nbsp;·&nbsp;par&nbsp;${chInfo.par}&nbsp;(course)`
+                : `slope&nbsp;${chInfo.slope}&nbsp;·&nbsp;CR&nbsp;${chInfo.cr}&nbsp;·&nbsp;par&nbsp;${chInfo.par}`
+            }</div>`
+          : (isSel ? `<div id="nr-ch-formula-${safeId}" style="font-size:10px;color:#aaa;margin-top:1px"></div>` : '');
         const chInput = isSel
           ? `<div class="psel-ch" onclick="event.stopPropagation()">
                <span class="psel-ch-lbl">CH</span>
@@ -2554,6 +2572,7 @@ function renderNewRound(c) {
           <div class="psel-info">
             <div class="psel-name">${esc(p.name)}</div>
             <div class="psel-hcp">${hcpTxt}</div>
+            ${formulaLine}
           </div>
           ${chInput}
         </div>`;
@@ -2797,7 +2816,8 @@ function restoreNrInputs() {
 function setCourse(id) {
   preserveNrInputs();
   S.nr.courseId = id;
-  S.nr.chcp = {};  // force CH recomputation from new course's tee data
+  S.nr.chcp   = {};   // force CH recomputation from new course's tee data
+  S.nr.chInfo = {};
   if (id) {
     const co = loadCourses().find(c => c.id === id);
     if (co) {
@@ -3100,7 +3120,7 @@ function startRound() {
   S.nr = { holes:18, pars:[...DEFAULT_PARS_18], si:[...DEFAULT_SI_18],
            courseRating:'', slopeRating:'113', showHoleSettings:false,
            selPids:[], guests:[{name:'',hcp:''},{name:'',hcp:''},{name:'',hcp:''},{name:'',hcp:''}],
-           format:'stroke', courseId:null, nineStart:1, chcp:{}, playerTee:{},
+           format:'stroke', courseId:null, nineStart:1, chcp:{}, chInfo:{}, playerTee:{},
            _date: new Date().toISOString().slice(0, 10) };
   nav('scorecard', { roundId: round.id, hole: 1 });
 }
