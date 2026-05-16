@@ -106,6 +106,8 @@ const history = { pushState: () => {} };
 function render() {}
 function renderScorecard() {}
 function downloadRoundBackup() {}
+let _domElements = {};
+const document = { getElementById: id => _domElements[id] || null };
 
 // Global mutable state (mirrors index.html globals)
 let _rounds = [], _players = [], _courseOverrides = [], _auditFlushTimer = null;
@@ -116,7 +118,7 @@ const S = {
 
 function resetState() {
   _rounds = []; _players = []; _courseOverrides = []; _auditFlushTimer = null;
-  _lsStore = {}; _fsStore = {};
+  _lsStore = {}; _fsStore = {}; _domElements = {};
   S.view = 'home'; S.roundId = null; S.hole = 1; S.numpadPid = null;
   S.showRoundSummary = false; S.showNineHoleSummary = false; S.finishComment = null;
   S.nr = { holes:18, selPids:[], courseId:null, playerTee:{}, guests:[], chcp:{} };
@@ -448,6 +450,20 @@ function gotoHole(n) {
   if (prevHole===9&&n===10&&round.holes.length===18) S.showNineHoleSummary=true;
   try{localStorage.setItem(NAV_KEY,JSON.stringify({roundId:S.roundId,hole:n}));}catch{}
   renderScorecard();
+}
+function saveRoundCh(roundId) {
+  const round=byId(roundId); if(!round) return;
+  let changed=false;
+  for (const p of round.players) {
+    if (p.handicapIndex==null) continue;
+    const safeId=p.id.replace(/[^a-zA-Z0-9_-]/g,'_');
+    const el=document.getElementById('ch-edit-'+safeId);
+    if (!el) continue;
+    const newCh=parseInt(el.value,10);
+    if (!isNaN(newCh)&&newCh!==courseHcp(p,round)) { p.courseHcpOverride=newCh; changed=true; }
+  }
+  if (!changed) return;
+  saveRound(round); render();
 }
 function finishRound() {
   const round=byId(S.roundId); if(!round) return;
@@ -2239,6 +2255,34 @@ test('editPlayerFromAction records player id and clears action state', () => {
   editPlayerFromAction();
   eq(_lastEditedPlayerId, 'pl1');
   assert(_actionPlayerId === null);
+});
+
+// ── saveRoundCh ───────────────────────────────────────────────────────────────
+suite('saveRoundCh');
+test('updates courseHcpOverride and saves round', () => {
+  resetState();
+  const r = makeRound18({ players: [{ id: 'p1', name: 'Alpha', handicapIndex: 10.7, courseHcpOverride: 26 }] });
+  saveRound(r);
+  _domElements['ch-edit-p1'] = { value: '9' };
+  saveRoundCh(r.id);
+  eq(byId(r.id).players[0].courseHcpOverride, 9);
+});
+test('no-op if value is unchanged', () => {
+  resetState();
+  const r = makeRound18({ players: [{ id: 'p1', name: 'Alpha', handicapIndex: 10.7, courseHcpOverride: 9 }] });
+  saveRound(r);
+  _domElements['ch-edit-p1'] = { value: '9' };
+  const before = JSON.stringify(loadRounds());
+  saveRoundCh(r.id);
+  eq(JSON.stringify(loadRounds()), before);
+});
+test('players without handicapIndex are skipped', () => {
+  resetState();
+  const r = makeRound18({ players: [{ id: 'p1', name: 'Guest' }] });
+  saveRound(r);
+  _domElements['ch-edit-p1'] = { value: '12' };
+  saveRoundCh(r.id);
+  eq(byId(r.id).players[0].courseHcpOverride, undefined);
 });
 
 // ═════════════════════════════════════════════════════════════════════════════

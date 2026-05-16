@@ -2440,21 +2440,32 @@ function pfSetTee(btn) {
 
 function renderNewRound(c) {
   const nr         = S.nr;
-  // Pre-populate CH from default tee (index 0 or saved selection) for players
-  // without a manually typed CH value, so the CH input shows a value on first render.
-  if (nr.courseId) {
-    const _co = loadCourses().find(c => c.id === nr.courseId);
-    if (_co) {
-      const _saved = loadPlayers();
-      for (const pid of nr.selPids) {
-        if (nr.chcp[pid] != null && nr.chcp[pid] !== '') continue;
-        const _p = _saved.find(x => x.id === pid);
-        if (!_p || _p.handicapIndex == null) continue;
+  // Pre-populate CH for selected players without a manually typed value.
+  // Priority: 1) per-tee data  2) course-level rating/slope  3) round-level slope/rating.
+  {
+    const _co    = nr.courseId ? loadCourses().find(c => c.id === nr.courseId) : null;
+    const _saved = loadPlayers();
+    const nh     = nr.holes;
+    const par    = nr.pars.slice(0, nh).reduce((a, b) => a + b, 0);
+    for (const pid of nr.selPids) {
+      if (nr.chcp[pid] != null && nr.chcp[pid] !== '') continue;
+      const _p = _saved.find(x => x.id === pid);
+      if (!_p || _p.handicapIndex == null) continue;
+      const hci = parseFloat(_p.handicapIndex) || 0;
+      if (hci <= 0) continue;
+      // 1) Per-tee calculation
+      if (_co && _co.tees) {
         const _tees = getCourseTees(_co, _p.gender);
-        if (!_tees.length) continue;
-        const _idx = (nr.playerTee && nr.playerTee[pid] != null) ? nr.playerTee[pid] : 0;
-        const _tee = _tees[_idx];
-        if (_tee) nr.chcp[pid] = calcTeeHcp(_p.handicapIndex, _tee);
+        const _idx  = (nr.playerTee && nr.playerTee[pid] != null) ? nr.playerTee[pid] : 0;
+        const _tee  = _tees[_idx];
+        if (_tee) { nr.chcp[pid] = calcTeeHcp(_p.handicapIndex, _tee); continue; }
+      }
+      // 2) Course-level rating/slope fallback
+      const fallbackCR    = parseFloat((_co && _co.courseRating) || nr._rating || 0);
+      const fallbackSlope = parseFloat((_co && _co.slopeRating)  || nr._slope  || 113) || 113;
+      if (fallbackCR > 0) {
+        const adj = nh === 9 ? hci / 2 : hci;
+        nr.chcp[pid] = Math.round(adj * (fallbackSlope / 113) + (fallbackCR - par));
       }
     }
   }
@@ -2738,6 +2749,7 @@ function restoreNrInputs() {
 function setCourse(id) {
   preserveNrInputs();
   S.nr.courseId = id;
+  S.nr.chcp = {};  // force CH recomputation from new course's tee data
   if (id) {
     const co = loadCourses().find(c => c.id === id);
     if (co) {
@@ -2755,6 +2767,26 @@ function setCourse(id) {
       if (saved !== null) S.nr.playerTee[pid] = saved;
     }
   }
+  render();
+}
+
+function saveRoundCh(roundId) {
+  const round = byId(roundId);
+  if (!round) return;
+  let changed = false;
+  for (const p of round.players) {
+    if (p.handicapIndex == null) continue;
+    const safeId = p.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const el = document.getElementById('ch-edit-' + safeId);
+    if (!el) continue;
+    const newCh = parseInt(el.value, 10);
+    if (!isNaN(newCh) && newCh !== courseHcp(p, round)) {
+      p.courseHcpOverride = newCh;
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  saveRound(round);
   render();
 }
 
@@ -4111,6 +4143,26 @@ function renderSummary(c) {
     <button class="copy-btn" id="copy-sc-btn" onclick="copyPlayerScorecard()">📋 Copy Scorecard</button>
   ` : '';
 
+  // Course handicap correction section — lets user fix wrong CH for any player
+  const chEditPlayers = round.players.filter(p => p.handicapIndex != null);
+  const chEditSection = chEditPlayers.length ? `
+    <div class="sec">Course Handicap</div>
+    <div style="padding:0 2px 12px">
+      ${chEditPlayers.map(p => {
+        const ch = courseHcp(p, round);
+        const safeId = p.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+        return `<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)">
+          <span style="flex:1;font-size:14px;font-weight:600">${esc(p.name.split(' ')[0])}</span>
+          <span style="font-size:11px;color:var(--muted)">HI&nbsp;${p.handicapIndex}</span>
+          <input class="psel-ch-inp" type="number" id="ch-edit-${safeId}"
+            min="0" max="72" step="1" value="${ch != null ? ch : ''}">
+        </div>`;
+      }).join('')}
+      <button class="btn btn-outline" style="margin-top:12px;font-size:13px"
+        onclick="saveRoundCh('${round.id}')">Save handicap corrections</button>
+    </div>
+  ` : '';
+
   c.innerHTML = `<div id="view-summary">
     <div class="banner">
       <h2>${esc(round.course)}</h2>
@@ -4120,6 +4172,7 @@ function renderSummary(c) {
     </div>
     ${mainContent}
     ${playerScorecardSection}
+    ${chEditSection}
     <div class="act-row">
       <button class="btn btn-outline" onclick="nav('stats')">Statistics</button>
       <button class="btn btn-green"   onclick="nav('home')">Home</button>
@@ -5369,6 +5422,10 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('fix',  '⛳', 'Correct course handicap on past rounds',
+        'A "Course Handicap" section now appears on every round summary — showing each player\'s CH with an editable input and a Save button, so you can fix wrong handicap adjustments without touching strokes.'),
+      entry('fix',  '⛳', 'Course handicap auto-fills more reliably',
+        'When selecting a player in a new round, the CH input now fills from per-tee data first, then falls back to course-level rating/slope, then to whatever you\'ve typed in the Rating/Slope fields — so you always get a starting value to confirm or adjust. Switching course also resets CH so it recalculates from the new course.'),
       entry('new',  '📥', 'Import backup',
         'Tap ☰ → Import backup to restore rounds, players and courses from a previously exported backup file. Merges safely — existing rounds with more scores are never overwritten, so you can import without fear of losing anything.'),
       entry('fix',  '🛡️', 'Score sync hardened further against data loss',
