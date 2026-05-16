@@ -5164,8 +5164,10 @@ function showRoundActions(id) {
   const r = byId(id);
   if (!r) return;
   _actionRoundId = id;
-  const date = new Date(r.date).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
-  document.getElementById('round-action-title').textContent = r.course + ' · ' + date;
+  const date   = new Date(r.date).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
+  const _rts   = parseInt(r.id.slice(1), 10);
+  const time   = !isNaN(_rts) ? new Date(_rts).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false }) : '';
+  document.getElementById('round-action-title').textContent = r.course + ' · ' + date + (time ? ' · ' + time : '');
   document.getElementById('round-action-overlay').classList.add('open');
 }
 function closeRoundActions() {
