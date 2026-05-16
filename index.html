@@ -4725,30 +4725,6 @@ function renderStats(c) {
     ).join('')}</div>
   </div>` : '';
 
-  // Team score summary card
-  const strokeRanked = allPlayerStats.filter(ps => ps.stroke.rounds > 0)
-    .sort((a, b) => a.stroke.avgNetToPar - b.stroke.avgNetToPar);
-  let teamSummarySection = '';
-  if (strokeRanked.length >= 2) {
-    const teamAvg = strokeRanked.reduce((s, ps) => s + ps.stroke.avgNetToPar, 0) / strokeRanked.length;
-    const totalRounds = strokeRanked.reduce((s, ps) => s + ps.stroke.rounds, 0);
-    const teamRows = strokeRanked.map((ps, i) => `
-      <div onclick="selStatsPlayer(${qname(ps.name)})" style="display:flex;align-items:center;gap:10px;padding:9px 0;${i>0?'border-top:1px solid rgba(255,255,255,.12)':''};cursor:pointer">
-        <div style="width:22px;height:22px;border-radius:50%;background:${i===0?'#ffd700':'rgba(255,255,255,.2)'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:${i===0?'#1a4731':'rgba(255,255,255,.8)'};flex-shrink:0">${i+1}</div>
-        <div style="flex:1;font-size:14px;font-weight:600;color:#fff">${esc(ps.name)}</div>
-        <div style="font-size:14px;font-weight:700;color:${ps.stroke.avgNetToPar<0?'#b7e4c7':'#fff'}">${(ps.stroke.avgNetToPar>=0?'+':'')+ps.stroke.avgNetToPar.toFixed(1)}</div>
-      </div>`).join('');
-    teamSummarySection = `
-      <div style="background:var(--green);border-radius:16px;padding:16px 18px;margin-bottom:16px">
-        <div style="margin-bottom:14px">
-          <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Total Team Score</div>
-          <div style="font-size:30px;font-weight:900;color:#fff;line-height:1">${(teamAvg>=0?'+':'')+teamAvg.toFixed(1)}</div>
-          <div style="font-size:11px;color:rgba(255,255,255,.55);margin-top:3px">team avg vs par &middot; ${totalRounds} round${totalRounds!==1?'s':''}</div>
-        </div>
-        ${teamRows}
-      </div>`;
-  }
-
   // ── Helper: best-round sub-text for inside a stat box ───────────
   const bestSubHtml = (sel, extraTag) => {
     if (!sel.bestDate) return '';
@@ -4954,7 +4930,6 @@ function renderStats(c) {
     </div>
     <div style="padding:14px;padding-bottom:48px">
       ${finishBanner}
-      ${teamSummarySection}
       <div class="banner" style="margin-bottom:16px">
         <h2>${esc(selPs.name)}</h2>
         <p>${totalUniqueRounds} round${totalUniqueRounds!==1?'s':''} completed</p>
