@@ -262,7 +262,12 @@ function buildDeleteRoundMessage(round) {
   if (!round) return 'Delete this round?\n\nThis cannot be undone.';
   const dateStr = new Date(round.date).toLocaleDateString('en-GB',
     { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  return `Delete this round?\n\n📍 ${round.course}\n📅 ${dateStr}\n\nThis cannot be undone.`;
+  const _rts  = parseInt(round.id.slice(1), 10);
+  const timeStr = !isNaN(_rts)
+    ? new Date(_rts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    : '';
+  const dateTime = timeStr ? `${dateStr} at ${timeStr}` : dateStr;
+  return `Delete this round?\n\n📍 ${round.course}\n📅 ${dateTime}\n\nThis cannot be undone.`;
 }
 
 // ── STATEFUL FUNCTIONS (copied, use mock deps) ────────────────────────────────
@@ -2080,9 +2085,20 @@ test('includes course name', () => {
 test('includes formatted date', () => {
   const r = makeRound18({ date: '2026-05-09T10:00:00Z' });
   const msg = buildDeleteRoundMessage(r);
-  // Should contain year and some month/day content
   assert(msg.includes('2026'), `expected year in: ${msg}`);
   assert(msg.includes('May') || msg.includes('9'), `expected date detail in: ${msg}`);
+});
+test('includes start time extracted from round ID', () => {
+  const ts = new Date(2026, 4, 16, 10, 30, 0).getTime(); // May 16 2026 10:30 local
+  const r = makeRound18({ id: 'r' + ts });
+  const msg = buildDeleteRoundMessage(r);
+  assert(msg.includes('at '), `expected "at <time>" in: ${msg}`);
+  assert(msg.includes('10:30'), `expected time 10:30 in: ${msg}`);
+});
+test('round with non-numeric ID shows no time', () => {
+  const r = makeRound18({ id: 'rabc' });
+  const msg = buildDeleteRoundMessage(r);
+  assert(!msg.includes('at '), `expected no time for non-numeric ID, got: ${msg}`);
 });
 test('starts with delete prompt', () => {
   const r = makeRound18();

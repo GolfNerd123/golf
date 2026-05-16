@@ -5352,7 +5352,12 @@ function buildDeleteRoundMessage(round) {
   if (!round) return 'Delete this round?\n\nThis cannot be undone.';
   const dateStr = new Date(round.date).toLocaleDateString('en-GB',
     { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  return `Delete this round?\n\n📍 ${round.course}\n📅 ${dateStr}\n\nThis cannot be undone.`;
+  const _rts  = parseInt(round.id.slice(1), 10);
+  const timeStr = !isNaN(_rts)
+    ? new Date(_rts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    : '';
+  const dateTime = timeStr ? `${dateStr} at ${timeStr}` : dateStr;
+  return `Delete this round?\n\n📍 ${round.course}\n📅 ${dateTime}\n\nThis cannot be undone.`;
 }
 
 function confirmDeleteRound() {
@@ -5738,6 +5743,8 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('fix',  '🗑️', 'Delete confirmation shows start time',
+        'The "Delete this round?" prompt now shows the time the round was started alongside the date, making it easier to tell apart multiple rounds on the same day before confirming.'),
       entry('new',  '👥', 'Team scores at top of Standings',
         'When all four rivalry players are in a round, the Standings overlay now shows total team points at the top — above the individual rankings — so you can see the team result at a glance without scrolling.'),
       entry('new',  '🧪', 'Automated test coverage expanded',
