@@ -1460,9 +1460,19 @@ function loadCourseImgs(courseId, n) {
 function deleteCourseImgs(courseId) {
   for (let i = 0; i < 18; i++) localStorage.removeItem(COURSE_IMG_PFX + courseId + '_' + i);
 }
+function _normaliseTees(co) {
+  if (!co.tees || Array.isArray(co.tees)) return co;
+  // Migrate old keyed format { karlar:[...], konur:[...] } → flat array
+  const fromGroup = (arr, gender) => (arr || []).map(t => ({
+    name: t.label || t.name || '', gender,
+    cr: t.cr ?? '', slope: t.slope || 113, par: t.par || 0,
+  }));
+  return { ...co, tees: [...fromGroup(co.tees.karlar, 'men'), ...fromGroup(co.tees.konur, 'women')] };
+}
 function loadCourses() {
   try {
     const merge = co => {
+      co = _normaliseTees(co);
       const n = co.holes || 18;
       const fsImgs = co.imgs || [];
       const lsImgs = loadCourseImgs(co.id, n);
@@ -2258,8 +2268,19 @@ function editCourse(id) {
   const co = loadCourses().find(c => c.id === id);
   if (!co) return;
   S.courseEdit = id;
+  // Migrate old keyed format { karlar:[...], konur:[...] } to new flat array
+  let tees = [];
+  if (Array.isArray(co.tees)) {
+    tees = co.tees.map(t => ({...t}));
+  } else if (co.tees && typeof co.tees === 'object') {
+    const fromGroup = (arr, gender) => (arr || []).map(t => ({
+      name: t.label || t.name || '', gender,
+      cr: t.cr ?? '', slope: t.slope || 113, par: t.par || 0,
+    }));
+    tees = [...fromGroup(co.tees.karlar, 'men'), ...fromGroup(co.tees.konur, 'women')];
+  }
   S.ce = { ...co, pars:[...co.pars], si:[...co.si],
-            tees: Array.isArray(co.tees) ? co.tees.map(t => ({...t})) : [],
+            tees,
             descriptions:[...(co.descriptions || Array(18).fill(''))],
             imgs:[...(co.imgs || Array(18).fill(''))] };
   renderCourses(document.getElementById('main'));
