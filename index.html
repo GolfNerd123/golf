@@ -1848,6 +1848,8 @@ function renderHome(c) {
     for (const r of rounds) {
       const tp   = parSum(r);
       const date = new Date(r.date).toLocaleDateString('en-US',{ month:'short', day:'numeric', year:'numeric' });
+      const _rts  = parseInt(r.id.slice(1), 10);
+      const time  = !isNaN(_rts) ? new Date(_rts).toLocaleTimeString('en-US',{ hour:'numeric', minute:'2-digit' }) : '';
       const names = r.players.map(p=>p.name).join(', ');
       const fmtBadge = r.format === 'stableford'
         ? '<span class="badge-fmt badge-stableford">Stableford</span>'
@@ -1907,7 +1909,7 @@ function renderHome(c) {
       list += `<div class="round-card ${rvClass}" data-id="${r.id}">
         <div class="rc-top">
           <div class="rc-course">${esc(r.course)}${fmtBadge}</div>
-          <div class="rc-date">${date}</div>
+          <div class="rc-date">${date}${time ? ' · ' + time : ''}</div>
         </div>
         <div class="rc-players">${esc(names)} &middot; ${r.holes.length} holes</div>
         ${bottom}
@@ -5664,6 +5666,8 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('new',  '🕐', 'Round start time on home screen',
+        'Each round card now shows the time it was started alongside the date, so you can tell apart multiple rounds played on the same day.'),
       entry('fix',  '✏️', 'Re-opened rounds are now fully editable',
         'Fixed a persistent bug where tapping "Edit scores" opened the scorecard but left it completely frozen — you couldn\'t change holes or scores. Navigation is now deferred past Firestore\'s synchronous callbacks, and echo writes no longer trigger spurious re-renders that replace the DOM mid-interaction.'),
       entry('new',  '🏠', 'Team result colour on home screen',
