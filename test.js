@@ -264,7 +264,7 @@ function buildDeleteRoundMessage(round) {
     { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const _rts  = parseInt(round.id.slice(1), 10);
   const timeStr = !isNaN(_rts)
-    ? new Date(_rts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    ? new Date(_rts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
     : '';
   const dateTime = timeStr ? `${dateStr} at ${timeStr}` : dateStr;
   return `Delete this round?\n\n📍 ${round.course}\n📅 ${dateTime}\n\nThis cannot be undone.`;
