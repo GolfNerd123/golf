@@ -246,6 +246,8 @@
     background: #fff; border-radius: var(--radius);
     padding: 12px 14px; margin-bottom: 10px; box-shadow: var(--shadow);
   }
+  .hist-restorable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .hist-restorable:active { opacity: .75; }
   .hist-header { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
   .hist-icon   { font-size: 18px; }
   .hist-name   { font-weight: 700; font-size: 15px; flex: 1; }
@@ -1107,6 +1109,14 @@
   </div>
 </div>
 
+<div id="restore-action-overlay" class="action-overlay" onclick="closeRestoreAction()">
+  <div class="action-sheet" onclick="event.stopPropagation()">
+    <div class="action-title" id="restore-action-title"></div>
+    <button class="action-btn ab-edit" onclick="confirmRestoreRound()">Restore round</button>
+    <button class="action-btn ab-cancel" onclick="closeRestoreAction()">Cancel</button>
+  </div>
+</div>
+
   <header id="hdr">
     <button id="back-btn" onclick="goBack()">&#8592;</button>
     <h1 id="hdr-title">Golf Scorecard.</h1>
@@ -1175,6 +1185,7 @@ const COURSE_IMG_PFX  = 'golf_img_v1_';
 const NAV_KEY         = 'golf_nav_v1';
 const AUDIT_KEY       = 'golf_audit_v1';
 const DELETED_KEY     = 'golf_deleted_rounds_v1';
+const TRASH_KEY       = 'golf_trash_v1';
 const CHANGE_LOG_KEY  = 'golf_changes_v1';
 const ERROR_LOG_KEY   = 'golf_errors_v1';
 const TEE_PREFS_KEY   = 'golf_tee_prefs_v1';
@@ -1205,6 +1216,7 @@ let _rounds          = [];
 let _players         = [];
 let _courseOverrides = [];
 let _deletedRoundIds = new Set();
+let _trash           = {};
 let _auditFlushTimer = null;
 let _recoveryAlert   = null; // set when auto-recovery restores scores; shown once then dismissed
 
@@ -1410,7 +1422,12 @@ function byId(id) { return _rounds.find(r => r.id === id) || null; }
 
 function removeRound(id) {
   const r = _rounds.find(x => x.id === id);
-  if (r) _logChange('round', id, r.course + (r.date ? ' — ' + r.date.slice(0, 10) : ''), 'deleted', []);
+  if (r) {
+    _logChange('round', id, r.course + (r.date ? ' — ' + r.date.slice(0, 10) : ''), 'deleted', []);
+    _trash[id] = r;
+    try { localStorage.setItem(TRASH_KEY, JSON.stringify(_trash)); } catch {}
+    if (_db) _db.collection('trash').doc(id).set(r).catch(() => {});
+  }
   _rounds = _rounds.filter(x => x.id !== id);
   _deletedRoundIds.add(id);
   localStorage.setItem(ROUNDS_KEY, JSON.stringify(_rounds));
@@ -1419,6 +1436,41 @@ function removeRound(id) {
     _db.collection('rounds').doc(id).delete().catch(() => {});
     _db.collection('meta').doc('deletedRounds').set({ ids: [..._deletedRoundIds] }).catch(() => {});
   }
+}
+
+function restoreRound(id) {
+  const r = _trash[id];
+  if (!r) return;
+  delete _trash[id];
+  try { localStorage.setItem(TRASH_KEY, JSON.stringify(_trash)); } catch {}
+  _deletedRoundIds.delete(id);
+  localStorage.setItem(DELETED_KEY, JSON.stringify([..._deletedRoundIds]));
+  if (_db) {
+    _db.collection('meta').doc('deletedRounds').set({ ids: [..._deletedRoundIds] }).catch(() => {});
+    _db.collection('trash').doc(id).delete().catch(() => {});
+  }
+  saveRound(r, 'restored');
+  _logChange('round', id, r.course + (r.date ? ' — ' + r.date.slice(0, 10) : ''), 'restored', []);
+  closeRestoreAction();
+  render();
+}
+
+let _restoreRoundId = null;
+function showRestoreAction(id) {
+  if (!_trash[id]) return;
+  _restoreRoundId = id;
+  const r    = _trash[id];
+  const date = new Date(r.date).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
+  document.getElementById('restore-action-title').textContent = r.course + ' · ' + date;
+  document.getElementById('restore-action-overlay').classList.add('open');
+}
+function closeRestoreAction() {
+  document.getElementById('restore-action-overlay').classList.remove('open');
+  _restoreRoundId = null;
+}
+function confirmRestoreRound() {
+  const id = _restoreRoundId;
+  if (id) restoreRound(id);
 }
 
 
@@ -1781,7 +1833,7 @@ function nav(view, params) {
     S.numpadPid           = null;
     S.finishComment       = null;
     // Force-close all persistent body overlays so nothing blocks the scorecard
-    ['round-action-overlay','course-action-overlay','player-action-overlay','score-guide-overlay']
+    ['round-action-overlay','course-action-overlay','player-action-overlay','restore-action-overlay','score-guide-overlay']
       .forEach(eid => { try { document.getElementById(eid)?.classList.remove('open'); } catch {} });
     try { document.getElementById('hamburger-overlay')?.classList.remove('open'); } catch {}
     try { localStorage.setItem(NAV_KEY, JSON.stringify({ roundId: S.roundId, hole: S.hole })); } catch {}
@@ -5367,6 +5419,7 @@ function toggleStatsIncludeStableford() {
   try { _players         = JSON.parse(localStorage.getItem(PLAYERS_KEY)  || '[]'); } catch {}
   try { _courseOverrides = JSON.parse(localStorage.getItem(COURSES_KEY)  || '[]'); } catch {}
   try { _deletedRoundIds = new Set(JSON.parse(localStorage.getItem(DELETED_KEY) || '[]')); } catch {}
+  try { _trash = JSON.parse(localStorage.getItem(TRASH_KEY) || '{}'); } catch {}
   // Drop any locally-cached rounds that have already been tombstoned
   _rounds = _rounds.filter(r => !_deletedRoundIds.has(r.id));
 
@@ -5399,11 +5452,12 @@ function toggleStatsIncludeStableford() {
 
   // Load from Firestore — merge with local data so offline-only saves are not lost
   try {
-    const [rSnap, pSnap, cSnap, dSnap] = await Promise.all([
+    const [rSnap, pSnap, cSnap, dSnap, tSnap] = await Promise.all([
       _db.collection('rounds').get(),
       _db.collection('meta').doc('players').get(),
       _db.collection('meta').doc('courses').get(),
       _db.collection('meta').doc('deletedRounds').get(),
+      _db.collection('trash').get(),
     ]);
 
     // Merge Firestore tombstone with local tombstone so all devices agree on what's deleted
@@ -5416,6 +5470,10 @@ function toggleStatsIncludeStableford() {
     }
     // Remove any locally-cached rounds now known to be deleted
     _rounds = _rounds.filter(r => !_deletedRoundIds.has(r.id));
+
+    // Merge trash from Firestore into local trash
+    tSnap.docs.forEach(d => { if (!_trash[d.id]) _trash[d.id] = d.data(); });
+    try { localStorage.setItem(TRASH_KEY, JSON.stringify(_trash)); } catch {}
 
     // Helper: count total scored holes across all players in a round
     function _scoreCount(r) {
@@ -5615,23 +5673,35 @@ function renderHistory(c) {
 
   const rows = log.map(e => {
     const icon   = e.entity === 'player' ? '&#128100;' : e.entity === 'round' ? '&#9971;' : '&#127939;';
-    const actClr = e.action === 'created' ? 'var(--green-mid)' : e.action === 'deleted' ? '#c84b11' : '#555';
-    const actLbl = e.action === 'created' ? 'Created' : e.action === 'deleted' ? 'Deleted' : 'Updated';
+    const actClr = e.action === 'created' ? 'var(--green-mid)' : e.action === 'deleted' ? '#c84b11' : e.action === 'restored' ? '#2d6a4f' : '#555';
+    const actLbl = e.action === 'created' ? 'Created' : e.action === 'deleted' ? 'Deleted' : e.action === 'restored' ? 'Restored' : 'Updated';
     const diffs  = (e.changes || []).map(ch =>
       `<div class="hist-change"><span class="hist-field">${esc(ch.field)}:</span> ${fmtVal(ch.from)} <span class="hist-arrow">&#8594;</span> ${fmtVal(ch.to)}</div>`
     ).join('');
-    return `<div class="hist-entry">
+    const canRestore = e.entity === 'round' && e.action === 'deleted' && !!_trash[e.entityId];
+    const restoreHint = canRestore ? `<div style="font-size:11px;color:var(--green-mid);margin-top:4px">Long-press to restore</div>` : '';
+    return `<div class="hist-entry${canRestore ? ' hist-restorable' : ''}" data-rid="${canRestore ? esc(e.entityId) : ''}">
       <div class="hist-header">
         <span class="hist-icon">${icon}</span>
         <span class="hist-name">${esc(e.entityName)}</span>
         <span class="hist-badge" style="background:${actClr}">${actLbl}</span>
       </div>
       <div class="hist-time">${fmtDate(e.timestamp)}</div>
-      ${diffs}
+      ${diffs}${restoreHint}
     </div>`;
   }).join('');
 
   c.innerHTML = `<div id="view-history" style="padding:16px 16px 32px">${hdr}${rows}</div>`;
+
+  c.querySelectorAll('.hist-restorable').forEach(el => {
+    const id = el.dataset.rid;
+    if (!id) return;
+    let t;
+    el.addEventListener('touchstart', () => { t = setTimeout(() => showRestoreAction(id), 600); }, {passive:true});
+    el.addEventListener('touchend',  () => clearTimeout(t), {passive:true});
+    el.addEventListener('touchmove', () => clearTimeout(t), {passive:true});
+    el.addEventListener('contextmenu', ev => { ev.preventDefault(); showRestoreAction(id); });
+  });
 }
 
 
@@ -5712,6 +5782,8 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('new',  '↩️', 'Restore deleted rounds',
+        'Deleted rounds are now kept in a recoverable trash. In Change History, long-press (or right-click) any "Deleted" round entry to restore it — all scores, players and course data come back exactly as they were.'),
       entry('fix',  '🧹', 'Cleaner round summary',
         'Removed the team pairing picker and the Course Handicap section from the round summary page — the summary now just shows results, with no setup UI to get in the way.'),
       entry('fix',  '🔀', 'Same-day rounds no longer flicker',
