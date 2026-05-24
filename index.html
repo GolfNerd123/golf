@@ -5657,8 +5657,9 @@ function renderHistory(c) {
     return esc(String(v));
   }
 
-  const hdr = `<div style="margin-bottom:14px">
+  const hdr = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
     <span style="font-size:13px;color:var(--muted)">${log.length} entries</span>
+    ${log.length ? `<button class="btn btn-outline" style="width:auto;padding:7px 16px;font-size:12px" onclick="clearHistory()">Clear all</button>` : ''}
   </div>`;
 
   if (!log.length) {
@@ -5759,6 +5760,12 @@ function clearErrors() {
   render();
 }
 
+function clearHistory() {
+  if (!confirm('Clear all change history entries?')) return;
+  localStorage.removeItem(CHANGE_LOG_KEY);
+  render();
+}
+
 // ═══════════════════════════════════════════
 // APP CHANGELOG VIEW
 // ═══════════════════════════════════════════
@@ -5782,6 +5789,8 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('new',  '🗑️', 'Clear change history',
+        'A "Clear all" button is now available in Change History to remove old entries. Change history is stored locally on each device — entries from teammates\' devices do not appear on yours.'),
       entry('new',  '↩️', 'Restore deleted rounds',
         'Deleted rounds are now kept in a recoverable trash. In Change History, long-press (or right-click) any "Deleted" round entry to restore it — all scores, players and course data come back exactly as they were.'),
       entry('fix',  '🧹', 'Cleaner round summary',
