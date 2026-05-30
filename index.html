@@ -4635,20 +4635,21 @@ function renderRoundFinish(c) {
   function buildPlayerAnalysis() {
     const pastRounds = loadRounds().filter(r => r.done && r.id !== round.id);
 
-    // Classify each hole for a player using Stableford points
+    // Classify holes by GROSS score vs par (no handicap adjustment)
     function roundScoring(p) {
-      const chcp = courseHcp(p, round);
-      let birdies = 0, bogeys = 0, eagles = 0, doublePlus = 0;
+      let aces = 0, eagles = 0, birdies = 0, pars = 0, bogeys = 0, doublePlus = 0;
       for (const h of round.holes) {
         const g = round.scores[p.id]?.[h.n]?.s;
         if (!g) continue;
-        const v = stablefordPts(g, h.par, siStrokes(chcp, h.si, nh));
-        if      (v >= 4) eagles++;
-        else if (v === 3) birdies++;
-        else if (v === 1) bogeys++;
-        else if (v === 0) doublePlus++;
+        const d = g - h.par;
+        if (g === 1)     aces++;
+        else if (d <= -2) eagles++;
+        else if (d === -1) birdies++;
+        else if (d === 0)  pars++;
+        else if (d === 1)  bogeys++;
+        else               doublePlus++;
       }
-      return { birdies, bogeys, eagles, doublePlus };
+      return { aces, eagles, birdies, pars, bogeys, doublePlus };
     }
 
     const scorings = round.players.map(p => ({ p, sc: roundScoring(p) }));
@@ -4662,7 +4663,10 @@ function renderRoundFinish(c) {
       const thisGross = grossTotal(round, pid);
       const thisNet   = netTotal(round, pid);
 
+      // Points average + personal best: stableford rounds only
       const past = buildStats(pastRounds, p.name, 'stableford', false, false, false);
+      // Gross birdie/bogey averages: all past rounds, no handicap
+      const pastGross = buildStats(pastRounds, p.name, 'stroke', true, true, true, true);
 
       const bullets = [];
 
@@ -4681,20 +4685,21 @@ function renderRoundFinish(c) {
         bullets.push('<li><strong>New personal best!</strong> Previous best: ' + past.bestPts + ' pts</li>');
       }
 
-      // Eagles
+      // Aces and eagles (gross)
+      if (sc.aces > 0)   bullets.push('<li>Hole-in-one!</li>');
       if (sc.eagles > 0) bullets.push('<li>' + (sc.eagles === 1 ? 'Eagle' : sc.eagles + ' eagles') + '!</li>');
 
-      // Birdies vs average
-      const avgBird = past.rounds > 0 ? (past.sc.birdies / past.rounds) : null;
+      // Birdies vs average (gross)
+      const avgBird = pastGross.rounds > 0 ? (pastGross.sc.birdies / pastGross.rounds) : null;
       const birdTxt = sc.birdies === 0 ? 'No birdies' : sc.birdies === 1 ? '1 birdie' : sc.birdies + ' birdies';
       bullets.push('<li>' + birdTxt + (avgBird !== null ? ' (avg ' + avgBird.toFixed(1) + '/round)' : '') + '</li>');
 
-      // Bogeys vs average
-      const avgBog  = past.rounds > 0 ? (past.sc.bogeys / past.rounds) : null;
+      // Bogeys vs average (gross)
+      const avgBog  = pastGross.rounds > 0 ? (pastGross.sc.bogeys / pastGross.rounds) : null;
       const bogTxt  = sc.bogeys === 0 ? 'No bogeys' : sc.bogeys === 1 ? '1 bogey' : sc.bogeys + ' bogeys';
       bullets.push('<li>' + bogTxt + (avgBog !== null ? ' (avg ' + avgBog.toFixed(1) + '/round)' : '') + '</li>');
 
-      // Most birdies / most bogeys in the group
+      // Most birdies / most bogeys in the group (gross)
       if (round.players.length > 1) {
         if (sc.birdies === maxBirdies && maxBirdies > 0 && !scorings.some(x => x.p.id !== pid && x.sc.birdies === maxBirdies))
           bullets.push('<li>Most birdies today</li>');
@@ -6024,6 +6029,8 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('fix',  '📊', 'Round review uses gross scoring for birdies and bogeys',
+        'Birdies, pars, eagles and hole-in-ones on the Round Review page are now counted by gross score vs par — a 4 on a par 4 is a par, regardless of handicap strokes. Averages also now draw on all past rounds (not only Stableford rounds), so the comparison is based on a fuller history.'),
       entry('new',  '📊', 'Round review on finish',
         'After closing a round and adding your notes, the app now shows a Round Review page instead of jumping straight to Statistics. It displays the full scorecard in points (Stableford) and in strokes, followed by a summary card for each player — comparing their score to their personal average, flagging new personal bests, and showing birdies and bogeys vs their typical round.'),
       entry('new',  '🗑️', 'Clear change history',

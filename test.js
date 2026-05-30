@@ -2793,6 +2793,72 @@ test('buildStats excludes rounds where player is not present', () => {
   eq(s.rounds, 0);
 });
 
+// ── Round finish review — gross scoring (no handicap) ────────────────────────
+suite('Round finish review — gross scoring for birdies/pars/eagles');
+
+// Helper: stroke round fully scored with given gross scores, CH=0
+function makeStrokeRound(pid, name, grossScores, id, date) {
+  const holes = makeHoles18();
+  const sc = {};
+  sc[pid] = {};
+  holes.forEach((h, i) => { sc[pid][h.n] = { s: grossScores[i] }; });
+  return {
+    id: id || ('rk_' + pid + '_' + (date || '2026-02-01')),
+    date: date || '2026-02-01T10:00:00Z',
+    course: 'Test Course',
+    courseRating: 72, slopeRating: 113,
+    players: [{ id: pid, name, handicapIndex: 0, courseHcpOverride: 0 }],
+    holes, scores: sc, done: true, format: 'stroke',
+  };
+}
+
+test('buildStats noHcp=true counts gross birdies ignoring handicap', () => {
+  // Player has CH 18 → gets one extra stroke per hole (SI 1–18)
+  // Score par+1 on every hole = gross bogey everywhere, but net par
+  // With noHcp=true all 18 holes should be gross bogeys (not pars)
+  const holes = makeHoles18();
+  const sc = {};
+  sc['p1'] = {};
+  holes.forEach(h => { sc['p1'][h.n] = { s: h.par + 1 }; });
+  const r = {
+    id: 'rGross', date: '2026-03-01T10:00:00Z', course: 'Test Course',
+    courseRating: 72, slopeRating: 113,
+    players: [{ id: 'p1', name: 'Alice', handicapIndex: 0, courseHcpOverride: 18 }],
+    holes, scores: sc, done: true, format: 'stroke',
+  };
+  const s = buildStats([r], 'Alice', 'stroke', false, false, true, true);
+  eq(s.sc.bogeys, 18, 'all gross bogeys');
+  eq(s.sc.pars, 0,    'no gross pars');
+});
+
+test('buildStats noHcp=true counts gross birdies correctly', () => {
+  // 4 holes scored at par-1 (birdie), rest at par
+  const gross = _allPars18.map((p, i) => i < 4 ? p - 1 : p);
+  const r = makeStrokeRound('p1', 'Alice', gross, 'rG1');
+  const s = buildStats([r], 'Alice', 'stroke', false, false, true, true);
+  eq(s.sc.birdies, 4);
+  eq(s.sc.pars, 14);
+});
+
+test('buildStats noHcp=true counts eagles (gross -2) correctly', () => {
+  // 2 holes at par-2 (eagle), 1 hole at par-1 (birdie), rest at par
+  const gross = _allPars18.map((p, i) => i < 2 ? p - 2 : i < 3 ? p - 1 : p);
+  const r = makeStrokeRound('p1', 'Alice', gross, 'rG2');
+  const s = buildStats([r], 'Alice', 'stroke', false, false, true, true);
+  eq(s.sc.eagles, 2);
+  eq(s.sc.birdies, 1);
+});
+
+test('buildStats noHcp=true includeStableford aggregates all round formats', () => {
+  // One stableford round + one stroke round, both fully scored at par
+  const r1 = makeStblRound('p1', 'Alice', _allPars18, 'rS1', '2026-01-01T10:00:00Z');
+  const r2 = makeStrokeRound('p1', 'Alice', _allPars18, 'rK1', '2026-01-02T10:00:00Z');
+  const s = buildStats([r1, r2], 'Alice', 'stroke', false, true, true, true);
+  eq(s.rounds, 2, 'both formats counted');
+  eq(s.sc.pars, 36, '18 gross pars per round × 2 rounds');
+  eq(s.sc.birdies, 0);
+});
+
 // ═════════════════════════════════════════════════════════════════════════════
 // PRINT RESULTS
 // ═════════════════════════════════════════════════════════════════════════════
