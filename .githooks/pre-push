@@ -1,18 +1,60 @@
 #!/bin/sh
-# Pre-push hook: run test suite before every push.
-# Blocks the push if any test fails.
-
-if ! command -v node >/dev/null 2>&1; then
-  echo "Node.js not found — skipping tests."
-  exit 0
-fi
+# Pre-push hook — blocks pushes that:
+#   1. Fail any test
+#   2. Change index.html without also updating test.js
+#   3. Change index.html without adding a What's New entry in renderChangelog()
+#
+# Override (sparingly): git push --no-verify
 
 ROOT="$(git rev-parse --show-toplevel)"
-node "$ROOT/test.js"
-if [ $? -ne 0 ]; then
-  echo ""
-  echo "Tests FAILED — push blocked."
-  echo "Fix the failing tests and try again."
-  exit 1
+BLOCKED=0
+EMPTY_TREE="4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+ZERO="0000000000000000000000000000000000000000"
+
+# ── 1. Test suite ──────────────────────────────────────────────────────────────
+if ! command -v node >/dev/null 2>&1; then
+  echo "Node.js not found — skipping tests."
+else
+  node "$ROOT/test.js"
+  if [ $? -ne 0 ]; then
+    echo ""
+    echo "Push blocked — fix failing tests first."
+    exit 1
+  fi
 fi
+
+# ── 2. Checklist for index.html changes ───────────────────────────────────────
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$ZERO" ] && continue   # branch deletion
+
+  if [ "$remote_sha" = "$ZERO" ]; then
+    RANGE="${EMPTY_TREE}..${local_sha}"
+  else
+    RANGE="${remote_sha}..${local_sha}"
+  fi
+
+  FILES=$(git diff --name-only "$RANGE" 2>/dev/null)
+
+  if echo "$FILES" | grep -q "^index\.html$"; then
+
+    # a) test.js must also be changed
+    if ! echo "$FILES" | grep -q "^test\.js$"; then
+      echo ""
+      echo "PUSH BLOCKED  index.html was changed but test.js was not updated."
+      echo "              Add or update tests for your changes."
+      BLOCKED=1
+    fi
+
+    # b) A new entry('new'|'fix') line must appear in the index.html diff
+    if ! git diff "$RANGE" -- index.html | grep "^+" | grep -qE "entry\('(new|fix)'"; then
+      echo ""
+      echo "PUSH BLOCKED  index.html was changed but no What's New entry was added."
+      echo "              Add an entry to renderChangelog() in index.html."
+      BLOCKED=1
+    fi
+
+  fi
+done
+
+[ "$BLOCKED" -ne 0 ] && exit 1
 exit 0
