@@ -231,6 +231,81 @@ function wolfTotalPts(round, pid) {
   return t;
 }
 
+function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeStroke, noHcp) {
+  fmt = fmt || 'stroke';
+  if (includeStroke === undefined) includeStroke = true;
+  const s = {
+    name, fmt, rounds: 0,
+    bestDate: null, bestCourse: null, bestFmt: null,
+    totalHoles: 0, history: [],
+    sc: { holesInOne:0, albatrosses:0, eagles:0, birdies:0, pars:0, bogeys:0, doubleBogeys:0, triplePlus:0 },
+    avgNet: 0, avgNetToPar: 0, bestNet: Infinity, bestNetToPar: 0,
+    avgPts: 0, bestPts: -Infinity,
+  };
+  let ss = 0, ps = 0;
+  for (const r of rounds) {
+    const roundFmt = r.format || 'stroke';
+    const matches = (roundFmt === fmt && (roundFmt !== 'stroke' || includeStroke))
+      || (fmt === 'stroke' && includeWolf        && roundFmt === 'wolf')
+      || (fmt === 'stroke' && includeStableford  && roundFmt === 'stableford');
+    if (!r.done || !matches) continue;
+    const p = r.players.find(pl => pl.name === name);
+    if (!p) continue;
+    const pid = p.id;
+    if (r.holes.filter(h => r.scores[pid]?.[h.n]?.s).length < r.holes.length) continue;
+    s.rounds++;
+    const chcp = courseHcp(p, r), nh = r.holes.length;
+    if (fmt === 'stableford') {
+      const pts = stablefordTotal(r, pid);
+      ss += pts;
+      if (pts > s.bestPts) { s.bestPts = pts; s.bestDate = r.date; s.bestCourse = r.course; }
+      s.history.push({ date: r.date, course: r.course, val: pts });
+      for (const h of r.holes) {
+        const g = r.scores[pid]?.[h.n]?.s; if (!g) continue;
+        s.totalHoles++;
+        const pt = stablefordPts(g, h.par, siStrokes(chcp, h.si, nh));
+        if      (pt >= 4) s.sc.eagles++;
+        else if (pt === 3) s.sc.birdies++;
+        else if (pt === 2) s.sc.pars++;
+        else if (pt === 1) s.sc.bogeys++;
+        else               s.sc.doubleBogeys++;
+      }
+    } else if (fmt === 'wolf') {
+      const pts = wolfTotalPts(r, pid);
+      ss += pts;
+      if (pts > s.bestPts) { s.bestPts = pts; s.bestDate = r.date; s.bestCourse = r.course; }
+      s.history.push({ date: r.date, course: r.course, val: pts });
+    } else {
+      const rpar = parSum(r);
+      const net = noHcp ? grossTotal(r, pid) : netTotal(r, pid);
+      ss += net; ps += rpar;
+      if (net < s.bestNet) { s.bestNet = net; s.bestNetToPar = net - rpar; s.bestDate = r.date; s.bestCourse = r.course; s.bestFmt = roundFmt === 'stroke' ? null : roundFmt; }
+      s.history.push({ date: r.date, course: r.course, val: net - rpar, net, srcFmt: roundFmt });
+      for (const h of r.holes) {
+        const g = r.scores[pid]?.[h.n]?.s; if (!g) continue;
+        s.totalHoles++;
+        const d = (g - (noHcp ? 0 : siStrokes(chcp, h.si, nh))) - h.par;
+        if      (g === 1)   s.sc.holesInOne++;
+        else if (d <= -3)   s.sc.albatrosses++;
+        else if (d === -2)  s.sc.eagles++;
+        else if (d === -1)  s.sc.birdies++;
+        else if (d === 0)   s.sc.pars++;
+        else if (d === 1)   s.sc.bogeys++;
+        else if (d === 2)   s.sc.doubleBogeys++;
+        else if (d >= 3)    s.sc.triplePlus++;
+      }
+    }
+  }
+  if (s.rounds > 0) {
+    if (fmt === 'stroke') { s.avgNet = ss / s.rounds; s.avgNetToPar = (ss - ps) / s.rounds; }
+    else s.avgPts = ss / s.rounds;
+  }
+  if (s.bestNet === Infinity) s.bestNet = 0;
+  if (s.bestPts === -Infinity) s.bestPts = 0;
+  s.history.sort((a, b) => new Date(a.date) - new Date(b.date));
+  return s;
+}
+
 function buildBackupPayload() {
   const read = key => { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } };
   const imgs = {};
@@ -496,11 +571,15 @@ function submitFinishComment() {
   const round=byId(S.roundId); if(!round) return;
   const comment=(S.finishComment||'').trim();
   if(comment) round.comments=comment;
-  round.done=true; saveRound(round); S.finishComment=null;
+  round.done=true; saveRound(round);
+  S.justFinishedRoundId=round.id; S.finishComment=null;
+  nav('round-finish');
 }
 function skipFinishComment() {
   const round=byId(S.roundId); if(!round) return;
-  round.done=true; saveRound(round); S.finishComment=null;
+  round.done=true; saveRound(round);
+  S.justFinishedRoundId=round.id; S.finishComment=null;
+  nav('round-finish');
 }
 function updateFinishComment(val) { S.finishComment=val; }
 function suggestHcpIndex(name, rounds) {
@@ -2572,6 +2651,146 @@ test('time extracted from saveRound ID matches creation moment', () => {
   const after = Date.now();
   const ts = roundCardTime(r.id);
   assert(ts !== null && ts >= before && ts <= after, 'extracted time should be within creation window');
+});
+
+// ── Round finish review — navigation ─────────────────────────────────────────
+suite('Round finish review — navigation after closing a round');
+
+// Helper: stableford round with all 18 holes scored at par (2 pts each)
+function makeStblRound(pid, name, grossScores, id, date) {
+  const holes = makeHoles18();
+  const sc = {};
+  sc[pid] = {};
+  holes.forEach((h, i) => { sc[pid][h.n] = { s: grossScores[i] }; });
+  return {
+    id: id || ('rs_' + pid + '_' + (date || '2026-01-01')),
+    date: date || '2026-01-01T10:00:00Z',
+    course: 'Test Course',
+    courseRating: 72, slopeRating: 113,
+    players: [{ id: pid, name, handicapIndex: 0, courseHcpOverride: 0 }],
+    holes, scores: sc, done: true, format: 'stableford',
+  };
+}
+// Gross scores that produce 2 pts per hole (all pars): par for every hole
+const _allPars18 = DEFAULT_PARS_18.slice(); // [4,4,3,...] same as DEFAULT_PARS_18
+
+test('submitFinishComment navigates to round-finish', () => {
+  resetState();
+  const r = makeRound18();
+  saveRound(r); S.roundId = r.id;
+  finishRound();
+  updateFinishComment('Great day!');
+  submitFinishComment();
+  eq(S.view, 'round-finish');
+});
+
+test('skipFinishComment navigates to round-finish', () => {
+  resetState();
+  const r = makeRound18();
+  saveRound(r); S.roundId = r.id;
+  finishRound();
+  skipFinishComment();
+  eq(S.view, 'round-finish');
+});
+
+test('submitFinishComment sets justFinishedRoundId', () => {
+  resetState();
+  const r = makeRound18();
+  saveRound(r); S.roundId = r.id;
+  finishRound(); submitFinishComment();
+  eq(S.justFinishedRoundId, r.id);
+});
+
+test('skipFinishComment sets justFinishedRoundId', () => {
+  resetState();
+  const r = makeRound18();
+  saveRound(r); S.roundId = r.id;
+  finishRound(); skipFinishComment();
+  eq(S.justFinishedRoundId, r.id);
+});
+
+// ── Round finish review — buildStats stableford analysis ─────────────────────
+suite('Round finish review — buildStats stableford analysis');
+
+test('buildStats with no rounds returns zeros', () => {
+  const s = buildStats([], 'Alice', 'stableford', false, false, false);
+  eq(s.rounds, 0);
+  eq(s.avgPts, 0);
+  eq(s.bestPts, 0);
+  eq(s.sc.birdies, 0);
+  eq(s.sc.bogeys, 0);
+});
+
+test('buildStats skips incomplete rounds', () => {
+  // Round missing score on hole 18
+  const r = makeStblRound('p1', 'Alice', _allPars18.map((p, i) => i < 17 ? p : 0), 'rInc');
+  r.scores['p1'][18] = { s: 0 };
+  const s = buildStats([r], 'Alice', 'stableford', false, false, false);
+  eq(s.rounds, 0, 'incomplete round should not count');
+});
+
+test('buildStats averages stableford points across rounds', () => {
+  // Round 1: all pars → 2 pts × 18 = 36
+  const r1 = makeStblRound('p1', 'Alice', _allPars18, 'r1', '2026-01-01T10:00:00Z');
+  // Round 2: all bogeys → 1 pt × 18 = 18
+  const r2 = makeStblRound('p1', 'Alice', _allPars18.map(p => p + 1), 'r2', '2026-01-02T10:00:00Z');
+  const s = buildStats([r1, r2], 'Alice', 'stableford', false, false, false);
+  eq(s.rounds, 2);
+  eq(s.avgPts, 27); // (36 + 18) / 2
+});
+
+test('buildStats identifies personal best', () => {
+  // Round 1: all pars → 36 pts
+  const r1 = makeStblRound('p1', 'Alice', _allPars18, 'r1', '2026-01-01T10:00:00Z');
+  // Round 2: all birdies → 3 pts × 18 = 54 pts
+  const r2 = makeStblRound('p1', 'Alice', _allPars18.map(p => p - 1), 'r2', '2026-01-02T10:00:00Z');
+  const s = buildStats([r1, r2], 'Alice', 'stableford', false, false, false);
+  eq(s.bestPts, 54);
+  eq(s.bestCourse, 'Test Course');
+});
+
+test('buildStats counts birdies (3-pt holes) correctly', () => {
+  // 3 holes at par-1 (birdie = 3 pts), rest at par (2 pts)
+  const gross = _allPars18.map((p, i) => i < 3 ? p - 1 : p);
+  const r = makeStblRound('p1', 'Alice', gross, 'r1');
+  const s = buildStats([r], 'Alice', 'stableford', false, false, false);
+  eq(s.sc.birdies, 3);
+  eq(s.sc.pars, 15);
+  eq(s.sc.bogeys, 0);
+});
+
+test('buildStats counts bogeys (1-pt holes) correctly', () => {
+  // 5 holes at par+1 (bogey = 1 pt), rest at par
+  const gross = _allPars18.map((p, i) => i < 5 ? p + 1 : p);
+  const r = makeStblRound('p1', 'Alice', gross, 'r1');
+  const s = buildStats([r], 'Alice', 'stableford', false, false, false);
+  eq(s.sc.bogeys, 5);
+  eq(s.sc.pars, 13);
+});
+
+test('buildStats counts eagles (4-pt holes) correctly', () => {
+  // 2 holes at par-2 (eagle = 4 pts), rest at par
+  const gross = _allPars18.map((p, i) => i < 2 ? p - 2 : p);
+  const r = makeStblRound('p1', 'Alice', gross, 'r1');
+  const s = buildStats([r], 'Alice', 'stableford', false, false, false);
+  eq(s.sc.eagles, 2);
+});
+
+test('buildStats only includes matching format rounds', () => {
+  // One stableford round and one stroke round for same player
+  const r1 = makeStblRound('p1', 'Alice', _allPars18, 'r1');
+  const r2 = makeRound18({ id: 'r2', done: true, format: 'stroke' });
+  // Fill all scores for r2
+  DEFAULT_PARS_18.forEach((p, i) => { r2.scores['p1'][i + 1] = { s: p }; });
+  r2.players[0].name = 'Alice';
+  const s = buildStats([r1, r2], 'Alice', 'stableford', false, false, false);
+  eq(s.rounds, 1, 'stroke round should not count in stableford stats');
+});
+
+test('buildStats excludes rounds where player is not present', () => {
+  const r = makeStblRound('p1', 'Alice', _allPars18, 'r1');
+  const s = buildStats([r], 'Bob', 'stableford', false, false, false);
+  eq(s.rounds, 0);
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
