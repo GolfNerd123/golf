@@ -1843,7 +1843,7 @@ function nav(view, params) {
   render();
 }
 function goBack() {
-  const map = { 'new-round':'home', players:'home', courses:'home', scorecard:'home', summary:'home', stats:'home' };
+  const map = { 'new-round':'home', players:'home', courses:'home', scorecard:'home', summary:'home', 'round-finish':'home', stats:'home' };
   nav(map[S.view] || 'home');
 }
 window.addEventListener('popstate', e => {
@@ -1865,7 +1865,8 @@ function render() {
     home: 'Golf Scorecard', players: 'Players', courses: 'Courses',
     'new-round': 'New Round', stats: 'Statistics',
     scorecard: S.roundId ? (byId(S.roundId)?.course || 'Scorecard') : 'Scorecard',
-    summary: 'Round Summary', history: 'Change History', errors: 'Error Log', changelog: "What's New",
+    summary: 'Round Summary', 'round-finish': 'Round Review',
+    history: 'Change History', errors: 'Error Log', changelog: "What's New",
   };
   title.textContent = titles[S.view] || 'Golf Scorecard';
   back.classList.toggle('show', S.view !== 'home');
@@ -1873,7 +1874,7 @@ function render() {
   const views = {
     home: renderHome, players: renderPlayers, courses: renderCourses,
     'new-round': renderNewRound, scorecard: renderScorecard,
-    summary: renderSummary, stats: renderStats,
+    summary: renderSummary, 'round-finish': renderRoundFinish, stats: renderStats,
     history: renderHistory, errors: renderErrorLog, changelog: renderChangelog,
   };
   (views[S.view] || renderHome)(main);
@@ -3650,7 +3651,7 @@ function submitFinishComment() {
   saveRound(round);
   S.justFinishedRoundId = round.id;
   S.finishComment = null;
-  nav('stats');
+  nav('round-finish');
 }
 
 function skipFinishComment() {
@@ -3660,7 +3661,7 @@ function skipFinishComment() {
   saveRound(round);
   S.justFinishedRoundId = round.id;
   S.finishComment = null;
-  nav('stats');
+  nav('round-finish');
 }
 
 function updateFinishComment(val) {
@@ -4510,6 +4511,240 @@ function renderSummary(c) {
       <button class="btn btn-green"   onclick="nav('home')">Home</button>
     </div>
   </div>`;
+}
+
+// ═══════════════════════════════════════════
+// ROUND FINISH REVIEW
+// ═══════════════════════════════════════════
+function renderRoundFinish(c) {
+  const round = byId(S.roundId);
+  if (!round) { nav('home'); return; }
+
+  const nh    = round.holes.length;
+  const half  = Math.floor(nh / 2);
+  const front = round.holes.filter(h => h.n <= half);
+  const back  = round.holes.filter(h => h.n > half);
+  const fpar  = parSum(round, 1, half);
+  const bpar  = parSum(round, half + 1, nh);
+  const tpar  = fpar + bpar;
+
+  const dateStr = new Date(round.date).toLocaleDateString('en-US',
+    { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+
+  function stblColor(v) {
+    if (v >= 5) return '#c084fc';
+    if (v === 4) return '#FFD700';
+    if (v === 3) return '#e63946';
+    if (v === 2) return '#2d6a4f';
+    if (v === 1) return '#888';
+    return '#ccc';
+  }
+
+  function cell(g, par) {
+    if (!g) return '<span style="color:#ddd">-</span>';
+    const d = g - par, col = scoreColor(g, par);
+    if (d <= -1) return '<span class="s-circle" style="border-color:' + col + ';color:' + col + '">' + g + '</span>';
+    if (d >= 1)  return '<span class="s-square" style="border-color:' + col + ';color:' + col + '">' + g + '</span>';
+    return '<span style="color:' + col + ';font-weight:700">' + g + '</span>';
+  }
+
+  // Stableford scorecard table (points, with strokes in small text)
+  function buildStablTable() {
+    let thead = '<tr><th class="nc">Player</th>';
+    for (const h of front) thead += '<th>' + h.n + '</th>';
+    thead += '<th class="sc">' + (nh===18?'OUT':'F') + '</th>';
+    for (const h of back)  thead += '<th>' + h.n + '</th>';
+    if (nh===18) thead += '<th class="sc">IN</th>';
+    thead += '<th class="sc" style="color:var(--green-pale)">PTS</th></tr>';
+    thead += '<tr style="font-size:10px;color:#aaa"><th class="nc" style="font-size:9px;color:#bbb">PAR</th>';
+    for (const h of front) thead += '<th>' + h.par + '</th>';
+    thead += '<th class="sc">' + fpar + '</th>';
+    for (const h of back)  thead += '<th>' + h.par + '</th>';
+    if (nh===18) thead += '<th class="sc">' + bpar + '</th>';
+    thead += '<th class="sc">' + tpar + '</th></tr>';
+
+    const sorted = [...round.players].sort((a,b) => stablefordTotal(round,b.id) - stablefordTotal(round,a.id));
+    const winId  = sorted[0]?.id;
+    let pRows = '';
+    for (const p of round.players) {
+      const chcp = courseHcp(p, round);
+      const isW  = p.id === winId && round.players.length > 1;
+      let f = 0, b = 0;
+      for (const h of front) { const g = round.scores[p.id]?.[h.n]?.s||0; f += stablefordPts(g,h.par,siStrokes(chcp,h.si,nh))||0; }
+      for (const h of back)  { const g = round.scores[p.id]?.[h.n]?.s||0; b += stablefordPts(g,h.par,siStrokes(chcp,h.si,nh))||0; }
+      const tot = f + b;
+      pRows += '<tr' + (isW?' class="win-row"':'') + '><td class="nc" style="font-weight:700">' + esc(p.name.split(' ')[0]) + '</td>';
+      for (const h of front) {
+        const g = round.scores[p.id]?.[h.n]?.s||0;
+        const v = stablefordPts(g, h.par, siStrokes(chcp, h.si, nh));
+        pRows += '<td>' + (v !== null ? '<div style="font-size:9px;color:#bbb;line-height:1.2">' + g + '</div><span style="font-weight:700;color:' + stblColor(v) + '">' + v + '</span>' : '-') + '</td>';
+      }
+      pRows += '<td class="sc" style="font-weight:700">' + (f||'-') + '</td>';
+      for (const h of back) {
+        const g = round.scores[p.id]?.[h.n]?.s||0;
+        const v = stablefordPts(g, h.par, siStrokes(chcp, h.si, nh));
+        pRows += '<td>' + (v !== null ? '<div style="font-size:9px;color:#bbb;line-height:1.2">' + g + '</div><span style="font-weight:700;color:' + stblColor(v) + '">' + v + '</span>' : '-') + '</td>';
+      }
+      if (nh===18) pRows += '<td class="sc" style="font-weight:700">' + (b||'-') + '</td>';
+      pRows += '<td class="sc"><strong style="color:' + (isW?'#8B6914':'var(--green)') + '">' + (tot||'-') + '</strong></td></tr>';
+    }
+    return '<div class="tbl-wrap"><table class="sc-tbl"><thead>' + thead + '</thead><tbody>' + pRows + '</tbody></table></div>';
+  }
+
+  // Gross (strokes) scorecard table
+  function buildStrokeTable() {
+    let thead = '<tr><th class="nc">Player</th>';
+    for (const h of front) thead += '<th>' + h.n + '</th>';
+    thead += '<th class="sc">' + (nh===18?'OUT':'F') + '</th>';
+    for (const h of back)  thead += '<th>' + h.n + '</th>';
+    if (nh===18) thead += '<th class="sc">IN</th>';
+    thead += '<th class="sc" style="color:var(--green-pale)">TOT</th></tr>';
+    let parRow = '<tr class="par-row"><td class="nc">Par</td>';
+    for (const h of front) parRow += '<td>' + h.par + '</td>';
+    parRow += '<td class="sc">' + fpar + '</td>';
+    for (const h of back)  parRow += '<td>' + h.par + '</td>';
+    if (nh===18) parRow += '<td class="sc">' + bpar + '</td>';
+    parRow += '<td class="sc"><strong>' + tpar + '</strong></td></tr>';
+    let siRow = '<tr class="si-row"><td class="nc">SI</td>';
+    for (const h of front) siRow += '<td>' + h.si + '</td>';
+    siRow += '<td class="sc"></td>';
+    for (const h of back)  siRow += '<td>' + h.si + '</td>';
+    if (nh===18) siRow += '<td class="sc"></td>';
+    siRow += '<td class="sc"></td></tr>';
+
+    const sorted = [...round.players].sort((a,b) => grossTotal(round,a.id) - grossTotal(round,b.id));
+    const winId  = sorted[0]?.id;
+    let pRows = '';
+    for (const p of round.players) {
+      const isW = p.id === winId && round.players.length > 1;
+      let f = 0, b = 0;
+      for (const h of front) f += round.scores[p.id]?.[h.n]?.s||0;
+      for (const h of back)  b += round.scores[p.id]?.[h.n]?.s||0;
+      const tot = f + b, d = tot - tpar;
+      pRows += '<tr' + (isW?' class="win-row"':'') + '><td class="nc" style="font-weight:700;color:' + (isW?'#8B6914':'#1a1a1a') + '">' + esc(p.name.split(' ')[0]) + '</td>';
+      for (const h of front) pRows += '<td>' + cell(round.scores[p.id]?.[h.n]?.s||0, h.par) + '</td>';
+      pRows += '<td class="sc" style="font-weight:700">' + (f||'-') + '</td>';
+      for (const h of back)  pRows += '<td>' + cell(round.scores[p.id]?.[h.n]?.s||0, h.par) + '</td>';
+      if (nh===18) pRows += '<td class="sc" style="font-weight:700">' + (b||'-') + '</td>';
+      pRows += '<td class="sc"><strong style="color:' + (isW?'#8B6914':'#1a1a1a') + '">' + (tot||'-') + '</strong>' + (tot ? '<br><span style="font-size:9px;color:' + (d<=0?'#e63946':'#888') + '">' + dStr(d) + '</span>' : '') + '</td></tr>';
+    }
+    return '<div class="tbl-wrap"><table class="sc-tbl"><thead>' + thead + '</thead><tbody>' + parRow + siRow + pRows + '</tbody></table></div>';
+  }
+
+  // Per-player analysis cards
+  function buildPlayerAnalysis() {
+    const pastRounds = loadRounds().filter(r => r.done && r.id !== round.id);
+
+    // Classify each hole for a player using Stableford points
+    function roundScoring(p) {
+      const chcp = courseHcp(p, round);
+      let birdies = 0, bogeys = 0, eagles = 0, doublePlus = 0;
+      for (const h of round.holes) {
+        const g = round.scores[p.id]?.[h.n]?.s;
+        if (!g) continue;
+        const v = stablefordPts(g, h.par, siStrokes(chcp, h.si, nh));
+        if      (v >= 4) eagles++;
+        else if (v === 3) birdies++;
+        else if (v === 1) bogeys++;
+        else if (v === 0) doublePlus++;
+      }
+      return { birdies, bogeys, eagles, doublePlus };
+    }
+
+    const scorings = round.players.map(p => ({ p, sc: roundScoring(p) }));
+    const maxBirdies = Math.max(...scorings.map(x => x.sc.birdies));
+    const maxBogeys  = Math.max(...scorings.map(x => x.sc.bogeys));
+
+    return scorings.map(({ p, sc }) => {
+      const pid       = p.id;
+      const chcp      = courseHcp(p, round);
+      const thisStbl  = stablefordTotal(round, pid);
+      const thisGross = grossTotal(round, pid);
+      const thisNet   = netTotal(round, pid);
+
+      const past = buildStats(pastRounds, p.name, 'stableford', false, false, false);
+
+      const bullets = [];
+
+      // Score vs average
+      if (past.rounds >= 3) {
+        const diff = thisStbl - past.avgPts;
+        const sign = diff >= 0 ? '+' : '';
+        const label = diff > 0.4 ? 'above average' : diff < -0.4 ? 'below average' : 'right at average';
+        bullets.push('<li>' + sign + diff.toFixed(1) + ' pts ' + label + ' (' + past.avgPts.toFixed(1) + ' avg)</li>');
+      } else if (past.rounds > 0) {
+        bullets.push('<li>' + thisStbl + ' pts &mdash; ' + past.rounds + ' past round' + (past.rounds>1?'s':'') + ' on record</li>');
+      }
+
+      // Personal best
+      if (past.rounds > 0 && thisStbl > past.bestPts) {
+        bullets.push('<li><strong>New personal best!</strong> Previous best: ' + past.bestPts + ' pts</li>');
+      }
+
+      // Eagles
+      if (sc.eagles > 0) bullets.push('<li>' + (sc.eagles === 1 ? 'Eagle' : sc.eagles + ' eagles') + '!</li>');
+
+      // Birdies vs average
+      const avgBird = past.rounds > 0 ? (past.sc.birdies / past.rounds) : null;
+      const birdTxt = sc.birdies === 0 ? 'No birdies' : sc.birdies === 1 ? '1 birdie' : sc.birdies + ' birdies';
+      bullets.push('<li>' + birdTxt + (avgBird !== null ? ' (avg ' + avgBird.toFixed(1) + '/round)' : '') + '</li>');
+
+      // Bogeys vs average
+      const avgBog  = past.rounds > 0 ? (past.sc.bogeys / past.rounds) : null;
+      const bogTxt  = sc.bogeys === 0 ? 'No bogeys' : sc.bogeys === 1 ? '1 bogey' : sc.bogeys + ' bogeys';
+      bullets.push('<li>' + bogTxt + (avgBog !== null ? ' (avg ' + avgBog.toFixed(1) + '/round)' : '') + '</li>');
+
+      // Most birdies / most bogeys in the group
+      if (round.players.length > 1) {
+        if (sc.birdies === maxBirdies && maxBirdies > 0 && !scorings.some(x => x.p.id !== pid && x.sc.birdies === maxBirdies))
+          bullets.push('<li>Most birdies today</li>');
+        if (sc.bogeys === maxBogeys && maxBogeys > 0 && !scorings.some(x => x.p.id !== pid && x.sc.bogeys === maxBogeys))
+          bullets.push('<li>Most bogeys today</li>');
+      }
+
+      const netTag   = chcp > 0 && thisNet ? ' &middot; net ' + thisNet : '';
+      const headline = thisStbl + ' pts &middot; ' + (thisGross||'-') + ' gross (' + dStr(thisGross - tpar) + ')' + netTag;
+
+      return '<div style="background:var(--card-bg);border-radius:12px;padding:14px 16px;margin-bottom:10px">'
+        + '<div style="font-size:15px;font-weight:700;margin-bottom:2px">' + esc(p.name) + '</div>'
+        + '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">' + headline + '</div>'
+        + '<ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.9">' + bullets.join('') + '</ul>'
+        + '</div>';
+    }).join('');
+  }
+
+  c.innerHTML = '<div id="view-round-finish" style="padding:0 0 48px">'
+    + '<div class="banner">'
+    +   '<h2>' + esc(round.course) + '</h2>'
+    +   '<p>' + esc(dateStr) + '</p>'
+    +   (round.comments ? '<p style="font-style:italic;opacity:.9;margin-top:4px">&ldquo;' + esc(round.comments) + '&rdquo;</p>' : '')
+    + '</div>'
+    + '<div class="sec">Scorecard &mdash; Points</div>'
+    + buildStablTable()
+    + '<div class="legend" style="margin-bottom:16px">'
+    +   '<div class="legend-item"><span style="font-weight:700;color:#c084fc">5+</span>&nbsp;Albatross</div>'
+    +   '<div class="legend-item"><span style="font-weight:700;color:#FFD700">4</span>&nbsp;Eagle</div>'
+    +   '<div class="legend-item"><span style="font-weight:700;color:#e63946">3</span>&nbsp;Birdie</div>'
+    +   '<div class="legend-item"><span style="font-weight:700;color:#2d6a4f">2</span>&nbsp;Par</div>'
+    +   '<div class="legend-item"><span style="font-weight:700;color:#888">1</span>&nbsp;Bogey</div>'
+    +   '<div class="legend-item"><span style="font-weight:700;color:#ccc">0</span>&nbsp;Double+</div>'
+    + '</div>'
+    + '<div class="sec">Scorecard &mdash; Strokes</div>'
+    + buildStrokeTable()
+    + '<div class="legend" style="margin-bottom:16px">'
+    +   '<div class="legend-item"><div class="lg-circle" style="color:#FFD700"></div>&nbsp;Eagle+</div>'
+    +   '<div class="legend-item"><div class="lg-circle" style="color:#e63946"></div>&nbsp;Birdie</div>'
+    +   '<div class="legend-item"><span style="font-size:12px;font-weight:700;color:#2d6a4f">4</span>&nbsp;Par</div>'
+    +   '<div class="legend-item"><div class="lg-square" style="color:#333"></div>&nbsp;Bogey</div>'
+    +   '<div class="legend-item"><div class="lg-square" style="color:#888"></div>&nbsp;Double+</div>'
+    + '</div>'
+    + '<div class="sec">How did everyone do?</div>'
+    + '<div style="padding:0 4px 8px">' + buildPlayerAnalysis() + '</div>'
+    + '<div class="act-row">'
+    +   '<button class="btn btn-outline" onclick="nav(\'stats\')">Statistics</button>'
+    +   '<button class="btn btn-green"   onclick="nav(\'home\')">Home</button>'
+    + '</div>'
+    + '</div>';
 }
 
 // ═══════════════════════════════════════════
@@ -5789,6 +6024,8 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('new',  '📊', 'Round review on finish',
+        'After closing a round and adding your notes, the app now shows a Round Review page instead of jumping straight to Statistics. It displays the full scorecard in points (Stableford) and in strokes, followed by a summary card for each player — comparing their score to their personal average, flagging new personal bests, and showing birdies and bogeys vs their typical round.'),
       entry('new',  '🗑️', 'Clear change history',
         'A "Clear all" button is now available in Change History to remove old entries. Change history is stored locally on each device — entries from teammates\' devices do not appear on yours.'),
       entry('new',  '↩️', 'Restore deleted rounds',
