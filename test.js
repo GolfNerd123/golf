@@ -2849,6 +2849,15 @@ test('buildStats noHcp=true counts eagles (gross -2) correctly', () => {
   eq(s.sc.birdies, 1);
 });
 
+test('buildStats noHcp=true counts gross pars correctly', () => {
+  // All holes scored at exact par → 18 gross pars
+  const r = makeStrokeRound('p1', 'Alice', _allPars18, 'rG3');
+  const s = buildStats([r], 'Alice', 'stroke', false, false, true, true);
+  eq(s.sc.pars, 18);
+  eq(s.sc.birdies, 0);
+  eq(s.sc.bogeys, 0);
+});
+
 test('buildStats noHcp=true includeStableford aggregates all round formats', () => {
   // One stableford round + one stroke round, both fully scored at par
   const r1 = makeStblRound('p1', 'Alice', _allPars18, 'rS1', '2026-01-01T10:00:00Z');
@@ -2857,6 +2866,52 @@ test('buildStats noHcp=true includeStableford aggregates all round formats', () 
   eq(s.rounds, 2, 'both formats counted');
   eq(s.sc.pars, 36, '18 gross pars per round × 2 rounds');
   eq(s.sc.birdies, 0);
+});
+
+// ── Round finish review — net scoring and most-pars logic ────────────────────
+suite('Round finish review — net scoring breakdown and most-pars');
+
+test('net scoring: stablefordPts returns 2 for par on par-4 with 0 hcp strokes', () => {
+  eq(stablefordPts(4, 4, 0), 2);
+});
+
+test('net scoring: stablefordPts returns 3 (net birdie) for par on par-4 with 1 hcp stroke', () => {
+  // gross 4, par 4, hcp strokes 1 → net 3, net vs par = -1 → 3 pts
+  eq(stablefordPts(4, 4, 1), 3);
+});
+
+test('net scoring: stablefordPts returns 1 (net bogey) for bogey on par-4 with 0 hcp strokes', () => {
+  eq(stablefordPts(5, 4, 0), 1);
+});
+
+test('net scoring: stablefordPts returns 2 (net par) for bogey on par-4 with 1 hcp stroke', () => {
+  // gross 5, par 4, hcp strokes 1 → net 4, net vs par = 0 → 2 pts
+  eq(stablefordPts(5, 4, 1), 2);
+});
+
+test('most-pars: sole leader is detected', () => {
+  // Simulate three players' gross par counts
+  const scorings = [
+    { p: { id: 'pA' }, sc: { pars: 10, birdies: 2, bogeys: 4 } },
+    { p: { id: 'pB' }, sc: { pars: 7,  birdies: 4, bogeys: 3 } },
+    { p: { id: 'pC' }, sc: { pars: 5,  birdies: 6, bogeys: 2 } },
+  ];
+  const maxPars = Math.max(...scorings.map(x => x.sc.pars));
+  eq(maxPars, 10);
+  const soleLeader = scorings.filter(x => x.sc.pars === maxPars);
+  eq(soleLeader.length, 1);
+  eq(soleLeader[0].p.id, 'pA');
+});
+
+test('most-pars: tied leaders are not flagged', () => {
+  const scorings = [
+    { p: { id: 'pA' }, sc: { pars: 8 } },
+    { p: { id: 'pB' }, sc: { pars: 8 } },
+  ];
+  const maxPars = Math.max(...scorings.map(x => x.sc.pars));
+  // Both tied → neither should get "most consistent" badge
+  const soloA = !scorings.some(x => x.p.id !== 'pA' && x.sc.pars === maxPars);
+  eq(soloA, false, 'pA is not sole leader when tied');
 });
 
 // ═════════════════════════════════════════════════════════════════════════════

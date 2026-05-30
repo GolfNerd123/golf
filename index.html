@@ -880,6 +880,7 @@
 
   .act-row { display: flex; gap: 10px; margin-top: 22px; }
   .act-row .btn { flex: 1; padding: 14px; }
+  details[open] .det-arrow { transform: rotate(90deg); }
 
   /* Stats */
   #view-stats { padding: 14px; padding-bottom: 48px; }
@@ -4642,7 +4643,7 @@ function renderRoundFinish(c) {
         const g = round.scores[p.id]?.[h.n]?.s;
         if (!g) continue;
         const d = g - h.par;
-        if (g === 1)     aces++;
+        if (g === 1)      aces++;
         else if (d <= -2) eagles++;
         else if (d === -1) birdies++;
         else if (d === 0)  pars++;
@@ -4652,11 +4653,29 @@ function renderRoundFinish(c) {
       return { aces, eagles, birdies, pars, bogeys, doublePlus };
     }
 
-    const scorings = round.players.map(p => ({ p, sc: roundScoring(p) }));
+    // Classify holes by NET score (stableford points, handicap-adjusted)
+    function roundNetScoring(p) {
+      const chcp = courseHcp(p, round);
+      let eagles = 0, birdies = 0, pars = 0, bogeys = 0, doublePlus = 0;
+      for (const h of round.holes) {
+        const g = round.scores[p.id]?.[h.n]?.s;
+        if (!g) continue;
+        const v = stablefordPts(g, h.par, siStrokes(chcp, h.si, nh));
+        if      (v >= 4) eagles++;
+        else if (v === 3) birdies++;
+        else if (v === 2) pars++;
+        else if (v === 1) bogeys++;
+        else              doublePlus++;
+      }
+      return { eagles, birdies, pars, bogeys, doublePlus };
+    }
+
+    const scorings = round.players.map(p => ({ p, sc: roundScoring(p), net: roundNetScoring(p) }));
     const maxBirdies = Math.max(...scorings.map(x => x.sc.birdies));
+    const maxPars    = Math.max(...scorings.map(x => x.sc.pars));
     const maxBogeys  = Math.max(...scorings.map(x => x.sc.bogeys));
 
-    return scorings.map(({ p, sc }) => {
+    return scorings.map(({ p, sc, net }) => {
       const pid       = p.id;
       const chcp      = courseHcp(p, round);
       const thisStbl  = stablefordTotal(round, pid);
@@ -4694,17 +4713,43 @@ function renderRoundFinish(c) {
       const birdTxt = sc.birdies === 0 ? 'No birdies' : sc.birdies === 1 ? '1 birdie' : sc.birdies + ' birdies';
       bullets.push('<li>' + birdTxt + (avgBird !== null ? ' (avg ' + avgBird.toFixed(1) + '/round)' : '') + '</li>');
 
+      // Pars (gross)
+      const parTxt = sc.pars === 0 ? 'No pars' : sc.pars === 1 ? '1 par' : sc.pars + ' pars';
+      bullets.push('<li>' + parTxt + '</li>');
+
       // Bogeys vs average (gross)
-      const avgBog  = pastGross.rounds > 0 ? (pastGross.sc.bogeys / pastGross.rounds) : null;
-      const bogTxt  = sc.bogeys === 0 ? 'No bogeys' : sc.bogeys === 1 ? '1 bogey' : sc.bogeys + ' bogeys';
+      const avgBog = pastGross.rounds > 0 ? (pastGross.sc.bogeys / pastGross.rounds) : null;
+      const bogTxt = sc.bogeys === 0 ? 'No bogeys' : sc.bogeys === 1 ? '1 bogey' : sc.bogeys + ' bogeys';
       bullets.push('<li>' + bogTxt + (avgBog !== null ? ' (avg ' + avgBog.toFixed(1) + '/round)' : '') + '</li>');
 
-      // Most birdies / most bogeys in the group (gross)
+      // Group leaders (gross)
       if (round.players.length > 1) {
         if (sc.birdies === maxBirdies && maxBirdies > 0 && !scorings.some(x => x.p.id !== pid && x.sc.birdies === maxBirdies))
           bullets.push('<li>Most birdies today</li>');
+        if (sc.pars === maxPars && maxPars > 0 && !scorings.some(x => x.p.id !== pid && x.sc.pars === maxPars))
+          bullets.push('<li>Most consistent today (most pars)</li>');
         if (sc.bogeys === maxBogeys && maxBogeys > 0 && !scorings.some(x => x.p.id !== pid && x.sc.bogeys === maxBogeys))
           bullets.push('<li>Most bogeys today</li>');
+      }
+
+      // Net scoring breakdown (collapsed, only shown when player has a handicap)
+      let netSection = '';
+      if (chcp > 0) {
+        const netItems = [];
+        if (net.eagles > 0)    netItems.push('<li>' + net.eagles + ' net eagle' + (net.eagles > 1 ? 's' : '') + '</li>');
+        if (net.birdies > 0)   netItems.push('<li>' + net.birdies + ' net birdie' + (net.birdies > 1 ? 's' : '') + '</li>');
+        if (net.pars > 0)      netItems.push('<li>' + net.pars + ' net par' + (net.pars > 1 ? 's' : '') + '</li>');
+        if (net.bogeys > 0)    netItems.push('<li>' + net.bogeys + ' net bogey' + (net.bogeys > 1 ? 's' : '') + '</li>');
+        if (net.doublePlus > 0) netItems.push('<li>' + net.doublePlus + ' double+</li>');
+        if (netItems.length) {
+          netSection = '<details style="margin-top:8px">'
+            + '<summary style="font-size:12px;color:var(--muted);cursor:pointer;user-select:none;list-style:none;display:flex;align-items:center;gap:4px">'
+            + '<span class="det-arrow" style="font-size:10px;transition:transform .15s">&#9654;</span>'
+            + 'With handicap (CH&nbsp;' + chcp + ')'
+            + '</summary>'
+            + '<ul style="margin:6px 0 0;padding-left:18px;font-size:12px;color:var(--muted);line-height:1.8">' + netItems.join('') + '</ul>'
+            + '</details>';
+        }
       }
 
       const netTag   = chcp > 0 && thisNet ? ' &middot; net ' + thisNet : '';
@@ -4714,6 +4759,7 @@ function renderRoundFinish(c) {
         + '<div style="font-size:15px;font-weight:700;margin-bottom:2px">' + esc(p.name) + '</div>'
         + '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">' + headline + '</div>'
         + '<ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.9">' + bullets.join('') + '</ul>'
+        + netSection
         + '</div>';
     }).join('');
   }
@@ -6029,6 +6075,8 @@ function renderChangelog(c) {
 
   const html = [
     section('May 2026', [
+      entry('new',  '📊', 'Round review: most pars and net scoring breakdown',
+        'The player analysis on the Round Review page now shows who had the most pars (most consistent round). Each player card also has a collapsible "With handicap" section showing net eagles, birdies, pars, bogeys and doubles — hidden by default so the gross stats stay front and centre.'),
       entry('fix',  '📊', 'Round review uses gross scoring for birdies and bogeys',
         'Birdies, pars, eagles and hole-in-ones on the Round Review page are now counted by gross score vs par — a 4 on a par 4 is a par, regardless of handicap strokes. Averages also now draw on all past rounds (not only Stableford rounds), so the comparison is based on a fuller history.'),
       entry('new',  '📊', 'Round review on finish',
