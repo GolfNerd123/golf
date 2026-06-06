@@ -3694,7 +3694,8 @@ function saveRoundTeams(roundId, pairingIdx) {
   round.teams = [t1i.map(i => pl[i].id), t2i.map(i => pl[i].id)];
   saveRound(round);
   S.showTeamSetup = false;
-  openRoundSummary();
+  // Defer past any synchronous Firestore onSnapshot callbacks triggered by saveRound
+  requestAnimationFrame(() => openRoundSummary());
 }
 
 function clearRoundTeams(roundId) {
@@ -3703,7 +3704,8 @@ function clearRoundTeams(roundId) {
   delete round.teams;
   saveRound(round);
   S.showTeamSetup = false;
-  openRoundSummary();
+  // Defer past any synchronous Firestore onSnapshot callbacks triggered by saveRound
+  requestAnimationFrame(() => openRoundSummary());
 }
 
 function saveSummaryTeams(roundId, pairingIdx) {
@@ -6074,6 +6076,10 @@ function renderChangelog(c) {
   }
 
   const html = [
+    section('June 2026', [
+      entry('fix',  '⛳', 'Page freeze when selecting teams at round close',
+        'Selecting a team pairing when closing a round could cause the page to freeze. The team selection now defers its screen update until after Firestore finishes syncing, preventing the double-render that locked up the UI.'),
+    ]),
     section('May 2026', [
       entry('new',  '📊', 'Round review: most pars and net scoring breakdown',
         'The player analysis on the Round Review page now shows who had the most pars (most consistent round). Each player card also has a collapsible "With handicap" section showing net eagles, birdies, pars, bogeys and doubles — hidden by default so the gross stats stay front and centre.'),

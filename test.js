@@ -107,6 +107,9 @@ const history = { pushState: () => {} };
 function render() {}
 function renderScorecard() {}
 function downloadRoundBackup() {}
+let _rafCallback = null;
+function requestAnimationFrame(cb) { _rafCallback = cb; }
+function openRoundSummary() {}
 let _domElements = {};
 const document = { getElementById: id => _domElements[id] || null };
 
@@ -115,15 +118,17 @@ let _rounds = [], _players = [], _courseOverrides = [], _auditFlushTimer = null;
 let _deletedRoundIds = new Set();
 const S = {
   view: 'home', roundId: null, hole: 1, numpadPid: null, showLayout: false, nr: {}, playerEdit: null,
-  showRoundSummary: false, showNineHoleSummary: false, finishComment: null,
+  showRoundSummary: false, showNineHoleSummary: false, finishComment: null, showTeamSetup: false,
 };
 
 function resetState() {
   _rounds = []; _players = []; _courseOverrides = []; _auditFlushTimer = null;
   _deletedRoundIds = new Set();
   _lsStore = {}; _fsStore = {}; _domElements = {};
+  _rafCallback = null;
   S.view = 'home'; S.roundId = null; S.hole = 1; S.numpadPid = null;
   S.showRoundSummary = false; S.showNineHoleSummary = false; S.finishComment = null;
+  S.showTeamSetup = false;
   S.nr = { holes:18, selPids:[], courseId:null, playerTee:{}, guests:[], chcp:{} };
 }
 function getChangeLog() {
@@ -544,10 +549,14 @@ function saveRoundTeams(roundId, pairingIdx) {
   const[t1i,t2i]=pairings[pairingIdx];
   round.teams=[t1i.map(i=>pl[i].id),t2i.map(i=>pl[i].id)];
   saveRound(round);
+  S.showTeamSetup=false;
+  requestAnimationFrame(()=>openRoundSummary());
 }
 function clearRoundTeams(roundId) {
   const round=byId(roundId); if(!round) return;
   delete round.teams; saveRound(round);
+  S.showTeamSetup=false;
+  requestAnimationFrame(()=>openRoundSummary());
 }
 function saveRoundCh(roundId) {
   const round=byId(roundId); if(!round) return;
@@ -2445,6 +2454,24 @@ test('saveRoundTeams no-ops for non-4-player round', () => {
   const r = makeRound18(); saveRound(r);
   saveRoundTeams(r.id, 0);
   assert(byId(r.id).teams == null, 'teams should not be set for 2-player round');
+});
+test('saveRoundTeams clears showTeamSetup and defers openRoundSummary via rAF', () => {
+  resetState();
+  S.showTeamSetup = true;
+  const r = make4PlayerRound(); saveRound(r);
+  saveRoundTeams(r.id, 0);
+  assert(S.showTeamSetup === false, 'showTeamSetup should be cleared synchronously');
+  assert(typeof _rafCallback === 'function', 'openRoundSummary should be deferred via requestAnimationFrame');
+});
+test('clearRoundTeams clears showTeamSetup and defers openRoundSummary via rAF', () => {
+  resetState();
+  S.showTeamSetup = true;
+  const r = make4PlayerRound(); saveRound(r);
+  saveRoundTeams(r.id, 0);
+  _rafCallback = null;
+  clearRoundTeams(r.id);
+  assert(S.showTeamSetup === false, 'showTeamSetup should be cleared synchronously');
+  assert(typeof _rafCallback === 'function', 'openRoundSummary should be deferred via requestAnimationFrame');
 });
 
 // ── saveRoundCh ───────────────────────────────────────────────────────────────
