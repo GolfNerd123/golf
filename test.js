@@ -644,15 +644,17 @@ function buildRoundStandingsHTML(round) {
 }
 function buildNineHoleSummaryHTML(round) {
   const isStbl = round.format === 'stableford';
-  const front = round.holes.filter(h => h.n <= 9);
+  const bnf  = round.backNineFirst;
+  const nine = bnf ? round.holes.filter(h => h.n >= 10) : round.holes.filter(h => h.n <= 9);
+  const [from, to] = bnf ? [10, 18] : [1, 9];
   const rows = round.players.map(p => {
-    const gross = grossTotal(round, p.id, 1, 9);
+    const gross = grossTotal(round, p.id, from, to);
     const chcp  = courseHcp(p, round);
-    const net   = isStbl ? null : front.reduce((s, h) => {
+    const net   = isStbl ? null : nine.reduce((s, h) => {
       const g = round.scores[p.id]?.[h.n]?.s || 0;
       return g ? s + g - siStrokes(chcp, h.si, round.holes.length) : s;
     }, 0);
-    const stbPts = isStbl ? front.reduce((s, h) => {
+    const stbPts = isStbl ? nine.reduce((s, h) => {
       const g = round.scores[p.id]?.[h.n]?.s || 0;
       const pts = stablefordPts(g, h.par, siStrokes(chcp, h.si, round.holes.length));
       return s + (pts || 0);
@@ -674,12 +676,20 @@ function adjScore(pid, delta) {
     next=Math.max(1,cur+delta);
   }
   if(!round.scores[pid]) round.scores[pid]={};
+  if(S.hole===10&&round.holes.length===18&&!round.backNineFirst){
+    const hasNonTenScore=round.players.some(p=>Object.keys(round.scores[p.id]||{}).some(h=>parseInt(h)!==10));
+    if(!hasNonTenScore) round.backNineFirst=true;
+  }
   round.scores[pid][S.hole]={s:next};
   saveRound(round); renderScorecard();
 }
 function setScoreNumpad(pid, score) {
   const round=byId(S.roundId); if(!round) return;
   if(!round.scores[pid]) round.scores[pid]={};
+  if(S.hole===10&&round.holes.length===18&&!round.backNineFirst){
+    const hasNonTenScore=round.players.some(p=>Object.keys(round.scores[p.id]||{}).some(h=>parseInt(h)!==10));
+    if(!hasNonTenScore) round.backNineFirst=true;
+  }
   round.scores[pid][S.hole]={s:score};
   saveRound(round); S.numpadPid=null; renderScorecard();
 }
@@ -2939,6 +2949,92 @@ test('most-pars: tied leaders are not flagged', () => {
   // Both tied → neither should get "most consistent" badge
   const soloA = !scorings.some(x => x.p.id !== 'pA' && x.sc.pars === maxPars);
   eq(soloA, false, 'pA is not sole leader when tied');
+});
+
+// ── Back nine first — detection and summary ───────────────────────────────────
+suite('Back nine first — detection and summary');
+test('first score on hole 10 auto-sets backNineFirst via adjScore', () => {
+  resetState();
+  const r = makeRound18({ players: [{ id:'p1', name:'Alice', courseHcpOverride:0 }] });
+  saveRound(r);
+  S.roundId = r.id; S.hole = 10;
+  adjScore('p1', 1);
+  assert(byId(r.id).backNineFirst === true, 'backNineFirst should be set');
+});
+test('first score on hole 1 does not set backNineFirst', () => {
+  resetState();
+  const r = makeRound18({ players: [{ id:'p1', name:'Alice', courseHcpOverride:0 }] });
+  saveRound(r);
+  S.roundId = r.id; S.hole = 1;
+  adjScore('p1', 1);
+  assert(!byId(r.id).backNineFirst, 'backNineFirst should not be set when starting on hole 1');
+});
+test('backNineFirst not set if another hole already has a score', () => {
+  resetState();
+  const r = makeRound18({ players: [{ id:'p1', name:'Alice', courseHcpOverride:0 }] });
+  r.scores.p1[1] = { s: 4 };
+  saveRound(r);
+  S.roundId = r.id; S.hole = 10;
+  adjScore('p1', 1);
+  assert(!byId(r.id).backNineFirst, 'backNineFirst should not be set when hole 1 already has a score');
+});
+test('setScoreNumpad also triggers backNineFirst detection', () => {
+  resetState();
+  const r = makeRound18({ players: [{ id:'p1', name:'Alice', courseHcpOverride:0 }] });
+  saveRound(r);
+  S.roundId = r.id; S.hole = 10;
+  setScoreNumpad('p1', 4);
+  assert(byId(r.id).backNineFirst === true, 'backNineFirst should be set via numpad');
+});
+test('multiple players on hole 10 before anyone plays elsewhere still triggers detection', () => {
+  resetState();
+  const r = makeRound18({ players: [
+    { id:'p1', name:'Alice', courseHcpOverride:0 },
+    { id:'p2', name:'Bob',   courseHcpOverride:0 },
+  ]});
+  r.scores.p1[10] = { s: 4 };
+  saveRound(r);
+  S.roundId = r.id; S.hole = 10;
+  adjScore('p2', 1);
+  assert(byId(r.id).backNineFirst === true, 'backNineFirst should be set even when another player already has hole 10 scored');
+});
+test('buildNineHoleSummaryHTML backNineFirst ranks by back-9 scores (holes 10-18)', () => {
+  resetState();
+  const r = makeRound18({ players: [
+    { id:'p1', name:'Alice', courseHcpOverride:0 },
+    { id:'p2', name:'Bob',   courseHcpOverride:0 },
+  ]});
+  r.backNineFirst = true;
+  for (let i = 10; i <= 18; i++) {
+    r.scores.p1[i] = { s: r.holes[i-1].par };
+    r.scores.p2[i] = { s: r.holes[i-1].par + (i === 10 ? 1 : 0) };
+  }
+  const rows = buildNineHoleSummaryHTML(r);
+  eq(rows[0].p.name, 'Alice', 'Alice should lead after back nine');
+  eq(rows[1].p.name, 'Bob');
+});
+test('buildNineHoleSummaryHTML backNineFirst ignores front-9 scores in total', () => {
+  resetState();
+  const r = makeRound18({ players: [{ id:'p1', name:'Alice', courseHcpOverride:0 }] });
+  r.backNineFirst = true;
+  r.scores.p1[1] = { s: 99 };  // front-9 score should not affect back-9 summary
+  for (let i = 10; i <= 18; i++) r.scores.p1[i] = { s: r.holes[i-1].par };
+  const rows = buildNineHoleSummaryHTML(r);
+  const backPar = r.holes.slice(9).reduce((s, h) => s + h.par, 0);
+  eq(rows[0].gross, backPar, 'gross should be back-9 total only');
+});
+test('buildNineHoleSummaryHTML normal round uses front-9 scores (holes 1-9)', () => {
+  resetState();
+  const r = makeRound18({ players: [
+    { id:'p1', name:'Alice', courseHcpOverride:0 },
+    { id:'p2', name:'Bob',   courseHcpOverride:0 },
+  ]});
+  for (let i = 1; i <= 9; i++) {
+    r.scores.p1[i] = { s: r.holes[i-1].par };
+    r.scores.p2[i] = { s: r.holes[i-1].par + (i === 1 ? 1 : 0) };
+  }
+  const rows = buildNineHoleSummaryHTML(r);
+  eq(rows[0].p.name, 'Alice', 'Alice should lead in normal front-9 summary');
 });
 
 // ═════════════════════════════════════════════════════════════════════════════

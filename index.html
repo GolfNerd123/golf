@@ -3249,6 +3249,11 @@ function renderScorecard(c) {
   const hole  = round.holes.find(h => h.n === S.hole) || round.holes[0];
   const firstHole = round.holes[0].n;
   const lastHole  = round.holes[round.holes.length - 1].n;
+  const bnf       = round.backNineFirst;
+  const playFirst = bnf ? 10 : firstHole;
+  const playLast  = bnf ? 9  : lastHole;
+  const prevHoleN = bnf && S.hole === 1 ? 18 : S.hole - 1;
+  const nextHoleN = bnf && S.hole === 18 ? 1  : S.hole + 1;
   const rpar  = parSum(round);
 
   // Look up description and image from the course record so they work even
@@ -3397,8 +3402,8 @@ function renderScorecard(c) {
     </div>`;
   }).join('');
 
-  const foot = S.hole < lastHole
-    ? `<button class="btn btn-green" onclick="gotoHole(${S.hole+1})">Next Hole &#8594;</button>`
+  const foot = S.hole !== playLast
+    ? `<button class="btn btn-green" onclick="gotoHole(${nextHoleN})">Next Hole &#8594;</button>`
     : `<button class="btn btn-red" onclick="finishRound()">Finish Round</button>`;
 
   const numpadPlayer = S.numpadPid ? round.players.find(p => p.id === S.numpadPid) : null;
@@ -3461,7 +3466,7 @@ function renderScorecard(c) {
     <div class="nine-hole-dim" onclick="continueToBackNine()"></div>
     <div class="nine-hole-sheet">
       ${buildNineHoleSummaryHTML(round)}
-      <button class="btn btn-green" style="width:100%;margin-top:16px" onclick="continueToBackNine()">Continue to Back 9 &#8594;</button>
+      <button class="btn btn-green" style="width:100%;margin-top:16px" onclick="continueToBackNine()">${bnf ? 'Continue to Front 9' : 'Continue to Back 9'} &#8594;</button>
     </div>` : '';
 
   // Finish comment sheet
@@ -3484,14 +3489,14 @@ function renderScorecard(c) {
       <button class="standings-btn" onclick="openRoundSummary()">&#128202; Standings</button>
     </div>
     <div class="hole-hdr">
-      <button class="nav-btn" onclick="gotoHole(${S.hole-1})" ${S.hole===firstHole?'disabled':''}>&#8249;</button>
+      <button class="nav-btn" onclick="gotoHole(${prevHoleN})" ${S.hole===playFirst?'disabled':''}>&#8249;</button>
       <div class="hole-mid">
         <div class="hole-lbl">HOLE</div>
         <div class="hole-num">${S.hole}</div>
         <div class="hole-meta">Par ${hole.par} <span>&nbsp;&middot;&nbsp;SI ${hole.si}</span></div>
         <button class="hole-info-btn" onclick="openHoleLayout()">Hole Info</button>
       </div>
-      <button class="nav-btn" onclick="gotoHole(${S.hole+1})" ${S.hole===lastHole?'disabled':''}>&#8250;</button>
+      <button class="nav-btn" onclick="gotoHole(${nextHoleN})" ${S.hole===playLast?'disabled':''}>&#8250;</button>
     </div>
     <div class="dots-row">${dots}</div>
     ${wolfBanner}
@@ -3516,15 +3521,21 @@ function renderScorecard(c) {
 function gotoHole(n) {
   const round = byId(S.roundId);
   if (!round) return;
-  const firstN = round.holes[0]?.n ?? 1;
-  const lastN  = round.holes[round.holes.length - 1]?.n ?? round.holes.length;
-  if (n < firstN || n > lastN) return;
+  if (round.backNineFirst) {
+    if (n < 1 || n > 18) return;
+  } else {
+    const firstN = round.holes[0]?.n ?? 1;
+    const lastN  = round.holes[round.holes.length - 1]?.n ?? round.holes.length;
+    if (n < firstN || n > lastN) return;
+  }
   _flushAudit(round, 'hole_' + n);  // snapshot with current scores before moving
   const prevHole = S.hole;
   S.hole = n;
   S.showLayout = false;
-  if (prevHole === 9 && n === 10 && round.holes.length === 18) {
-    S.showNineHoleSummary = true;
+  if (round.backNineFirst) {
+    if (prevHole === 18 && n === 1 && round.holes.length === 18) S.showNineHoleSummary = true;
+  } else {
+    if (prevHole === 9 && n === 10 && round.holes.length === 18) S.showNineHoleSummary = true;
   }
   try { localStorage.setItem(NAV_KEY, JSON.stringify({ roundId: S.roundId, hole: n })); } catch {}
   renderScorecard(document.getElementById('main'));
@@ -3553,6 +3564,12 @@ function adjScore(pid, delta) {
       [{ field: 'H' + S.hole + ' — ' + pname, from: cur, to: next }]);
   }
   if (!round.scores[pid]) round.scores[pid] = {};
+  if (S.hole === 10 && round.holes.length === 18 && !round.backNineFirst) {
+    const hasNonTenScore = round.players.some(p =>
+      Object.keys(round.scores[p.id] || {}).some(h => parseInt(h) !== 10)
+    );
+    if (!hasNonTenScore) round.backNineFirst = true;
+  }
   round.scores[pid][S.hole] = { s: next };
   saveRound(round);
   if (navigator.vibrate) navigator.vibrate(8);
@@ -3578,6 +3595,12 @@ function setScoreNumpad(pid, score) {
     const pname = round.players.find(p => p.id === pid)?.name || pid;
     _logChange('round', round.id, round.course, 'updated',
       [{ field: 'H' + S.hole + ' — ' + pname, from: cur, to: score }]);
+  }
+  if (S.hole === 10 && round.holes.length === 18 && !round.backNineFirst) {
+    const hasNonTenScore = round.players.some(p =>
+      Object.keys(round.scores[p.id] || {}).some(h => parseInt(h) !== 10)
+    );
+    if (!hasNonTenScore) round.backNineFirst = true;
   }
   round.scores[pid][S.hole] = { s: score };
   saveRound(round);
@@ -3988,18 +4011,21 @@ function buildRoundStandingsHTML(round) {
 }
 
 function buildNineHoleSummaryHTML(round) {
-  const front = round.holes.filter(h => h.n <= 9);
-  const fpar  = front.reduce((s, h) => s + h.par, 0);
+  const bnf   = round.backNineFirst;
+  const nine  = bnf ? round.holes.filter(h => h.n >= 10) : round.holes.filter(h => h.n <= 9);
+  const [from, to] = bnf ? [10, 18] : [1, 9];
+  const fpar  = nine.reduce((s, h) => s + h.par, 0);
   const isStbl = round.format === 'stableford';
+  const title = bnf ? 'Halfway — Back 9' : 'Halfway — Front 9';
 
   const rows = round.players.map(p => {
-    const gross = grossTotal(round, p.id, 1, 9);
+    const gross = grossTotal(round, p.id, from, to);
     const chcp  = courseHcp(p, round);
-    const net   = isStbl ? null : front.reduce((s, h) => {
+    const net   = isStbl ? null : nine.reduce((s, h) => {
       const g = round.scores[p.id]?.[h.n]?.s || 0;
       return g ? s + g - siStrokes(chcp, h.si, round.holes.length) : s;
     }, 0);
-    const stbPts = isStbl ? front.reduce((s, h) => {
+    const stbPts = isStbl ? nine.reduce((s, h) => {
       const g = round.scores[p.id]?.[h.n]?.s || 0;
       const pts = stablefordPts(g, h.par, siStrokes(chcp, h.si, round.holes.length));
       return s + (pts || 0);
@@ -4007,15 +4033,15 @@ function buildNineHoleSummaryHTML(round) {
     return { p, gross, net, stbPts, chcp };
   }).sort((a, b) => isStbl ? b.stbPts - a.stbPts : (a.net || 999) - (b.net || 999));
 
-  let html = `<div class="nine-hole-title">Halfway — Front 9</div>
+  let html = `<div class="nine-hole-title">${title}</div>
     <div style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:14px">Par ${fpar} &middot; ${esc(round.course)}</div>
     <table class="standings-table">
       <thead><tr><th class="pos">#</th><th>Player</th><th>${isStbl ? 'Points' : 'vs Par'}</th></tr></thead>
       <tbody>`;
   rows.forEach((row, i) => {
     const grossVsPar = row.gross ? row.gross - fpar : null;
-    const scored = round.holes.filter(h => h.n <= 9 && round.scores[row.p.id]?.[h.n]?.s).length;
-    const scoredPar = round.holes.filter(h => h.n <= 9 && round.scores[row.p.id]?.[h.n]?.s).reduce((s, h) => s + h.par, 0);
+    const scored = round.holes.filter(h => h.n >= from && h.n <= to && round.scores[row.p.id]?.[h.n]?.s).length;
+    const scoredPar = round.holes.filter(h => h.n >= from && h.n <= to && round.scores[row.p.id]?.[h.n]?.s).reduce((s, h) => s + h.par, 0);
     const netVsPar = row.net ? row.net - scoredPar : null;
     let primary, sub;
     if (isStbl) {
@@ -6077,6 +6103,8 @@ function renderChangelog(c) {
 
   const html = [
     section('June 2026', [
+      entry('new',  '🔄', 'Start from the 10th hole',
+        'If you begin scoring on hole 10, the app now detects that you\'re playing back nine first and adapts automatically — navigation wraps from 18 to 1, the nine-hole summary appears at the turn (after 18), and the round closes after hole 9.'),
       entry('fix',  '⛳', 'Page freeze when selecting teams at round close',
         'Selecting a team pairing when closing a round could cause the page to freeze. The team selection now defers its screen update until after Firestore finishes syncing, preventing the double-render that locked up the UI.'),
     ]),
