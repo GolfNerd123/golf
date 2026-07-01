@@ -1000,6 +1000,12 @@
   }
   .detail-chip.sel { background: var(--green); color: #fff; border-color: var(--green); }
   .detail-chip:active { opacity: .72; }
+  .detail-chip.club-chip, .detail-chip.dir-chip {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 8px 7px; min-width: 50px; font-size: 10px; line-height: 1;
+  }
+  .detail-chip.club-chip svg { width: 22px; height: 32px; display: block; }
+  .detail-chip.dir-chip  svg { width: 22px; height: 22px; display: block; }
   .detail-note {
     width: 100%; padding: 10px 12px; border: 1px solid var(--border);
     border-radius: 10px; font-size: 14px; resize: none; font-family: inherit;
@@ -1219,6 +1225,7 @@
     </div>
   </div>
   <main id="main"><p id="js-err" style="padding:2rem;color:red;font-family:monospace">Loading…</p></main>
+  <div id="detail-sheet-outer"></div>
 </div>
 <script>
 window.onerror = function(msg, src, line, col, err) {
@@ -3529,127 +3536,6 @@ function renderScorecard(c) {
 
   const isCompact = round.players.length >= 3;
 
-  // Hole detail sheet
-  const detailPl = S.detailPid ? round.players.find(p => p.id === S.detailPid) : null;
-  const detailSc = detailPl ? (round.scores[S.detailPid]?.[S.hole] || {}) : {};
-  const detailSheet = detailPl ? (() => {
-    const isPar45 = hole.par >= 4;
-    const clubs = [['driver','Driver'],['3w','3-Wood'],['5w','5-Wood'],['hyb','Hybrid'],['iron','Iron'],['layup','Lay-up']];
-    const dirs   = [['left','◀ Left'],['str','Straight'],['right','Right ▶'],['pull','Pull'],['push','Push']];
-    const puttsVal = detailSc.putts != null ? detailSc.putts : null;
-    const penVal   = detailSc.pen   != null ? detailSc.pen   : 0;
-    return `
-    <div class="detail-dim" onclick="closeHoleDetail()"></div>
-    <div class="detail-sheet" onclick="event.stopPropagation()">
-      <div class="detail-hdr">${esc(detailPl.name.split(' ')[0])} &mdash; Hole ${S.hole} Details</div>
-
-      <div class="detail-section">
-        <div class="detail-lbl">Putts</div>
-        <div class="detail-stepper">
-          <button class="detail-step-btn" onclick="stepHoleDetail('${S.detailPid}','putts',-1,0,9)">&#8722;</button>
-          <div class="detail-step-val${puttsVal===null?' nil':''}">${puttsVal !== null ? puttsVal : '&mdash;'}</div>
-          <button class="detail-step-btn" onclick="stepHoleDetail('${S.detailPid}','putts',1,0,9)">+</button>
-        </div>
-      </div>
-
-      <div class="detail-section">
-        <div class="detail-lbl">Missed Putt — Direction</div>
-        <div class="detail-chips">
-          ${[['left','◀ Left'],['straight','Straight'],['right','Right ▶']].map(([v,l]) =>
-            `<button class="detail-chip${detailSc.puttMissDir===v?' sel':''}" onclick="setHoleDetail('${S.detailPid}','puttMissDir','${v}')">${l}</button>`
-          ).join('')}
-        </div>
-      </div>
-
-      <div class="detail-section">
-        <div class="detail-lbl">Missed Putt — Distance</div>
-        <div class="detail-chips">
-          <button class="detail-chip${detailSc.puttMissDist==='short'?' sel':''}" onclick="setHoleDetail('${S.detailPid}','puttMissDist','short')">Short</button>
-          <button class="detail-chip${detailSc.puttMissDist==='long'?' sel':''}"  onclick="setHoleDetail('${S.detailPid}','puttMissDist','long')">Long</button>
-        </div>
-      </div>
-
-      ${isPar45 ? `
-      <div class="detail-section">
-        <div class="detail-lbl">Fairway</div>
-        <div class="detail-chips">
-          ${[['left','◀ Left'],['hit','✓ Hit'],['right','Right ▶']].map(([v,l]) =>
-            `<button class="detail-chip${detailSc.fh===v?' sel':''}" onclick="setHoleDetail('${S.detailPid}','fh','${v}')">${l}</button>`
-          ).join('')}
-        </div>
-      </div>` : ''}
-
-      <div class="detail-section">
-        <div class="detail-lbl">Green in Regulation</div>
-        <div class="detail-chips">
-          <button class="detail-chip${detailSc.gir===true?' sel':''}" onclick="setHoleDetail('${S.detailPid}','gir',true)">✓ Hit GIR</button>
-          <button class="detail-chip${detailSc.gir===false?' sel':''}" onclick="setHoleDetail('${S.detailPid}','gir',false)">&#10005; Missed</button>
-        </div>
-      </div>
-
-      <div class="detail-section">
-        <div class="detail-lbl">Penalty Strokes</div>
-        <div class="detail-stepper">
-          <button class="detail-step-btn" onclick="stepHoleDetail('${S.detailPid}','pen',-1,0,9)">&#8722;</button>
-          <div class="detail-step-val">${penVal}</div>
-          <button class="detail-step-btn" onclick="stepHoleDetail('${S.detailPid}','pen',1,0,9)">+</button>
-        </div>
-      </div>
-
-      <div class="detail-section">
-        <div class="detail-lbl">Tee Club</div>
-        <div class="detail-chips">
-          ${clubs.map(([v,l]) =>
-            `<button class="detail-chip${detailSc.club===v?' sel':''}" onclick="setHoleDetail('${S.detailPid}','club','${v}')">${l}</button>`
-          ).join('')}
-        </div>
-      </div>
-
-      <div class="detail-section">
-        <div class="detail-lbl">Tee Shot Shape</div>
-        <div class="detail-chips">
-          ${dirs.map(([v,l]) =>
-            `<button class="detail-chip${detailSc.dir===v?' sel':''}" onclick="setHoleDetail('${S.detailPid}','dir','${v}')">${l}</button>`
-          ).join('')}
-        </div>
-      </div>
-
-      <div class="detail-section">
-        <div class="detail-lbl">Approach Club</div>
-        <div class="detail-chips">
-          ${[['long-iron','Long Iron'],['mid-iron','Mid Iron'],['short-iron','Short Iron'],['wedge','Wedge'],['chip','Chip']].map(([v,l]) =>
-            `<button class="detail-chip${detailSc.approachClub===v?' sel':''}" onclick="setHoleDetail('${S.detailPid}','approachClub','${v}')">${l}</button>`
-          ).join('')}
-        </div>
-      </div>
-
-      <div class="detail-section">
-        <div class="detail-lbl">Approach — Direction</div>
-        <div class="detail-chips">
-          <button class="detail-chip${detailSc.approachDir==='left'?' sel':''}"     onclick="setHoleDetail('${S.detailPid}','approachDir','left')">◀ Left</button>
-          <button class="detail-chip${detailSc.approachDir==='straight'?' sel':''}" onclick="setHoleDetail('${S.detailPid}','approachDir','straight')">Straight</button>
-          <button class="detail-chip${detailSc.approachDir==='right'?' sel':''}"    onclick="setHoleDetail('${S.detailPid}','approachDir','right')">Right ▶</button>
-          <button class="detail-chip${detailSc.approachDir==='on'?' sel':''}"       onclick="setHoleDetail('${S.detailPid}','approachDir','on')">&#10003; On</button>
-        </div>
-      </div>
-
-      <div class="detail-section">
-        <div class="detail-lbl">Approach — Distance</div>
-        <div class="detail-chips">
-          <button class="detail-chip${detailSc.approachDist==='short'?' sel':''}" onclick="setHoleDetail('${S.detailPid}','approachDist','short')">Short</button>
-          <button class="detail-chip${detailSc.approachDist==='long'?' sel':''}"  onclick="setHoleDetail('${S.detailPid}','approachDist','long')">Long</button>
-        </div>
-      </div>
-
-      <div class="detail-section">
-        <div class="detail-lbl">Notes</div>
-        <textarea class="detail-note" rows="2" placeholder="Anything to remember about this hole..."
-          oninput="saveHoleNoteOnly('${S.detailPid}',this.value)">${esc(detailSc.note||'')}</textarea>
-      </div>
-
-      <button class="btn btn-green detail-done" onclick="closeHoleDetail()">Done</button>
-    </div>`;
-  })() : '';
 
   const layoutModal = S.showLayout ? `
     <div class="layout-dim" onclick="closeHoleLayout()">
@@ -3745,8 +3631,8 @@ function renderScorecard(c) {
     ${strokesCardOverlay}
     ${nineHoleOverlay}
     ${commentSheet}
-    ${detailSheet}
   </div>`;
+  renderDetailSheet();
 }
 
 function gotoHole(n) {
@@ -3840,6 +3726,175 @@ function setScoreNumpad(pid, score) {
   renderScorecard(document.getElementById('main'));
 }
 
+function clubSVG(key) {
+  const d = {
+    driver: `<svg viewBox="0 0 28 40" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><ellipse cx="13" cy="11" rx="11" ry="10"/><rect x="11.5" y="20" width="3" height="19" rx="1.5"/></svg>`,
+    '3w':   `<svg viewBox="0 0 28 40" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><ellipse cx="13" cy="12" rx="9" ry="8"/><rect x="11.5" y="20" width="3" height="19" rx="1.5"/></svg>`,
+    '5w':   `<svg viewBox="0 0 28 40" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><ellipse cx="13" cy="13" rx="7" ry="6"/><rect x="11.5" y="19" width="3" height="20" rx="1.5"/></svg>`,
+    hyb:    `<svg viewBox="0 0 28 40" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M4 13 Q4 5 13 5 Q22 5 22 12 L22 19 Q18 21 13 21 Q8 21 4 19 Z"/><rect x="11.5" y="21" width="3" height="18" rx="1.5"/></svg>`,
+    iron:   `<svg viewBox="0 0 28 40" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="17" width="16" height="6" rx="1.5"/><rect x="15" y="9" width="3" height="30" rx="1.5"/></svg>`,
+    layup:  `<svg viewBox="0 0 28 40" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="17" width="12" height="6" rx="1.5"/><rect x="11" y="9" width="3" height="30" rx="1.5"/><path d="M19 7 Q26 7 26 14 Q26 21 19 22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round"/><polygon points="17,19 21,23 24,18"/></svg>`,
+  };
+  return d[key] || '';
+}
+function approachClubSVG(key) {
+  const d = {
+    'long-iron':  `<svg viewBox="0 0 28 38" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="17" width="16" height="5" rx="1.2"/><rect x="15" y="9" width="3" height="28" rx="1.5"/></svg>`,
+    'mid-iron':   `<svg viewBox="0 0 28 38" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="18" width="14" height="5.5" rx="1.2"/><rect x="14" y="10" width="3" height="27" rx="1.5"/></svg>`,
+    'short-iron': `<svg viewBox="0 0 28 38" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="19" width="12" height="6" rx="1.2"/><rect x="13" y="11" width="3" height="26" rx="1.5"/></svg>`,
+    wedge:        `<svg viewBox="0 0 28 38" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M3 23 L19 23 L15 13 Z"/><rect x="13" y="23" width="3" height="14" rx="1.5"/></svg>`,
+    chip:         `<svg viewBox="0 0 28 38" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M2 25 L20 25 L13 12 Z"/><rect x="12" y="25" width="3" height="12" rx="1.5"/></svg>`,
+  };
+  return d[key] || '';
+}
+function dirSVG(key) {
+  const s = 'stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"';
+  const d = {
+    left:     `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path ${s} d="M16 5L9 12L16 19"/></svg>`,
+    straight: `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path ${s} d="M12 19V5M7 10L12 5L17 10"/></svg>`,
+    right:    `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path ${s} d="M8 5L15 12L8 19"/></svg>`,
+    pull:     `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path ${s} d="M12 19V6M7 11L12 6L17 11"/><path ${s} stroke-dasharray="3,2.5" d="M9 13 Q5 10 8 6"/></svg>`,
+    push:     `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path ${s} d="M12 19V6M7 11L12 6L17 11"/><path ${s} stroke-dasharray="3,2.5" d="M15 13 Q19 10 16 6"/></svg>`,
+    str:      `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path ${s} d="M12 19V5M7 10L12 5L17 10"/></svg>`,
+    on:       `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="2.5" fill="none"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>`,
+    short:    `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path ${s} d="M12 17V7M8 13L12 17L16 13"/></svg>`,
+    long:     `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path ${s} d="M12 17V5M8 9L12 5L16 9M9 21H15"/></svg>`,
+    hit:      `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path ${s} stroke-linejoin="round" d="M5 12L10 17L19 8"/></svg>`,
+    missed:   `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path ${s} d="M7 7L17 17M17 7L7 17"/></svg>`,
+  };
+  return d[key] || '';
+}
+function buildDetailSheetHTML(round) {
+  const pid = S.detailPid;
+  const detailPl = round.players.find(p => p.id === pid);
+  if (!detailPl) return '';
+  const detailSc = round.scores[pid]?.[S.hole] || {};
+  const hole = round.holes.find(h => h.n === S.hole) || {};
+  const isPar45 = hole.par >= 4;
+  const puttsVal = detailSc.putts != null ? detailSc.putts : null;
+  const penVal   = detailSc.pen   != null ? detailSc.pen   : 0;
+  const clubs = [['driver','Driver'],['3w','3W'],['5w','5W'],['hyb','Hybrid'],['iron','Iron'],['layup','Lay-up']];
+  const dirs  = [['left','Left'],['str','Str'],['right','Right'],['pull','Pull'],['push','Push']];
+  return `
+  <div class="detail-dim" onclick="closeHoleDetail()"></div>
+  <div class="detail-sheet" onclick="event.stopPropagation()">
+    <div class="detail-hdr">${esc(detailPl.name.split(' ')[0])} &mdash; Hole ${S.hole} Details</div>
+
+    <div class="detail-section">
+      <div class="detail-lbl">Putts</div>
+      <div class="detail-stepper">
+        <button class="detail-step-btn" onclick="stepHoleDetail('${pid}','putts',-1,0,9)">&#8722;</button>
+        <div class="detail-step-val${puttsVal===null?' nil':''}">${puttsVal !== null ? puttsVal : '&mdash;'}</div>
+        <button class="detail-step-btn" onclick="stepHoleDetail('${pid}','putts',1,0,9)">+</button>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-lbl">Missed Putt &mdash; Direction</div>
+      <div class="detail-chips">
+        ${[['left','Left'],['straight','Str'],['right','Right']].map(([v,l]) =>
+          `<button class="detail-chip dir-chip${detailSc.puttMissDir===v?' sel':''}" onclick="setHoleDetail('${pid}','puttMissDir','${v}')">${dirSVG(v)}<span>${l}</span></button>`
+        ).join('')}
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-lbl">Missed Putt &mdash; Distance</div>
+      <div class="detail-chips">
+        <button class="detail-chip dir-chip${detailSc.puttMissDist==='short'?' sel':''}" onclick="setHoleDetail('${pid}','puttMissDist','short')">${dirSVG('short')}<span>Short</span></button>
+        <button class="detail-chip dir-chip${detailSc.puttMissDist==='long'?' sel':''}"  onclick="setHoleDetail('${pid}','puttMissDist','long')">${dirSVG('long')}<span>Long</span></button>
+      </div>
+    </div>
+
+    ${isPar45 ? `
+    <div class="detail-section">
+      <div class="detail-lbl">Fairway</div>
+      <div class="detail-chips">
+        <button class="detail-chip dir-chip${detailSc.fh==='left'?' sel':''}"  onclick="setHoleDetail('${pid}','fh','left')">${dirSVG('left')}<span>Left</span></button>
+        <button class="detail-chip dir-chip${detailSc.fh==='hit'?' sel':''}"   onclick="setHoleDetail('${pid}','fh','hit')">${dirSVG('hit')}<span>Hit</span></button>
+        <button class="detail-chip dir-chip${detailSc.fh==='right'?' sel':''}" onclick="setHoleDetail('${pid}','fh','right')">${dirSVG('right')}<span>Right</span></button>
+      </div>
+    </div>` : ''}
+
+    <div class="detail-section">
+      <div class="detail-lbl">Green in Regulation</div>
+      <div class="detail-chips">
+        <button class="detail-chip dir-chip${detailSc.gir===true?' sel':''}"  onclick="setHoleDetail('${pid}','gir',true)">${dirSVG('hit')}<span>GIR</span></button>
+        <button class="detail-chip dir-chip${detailSc.gir===false?' sel':''}" onclick="setHoleDetail('${pid}','gir',false)">${dirSVG('missed')}<span>No GIR</span></button>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-lbl">Penalty Strokes</div>
+      <div class="detail-stepper">
+        <button class="detail-step-btn" onclick="stepHoleDetail('${pid}','pen',-1,0,9)">&#8722;</button>
+        <div class="detail-step-val">${penVal}</div>
+        <button class="detail-step-btn" onclick="stepHoleDetail('${pid}','pen',1,0,9)">+</button>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-lbl">Tee Club</div>
+      <div class="detail-chips">
+        ${clubs.map(([v,l]) =>
+          `<button class="detail-chip club-chip${detailSc.club===v?' sel':''}" onclick="setHoleDetail('${pid}','club','${v}')">${clubSVG(v)}<span>${l}</span></button>`
+        ).join('')}
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-lbl">Tee Shot Shape</div>
+      <div class="detail-chips">
+        ${dirs.map(([v,l]) =>
+          `<button class="detail-chip dir-chip${detailSc.dir===v?' sel':''}" onclick="setHoleDetail('${pid}','dir','${v}')">${dirSVG(v)}<span>${l}</span></button>`
+        ).join('')}
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-lbl">Approach Club</div>
+      <div class="detail-chips">
+        ${[['long-iron','L-Iron'],['mid-iron','M-Iron'],['short-iron','S-Iron'],['wedge','Wedge'],['chip','Chip']].map(([v,l]) =>
+          `<button class="detail-chip club-chip${detailSc.approachClub===v?' sel':''}" onclick="setHoleDetail('${pid}','approachClub','${v}')">${approachClubSVG(v)}<span>${l}</span></button>`
+        ).join('')}
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-lbl">Approach &mdash; Direction</div>
+      <div class="detail-chips">
+        <button class="detail-chip dir-chip${detailSc.approachDir==='left'?' sel':''}"     onclick="setHoleDetail('${pid}','approachDir','left')">${dirSVG('left')}<span>Left</span></button>
+        <button class="detail-chip dir-chip${detailSc.approachDir==='straight'?' sel':''}" onclick="setHoleDetail('${pid}','approachDir','straight')">${dirSVG('straight')}<span>Str</span></button>
+        <button class="detail-chip dir-chip${detailSc.approachDir==='right'?' sel':''}"    onclick="setHoleDetail('${pid}','approachDir','right')">${dirSVG('right')}<span>Right</span></button>
+        <button class="detail-chip dir-chip${detailSc.approachDir==='on'?' sel':''}"       onclick="setHoleDetail('${pid}','approachDir','on')">${dirSVG('on')}<span>On!</span></button>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-lbl">Approach &mdash; Distance</div>
+      <div class="detail-chips">
+        <button class="detail-chip dir-chip${detailSc.approachDist==='short'?' sel':''}" onclick="setHoleDetail('${pid}','approachDist','short')">${dirSVG('short')}<span>Short</span></button>
+        <button class="detail-chip dir-chip${detailSc.approachDist==='long'?' sel':''}"  onclick="setHoleDetail('${pid}','approachDist','long')">${dirSVG('long')}<span>Long</span></button>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-lbl">Notes</div>
+      <textarea class="detail-note" rows="2" placeholder="Anything to remember about this hole..."
+        oninput="saveHoleNoteOnly('${pid}',this.value)">${esc(detailSc.note||'')}</textarea>
+    </div>
+
+    <button class="btn btn-green detail-done" onclick="closeHoleDetail()">Done</button>
+  </div>`;
+}
+function renderDetailSheet() {
+  const outer = document.getElementById('detail-sheet-outer');
+  if (!outer) return;
+  if (!S.detailPid) { outer.innerHTML = ''; return; }
+  const round = byId(S.roundId);
+  if (!round) { outer.innerHTML = ''; return; }
+  outer.innerHTML = buildDetailSheetHTML(round);
+}
 function openHoleDetail(pid) {
   S.detailPid = pid;
   S.numpadPid = null;
@@ -3858,7 +3913,7 @@ function setHoleDetail(pid, field, value) {
   if (!round.scores[pid][S.hole]) round.scores[pid][S.hole] = {};
   round.scores[pid][S.hole][field] = value;
   saveRound(round);
-  renderScorecard(document.getElementById('main'));
+  renderDetailSheet();
 }
 
 function stepHoleDetail(pid, field, delta, min, max) {
@@ -3869,7 +3924,7 @@ function stepHoleDetail(pid, field, delta, min, max) {
   const cur = round.scores[pid][S.hole][field] ?? 0;
   round.scores[pid][S.hole][field] = Math.min(max, Math.max(min, cur + delta));
   saveRound(round);
-  renderScorecard(document.getElementById('main'));
+  renderDetailSheet();
 }
 
 function saveHoleNoteOnly(pid, note) {
@@ -6593,6 +6648,8 @@ function renderChangelog(c) {
 
   const html = [
     section('July 2026', [
+      entry('fix',  '📐', 'No more scroll-to-top when entering hole details',
+        'Tapping any button inside the hole detail sheet no longer causes the scorecard to scroll to the top on mobile. Club and direction buttons also now show recognisable icons (club silhouettes, arrows) instead of plain text.'),
       entry('new',  '🏌️', 'Approach shot tracking',
         'The hole detail sheet now lets you record your approach club (long iron / mid iron / short iron / wedge / chip), approach direction (on green / straight / left / right), and whether you were short or long. All three appear in Shot Detail Stats with bar charts.'),
       entry('fix',  '⛳', 'Putt miss split into direction and distance',

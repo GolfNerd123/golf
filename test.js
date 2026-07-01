@@ -256,6 +256,18 @@ function buildShotStats(rounds, playerName) {
   out.avgPutts = out.puttHoles > 0 ? out.totalPutts / out.puttHoles : 0;
   return out;
 }
+function clubSVG(key) {
+  const keys = ['driver','3w','5w','hyb','iron','layup'];
+  return keys.includes(key) ? `<svg>${key}</svg>` : '';
+}
+function approachClubSVG(key) {
+  const keys = ['long-iron','mid-iron','short-iron','wedge','chip'];
+  return keys.includes(key) ? `<svg>${key}</svg>` : '';
+}
+function dirSVG(key) {
+  const keys = ['left','straight','right','pull','push','str','on','short','long','hit','missed'];
+  return keys.includes(key) ? `<svg>${key}</svg>` : '';
+}
 function netTotal(round, pid) {
   const player=round.players.find(p=>p.id===pid); if (!player) return 0;
   const chcp=courseHcp(player,round), nh=round.holes.length; let net=0;
@@ -3326,6 +3338,26 @@ test('adjScore preserves gir and fh', () => {
   eq(updated.scores.p1[2].gir, false, 'gir should be preserved');
   eq(updated.scores.p1[2].fh, 'left', 'fh should be preserved');
   eq(updated.scores.p1[2].s, 4, 'score should be decremented');
+});
+
+suite('clubSVG / approachClubSVG / dirSVG');
+test('clubSVG — all tee clubs return non-empty string', () => {
+  for (const k of ['driver','3w','5w','hyb','iron','layup']) {
+    assert(clubSVG(k).length > 0, `clubSVG('${k}') should be non-empty`);
+  }
+  eq(clubSVG('unknown'), '', 'unknown key returns empty string');
+});
+test('approachClubSVG — all approach clubs return non-empty string', () => {
+  for (const k of ['long-iron','mid-iron','short-iron','wedge','chip']) {
+    assert(approachClubSVG(k).length > 0, `approachClubSVG('${k}') should be non-empty`);
+  }
+  eq(approachClubSVG('unknown'), '', 'unknown key returns empty string');
+});
+test('dirSVG — all direction keys return non-empty string', () => {
+  for (const k of ['left','straight','right','pull','push','str','on','short','long','hit','missed']) {
+    assert(dirSVG(k).length > 0, `dirSVG('${k}') should be non-empty`);
+  }
+  eq(dirSVG('unknown'), '', 'unknown key returns empty string');
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
