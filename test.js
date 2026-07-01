@@ -182,6 +182,19 @@ function siStrokes(chcp, si, nh) {
   if (chcp<=0) return 0;
   const base=Math.floor(chcp/nh), extra=chcp%nh; return base+(si<=extra?1:0);
 }
+function holeDetailSummary(d) {
+  if (!d) return null;
+  const parts = [];
+  if (d.putts != null) parts.push(d.putts + (d.putts === 1 ? ' putt' : ' putts'));
+  if (d.fh) parts.push({ hit: 'FW ✓', left: 'FW left', right: 'FW right' }[d.fh] || d.fh);
+  if (d.gir === true)  parts.push('GIR ✓');
+  if (d.gir === false) parts.push('No GIR');
+  if (d.pen) parts.push(d.pen + (d.pen === 1 ? ' penalty' : ' penalties'));
+  if (d.club) parts.push({ driver:'Driver','3w':'3W','5w':'5W',hyb:'Hybrid',iron:'Iron',layup:'Lay-up' }[d.club] || d.club);
+  if (d.dir)  parts.push({ left:'◀L',str:'Straight',right:'R▶',pull:'Pull',push:'Push' }[d.dir] || d.dir);
+  if (d.note) parts.push('📝');
+  return parts.length ? parts.join(' · ') : null;
+}
 function netTotal(round, pid) {
   const player=round.players.find(p=>p.id===pid); if (!player) return 0;
   const chcp=courseHcp(player,round), nh=round.holes.length; let net=0;
@@ -680,7 +693,7 @@ function adjScore(pid, delta) {
     const hasNonTenScore=round.players.some(p=>Object.keys(round.scores[p.id]||{}).some(h=>parseInt(h)!==10));
     if(!hasNonTenScore) round.backNineFirst=true;
   }
-  round.scores[pid][S.hole]={s:next};
+  round.scores[pid][S.hole]={...(round.scores[pid][S.hole]||{}),s:next};
   saveRound(round); renderScorecard();
 }
 function setScoreNumpad(pid, score) {
@@ -690,7 +703,7 @@ function setScoreNumpad(pid, score) {
     const hasNonTenScore=round.players.some(p=>Object.keys(round.scores[p.id]||{}).some(h=>parseInt(h)!==10));
     if(!hasNonTenScore) round.backNineFirst=true;
   }
-  round.scores[pid][S.hole]={s:score};
+  round.scores[pid][S.hole]={...(round.scores[pid][S.hole]||{}),s:score};
   saveRound(round); S.numpadPid=null; renderScorecard();
 }
 
@@ -3035,6 +3048,63 @@ test('buildNineHoleSummaryHTML normal round uses front-9 scores (holes 1-9)', ()
   }
   const rows = buildNineHoleSummaryHTML(r);
   eq(rows[0].p.name, 'Alice', 'Alice should lead in normal front-9 summary');
+});
+
+// ── HOLE DETAIL SUMMARY ───────────────────────────────────────────────────────
+suite('holeDetailSummary');
+test('null/empty → null',        () => assert(holeDetailSummary(null) === null));
+test('empty object → null',      () => assert(holeDetailSummary({}) === null));
+test('putts singular',           () => assert(holeDetailSummary({ putts: 1 }).includes('1 putt')));
+test('putts plural',             () => assert(holeDetailSummary({ putts: 3 }).includes('3 putts')));
+test('putts zero shows 0 putts', () => assert(holeDetailSummary({ putts: 0 }).includes('0 putts')));
+test('fh hit',                   () => assert(holeDetailSummary({ fh: 'hit' }).includes('FW ✓')));
+test('fh left',                  () => assert(holeDetailSummary({ fh: 'left' }).includes('FW left')));
+test('fh right',                 () => assert(holeDetailSummary({ fh: 'right' }).includes('FW right')));
+test('gir true',                 () => assert(holeDetailSummary({ gir: true }).includes('GIR ✓')));
+test('gir false',                () => assert(holeDetailSummary({ gir: false }).includes('No GIR')));
+test('gir undefined not shown',  () => assert(holeDetailSummary({ putts: 2 }) === '2 putts'));
+test('penalty singular',         () => assert(holeDetailSummary({ pen: 1 }).includes('1 penalty')));
+test('penalty plural',           () => assert(holeDetailSummary({ pen: 2 }).includes('2 penalties')));
+test('pen 0 not shown',          () => assert(!holeDetailSummary({ pen: 0 })?.includes('penalt')));
+test('club driver',              () => assert(holeDetailSummary({ club: 'driver' }).includes('Driver')));
+test('club 3w',                  () => assert(holeDetailSummary({ club: '3w' }).includes('3W')));
+test('club layup',               () => assert(holeDetailSummary({ club: 'layup' }).includes('Lay-up')));
+test('dir straight',             () => assert(holeDetailSummary({ dir: 'str' }).includes('Straight')));
+test('dir pull',                 () => assert(holeDetailSummary({ dir: 'pull' }).includes('Pull')));
+test('note shows emoji',         () => assert(holeDetailSummary({ note: 'lucky!' }).includes('📝')));
+test('multiple fields joined with ·', () => {
+  const s = holeDetailSummary({ putts: 2, gir: true, club: 'driver' });
+  assert(s.includes('·'), 'expected · separator');
+  assert(s.includes('2 putts'), 'expected putts');
+  assert(s.includes('GIR'), 'expected GIR');
+  assert(s.includes('Driver'), 'expected club');
+});
+
+suite('detail fields preserved when score updated');
+test('adjScore preserves putts', () => {
+  resetState();
+  const r = makeRound18();
+  saveRound(r, 'round_created');
+  S.roundId = 'r1'; S.hole = 1;
+  r.scores.p1[1] = { s: 4, putts: 2 };
+  saveRound(r);
+  adjScore('p1', 1);
+  const updated = loadRounds().find(x => x.id === 'r1');
+  eq(updated.scores.p1[1].putts, 2, 'putts should be preserved');
+  eq(updated.scores.p1[1].s, 5, 'score should be incremented');
+});
+test('adjScore preserves gir and fh', () => {
+  resetState();
+  const r = makeRound18();
+  saveRound(r, 'round_created');
+  S.roundId = 'r1'; S.hole = 2;
+  r.scores.p1[2] = { s: 5, gir: false, fh: 'left' };
+  saveRound(r);
+  adjScore('p1', -1);
+  const updated = loadRounds().find(x => x.id === 'r1');
+  eq(updated.scores.p1[2].gir, false, 'gir should be preserved');
+  eq(updated.scores.p1[2].fh, 'left', 'fh should be preserved');
+  eq(updated.scores.p1[2].s, 4, 'score should be decremented');
 });
 
 // ═════════════════════════════════════════════════════════════════════════════

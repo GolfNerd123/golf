@@ -968,6 +968,51 @@
   .np-cancel { background: #fff0f0; color: #c84b11; grid-column: span 4; padding: 13px; font-size: 15px; }
   .np-cancel:active { background: #c84b11; color: #fff; }
 
+  /* Hole detail bottom sheet */
+  .detail-dim { position: fixed; inset: 0; background: rgba(0,0,0,.38); z-index: 199; touch-action: none; }
+  .detail-sheet {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 200;
+    background: #fff; border-radius: 22px 22px 0 0;
+    box-shadow: 0 -4px 28px rgba(0,0,0,.18);
+    padding: 16px 16px;
+    padding-bottom: max(24px, var(--safe-bottom));
+    max-height: 82vh; overflow-y: auto;
+  }
+  .detail-hdr { font-size: 13px; font-weight: 700; color: var(--green); text-align: center; margin-bottom: 16px; }
+  .detail-section { margin-bottom: 14px; }
+  .detail-lbl { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 7px; }
+  .detail-stepper { display: flex; align-items: center; gap: 14px; }
+  .detail-step-btn {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: var(--green); border: none; color: #fff;
+    font-size: 22px; font-weight: 300; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent; flex-shrink: 0;
+  }
+  .detail-step-btn:active { opacity: .75; }
+  .detail-step-val { font-size: 22px; font-weight: 800; min-width: 36px; text-align: center; color: var(--text); }
+  .detail-step-val.nil { color: #ccc; }
+  .detail-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+  .detail-chip {
+    padding: 8px 14px; background: #f4f4ef; border: 2px solid transparent;
+    border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent; color: #444;
+  }
+  .detail-chip.sel { background: var(--green); color: #fff; border-color: var(--green); }
+  .detail-chip:active { opacity: .72; }
+  .detail-note {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 10px; font-size: 14px; resize: none; font-family: inherit;
+    outline: none; color: var(--text); background: #fff;
+  }
+  .detail-note:focus { border-color: var(--green-mid); }
+  .detail-done { width: 100%; margin-top: 16px; }
+  .p-detail-row {
+    font-size: 11px; color: var(--green-mid); cursor: pointer; padding-top: 3px;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent; user-select: none;
+  }
+  .p-detail-row:active { opacity: .65; }
+
   /* Standings / 9-hole / comment overlays */
   .sc-top-bar { padding: 8px 16px 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .standings-btn {
@@ -1266,6 +1311,7 @@ const S = {
   ce: null,
   summaryPlayer: null,
   numpadPid: null,
+  detailPid: null,
   showLayout: false,
   showRoundSummary: false,
   showNineHoleSummary: false,
@@ -1724,6 +1770,23 @@ function netTotal(round, pid) {
     net += g - siStrokes(chcp, hole.si, nh);
   }
   return net;
+}
+
+// ═══════════════════════════════════════════
+// HOLE DETAIL HELPERS
+// ═══════════════════════════════════════════
+function holeDetailSummary(d) {
+  if (!d) return null;
+  const parts = [];
+  if (d.putts != null) parts.push(d.putts + (d.putts === 1 ? ' putt' : ' putts'));
+  if (d.fh) parts.push({ hit: 'FW ✓', left: 'FW left', right: 'FW right' }[d.fh] || d.fh);
+  if (d.gir === true)  parts.push('GIR ✓');
+  if (d.gir === false) parts.push('No GIR');
+  if (d.pen) parts.push(d.pen + (d.pen === 1 ? ' penalty' : ' penalties'));
+  if (d.club) parts.push({ driver:'Driver','3w':'3W','5w':'5W',hyb:'Hybrid',iron:'Iron',layup:'Lay-up' }[d.club] || d.club);
+  if (d.dir)  parts.push({ left:'◀L',str:'Straight',right:'R▶',pull:'Pull',push:'Push' }[d.dir] || d.dir);
+  if (d.note) parts.push('📝');
+  return parts.length ? parts.join(' · ') : null;
 }
 
 // ═══════════════════════════════════════════
@@ -3385,6 +3448,9 @@ function renderScorecard(c) {
     }
 
     const infoLine = [runLine, netLine].filter(Boolean).join(' &middot; ');
+    const hd = round.scores[p.id]?.[S.hole] || {};
+    const detailSummary = holeDetailSummary(hd);
+    const detailRowTxt = detailSummary ? esc(detailSummary) : '+ Add details';
     return `<div class="p-card">
       <div class="p-card-top">
         <div class="p-name">${esc(p.name)}${roleBadge}${strokeBadge}</div>
@@ -3399,6 +3465,7 @@ function renderScorecard(c) {
         </div>
       </div>
       ${infoLine ? `<div class="p-info">${infoLine}</div>` : ''}
+      <div class="p-detail-row" onclick="openHoleDetail('${p.id}')">${detailRowTxt}</div>
     </div>`;
   }).join('');
 
@@ -3420,6 +3487,84 @@ function renderScorecard(c) {
     </div>` : '';
 
   const isCompact = round.players.length >= 3;
+
+  // Hole detail sheet
+  const detailPl = S.detailPid ? round.players.find(p => p.id === S.detailPid) : null;
+  const detailSc = detailPl ? (round.scores[S.detailPid]?.[S.hole] || {}) : {};
+  const detailSheet = detailPl ? (() => {
+    const isPar45 = hole.par >= 4;
+    const clubs = [['driver','Driver'],['3w','3-Wood'],['5w','5-Wood'],['hyb','Hybrid'],['iron','Iron'],['layup','Lay-up']];
+    const dirs   = [['left','◀ Left'],['str','Straight'],['right','Right ▶'],['pull','Pull'],['push','Push']];
+    const puttsVal = detailSc.putts != null ? detailSc.putts : null;
+    const penVal   = detailSc.pen   != null ? detailSc.pen   : 0;
+    return `
+    <div class="detail-dim" onclick="closeHoleDetail()"></div>
+    <div class="detail-sheet" onclick="event.stopPropagation()">
+      <div class="detail-hdr">${esc(detailPl.name.split(' ')[0])} &mdash; Hole ${S.hole} Details</div>
+
+      <div class="detail-section">
+        <div class="detail-lbl">Putts</div>
+        <div class="detail-stepper">
+          <button class="detail-step-btn" onclick="stepHoleDetail('${S.detailPid}','putts',-1,0,9)">&#8722;</button>
+          <div class="detail-step-val${puttsVal===null?' nil':''}">${puttsVal !== null ? puttsVal : '&mdash;'}</div>
+          <button class="detail-step-btn" onclick="stepHoleDetail('${S.detailPid}','putts',1,0,9)">+</button>
+        </div>
+      </div>
+
+      ${isPar45 ? `
+      <div class="detail-section">
+        <div class="detail-lbl">Fairway</div>
+        <div class="detail-chips">
+          ${[['left','◀ Left'],['hit','✓ Hit'],['right','Right ▶']].map(([v,l]) =>
+            `<button class="detail-chip${detailSc.fh===v?' sel':''}" onclick="setHoleDetail('${S.detailPid}','fh','${v}')">${l}</button>`
+          ).join('')}
+        </div>
+      </div>` : ''}
+
+      <div class="detail-section">
+        <div class="detail-lbl">Green in Regulation</div>
+        <div class="detail-chips">
+          <button class="detail-chip${detailSc.gir===true?' sel':''}" onclick="setHoleDetail('${S.detailPid}','gir',true)">✓ Hit GIR</button>
+          <button class="detail-chip${detailSc.gir===false?' sel':''}" onclick="setHoleDetail('${S.detailPid}','gir',false)">&#10005; Missed</button>
+        </div>
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-lbl">Penalty Strokes</div>
+        <div class="detail-stepper">
+          <button class="detail-step-btn" onclick="stepHoleDetail('${S.detailPid}','pen',-1,0,9)">&#8722;</button>
+          <div class="detail-step-val">${penVal}</div>
+          <button class="detail-step-btn" onclick="stepHoleDetail('${S.detailPid}','pen',1,0,9)">+</button>
+        </div>
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-lbl">Tee Club</div>
+        <div class="detail-chips">
+          ${clubs.map(([v,l]) =>
+            `<button class="detail-chip${detailSc.club===v?' sel':''}" onclick="setHoleDetail('${S.detailPid}','club','${v}')">${l}</button>`
+          ).join('')}
+        </div>
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-lbl">Shot Shape / Miss Direction</div>
+        <div class="detail-chips">
+          ${dirs.map(([v,l]) =>
+            `<button class="detail-chip${detailSc.dir===v?' sel':''}" onclick="setHoleDetail('${S.detailPid}','dir','${v}')">${l}</button>`
+          ).join('')}
+        </div>
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-lbl">Notes</div>
+        <textarea class="detail-note" rows="2" placeholder="Anything to remember about this hole..."
+          oninput="saveHoleNoteOnly('${S.detailPid}',this.value)">${esc(detailSc.note||'')}</textarea>
+      </div>
+
+      <button class="btn btn-green detail-done" onclick="closeHoleDetail()">Done</button>
+    </div>`;
+  })() : '';
 
   const layoutModal = S.showLayout ? `
     <div class="layout-dim" onclick="closeHoleLayout()">
@@ -3515,6 +3660,7 @@ function renderScorecard(c) {
     ${strokesCardOverlay}
     ${nineHoleOverlay}
     ${commentSheet}
+    ${detailSheet}
   </div>`;
 }
 
@@ -3570,7 +3716,7 @@ function adjScore(pid, delta) {
     );
     if (!hasNonTenScore) round.backNineFirst = true;
   }
-  round.scores[pid][S.hole] = { s: next };
+  round.scores[pid][S.hole] = { ...(round.scores[pid][S.hole] || {}), s: next };
   saveRound(round);
   if (navigator.vibrate) navigator.vibrate(8);
   renderScorecard(document.getElementById('main'));
@@ -3602,11 +3748,52 @@ function setScoreNumpad(pid, score) {
     );
     if (!hasNonTenScore) round.backNineFirst = true;
   }
-  round.scores[pid][S.hole] = { s: score };
+  round.scores[pid][S.hole] = { ...(round.scores[pid][S.hole] || {}), s: score };
   saveRound(round);
   S.numpadPid = null;
   if (navigator.vibrate) navigator.vibrate(8);
   renderScorecard(document.getElementById('main'));
+}
+
+function openHoleDetail(pid) {
+  S.detailPid = pid;
+  S.numpadPid = null;
+  renderScorecard(document.getElementById('main'));
+}
+
+function closeHoleDetail() {
+  S.detailPid = null;
+  renderScorecard(document.getElementById('main'));
+}
+
+function setHoleDetail(pid, field, value) {
+  const round = byId(S.roundId);
+  if (!round) return;
+  if (!round.scores[pid]) round.scores[pid] = {};
+  if (!round.scores[pid][S.hole]) round.scores[pid][S.hole] = {};
+  round.scores[pid][S.hole][field] = value;
+  saveRound(round);
+  renderScorecard(document.getElementById('main'));
+}
+
+function stepHoleDetail(pid, field, delta, min, max) {
+  const round = byId(S.roundId);
+  if (!round) return;
+  if (!round.scores[pid]) round.scores[pid] = {};
+  if (!round.scores[pid][S.hole]) round.scores[pid][S.hole] = {};
+  const cur = round.scores[pid][S.hole][field] ?? 0;
+  round.scores[pid][S.hole][field] = Math.min(max, Math.max(min, cur + delta));
+  saveRound(round);
+  renderScorecard(document.getElementById('main'));
+}
+
+function saveHoleNoteOnly(pid, note) {
+  const round = byId(S.roundId);
+  if (!round) return;
+  if (!round.scores[pid]) round.scores[pid] = {};
+  if (!round.scores[pid][S.hole]) round.scores[pid][S.hole] = {};
+  round.scores[pid][S.hole].note = note;
+  saveRound(round);
 }
 
 function setWolfDecision(holeN, partnerPid) {
@@ -6102,6 +6289,10 @@ function renderChangelog(c) {
   }
 
   const html = [
+    section('July 2026', [
+      entry('new',  '📋', 'Hole-by-hole shot details',
+        'Each player can now record detailed stats for every hole: putts, fairway hit (left/right/hit), green in regulation, penalty strokes, tee club used, shot shape/miss direction, and a free-text note. Tap "+ Add details" under any player\'s score to open the detail sheet.'),
+    ]),
     section('June 2026', [
       entry('new',  '🔄', 'Start from the 10th hole',
         'If you begin scoring on hole 10, the app now detects that you\'re playing back nine first and adapts automatically — navigation wraps from 18 to 1, the nine-hole summary appears at the turn (after 18), and the round closes after hole 9.'),
