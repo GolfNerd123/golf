@@ -6593,6 +6593,10 @@ function renderChangelog(c) {
 
   const html = [
     section('July 2026', [
+      entry('new',  '🏌️', 'Approach shot tracking',
+        'The hole detail sheet now lets you record your approach club (long iron / mid iron / short iron / wedge / chip), approach direction (on green / straight / left / right), and whether you were short or long. All three appear in Shot Detail Stats with bar charts.'),
+      entry('fix',  '⛳', 'Putt miss split into direction and distance',
+        'Missed putt tracking is now two separate chip rows — direction (left / straight / right) and distance (short / long) — so you can record e.g. "right, short" independently. Both appear in Shot Detail Stats.'),
       entry('new',  '📊', 'Per-player shot detail statistics',
         'A new Shot Detail Stats page (tap ⛳ → Statistics → Shot Detail Stats) shows putting averages, 1/2/3-putt breakdown, missed putt direction, fairway hit %, GIR %, club usage breakdown, shot shape tendencies, and penalty frequency — all aggregated from hole-by-hole data across every round.'),
       entry('new',  '📋', 'Hole-by-hole shot details',
