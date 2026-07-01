@@ -187,7 +187,11 @@ function holeDetailSummary(d) {
   const parts = [];
   if (d.putts != null) {
     let puttStr = d.putts + (d.putts === 1 ? ' putt' : ' putts');
-    if (d.puttMiss) puttStr += ' (' + { left:'◀L', right:'R▶', short:'short', long:'long' }[d.puttMiss] + ')';
+    if (d.puttMissDir || d.puttMissDist) {
+      const dir  = { left:'◀L', straight:'S', right:'R▶' }[d.puttMissDir] || '';
+      const dist = d.puttMissDist || '';
+      puttStr += ' (' + [dir, dist].filter(Boolean).join(' ') + ')';
+    }
     parts.push(puttStr);
   }
   if (d.fh) parts.push({ hit: 'FW ✓', left: 'FW left', right: 'FW right' }[d.fh] || d.fh);
@@ -196,6 +200,12 @@ function holeDetailSummary(d) {
   if (d.pen) parts.push(d.pen + (d.pen === 1 ? ' penalty' : ' penalties'));
   if (d.club) parts.push({ driver:'Driver','3w':'3W','5w':'5W',hyb:'Hybrid',iron:'Iron',layup:'Lay-up' }[d.club] || d.club);
   if (d.dir)  parts.push({ left:'◀L',str:'Straight',right:'R▶',pull:'Pull',push:'Push' }[d.dir] || d.dir);
+  if (d.approachClub || d.approachDir || d.approachDist) {
+    const ac = { 'long-iron':'Li','mid-iron':'Mi','short-iron':'Si',wedge:'W',chip:'Ch' }[d.approachClub] || '';
+    const ad = { left:'◀L', straight:'S', right:'R▶', on:'✓' }[d.approachDir] || '';
+    const adt = d.approachDist || '';
+    parts.push('Appr:' + [ac, ad, adt].filter(Boolean).join(' '));
+  }
   if (d.note) parts.push('📝');
   return parts.length ? parts.join(' · ') : null;
 }
@@ -204,12 +214,16 @@ function buildShotStats(rounds, playerName) {
   const out = {
     rounds: done.length, holesWithData: 0,
     puttHoles: 0, totalPutts: 0, putts1: 0, putts2: 0, putts3p: 0,
-    puttMiss: { left: 0, right: 0, short: 0, long: 0 }, puttMissTotal: 0,
+    puttMissDir: { left: 0, straight: 0, right: 0 }, puttMissDirTotal: 0,
+    puttMissDist: { short: 0, long: 0 }, puttMissDistTotal: 0,
     fhOpp: 0, fhHit: 0, fhLeft: 0, fhRight: 0,
     girOpp: 0, girHit: 0,
     penHoles: 0, penTotal: 0,
     clubs: { driver:0,'3w':0,'5w':0,hyb:0,iron:0,layup:0 }, clubTotal: 0,
     dirs: { left:0,str:0,right:0,pull:0,push:0 }, dirTotal: 0,
+    approachClubs: { 'long-iron':0,'mid-iron':0,'short-iron':0,wedge:0,chip:0 }, approachClubTotal: 0,
+    approachDir: { left:0,straight:0,right:0,on:0 }, approachDirTotal: 0,
+    approachDist: { short:0,long:0 }, approachDistTotal: 0,
   };
   for (const r of done) {
     const p = r.players.find(pl => pl.name === playerName);
@@ -217,14 +231,15 @@ function buildShotStats(rounds, playerName) {
     for (const hole of r.holes) {
       const d = r.scores[p.id]?.[hole.n];
       if (!d) continue;
-      const hasAny = d.putts != null || d.puttMiss || d.fh || d.gir != null || d.pen != null || d.club || d.dir;
+      const hasAny = d.putts != null || d.puttMissDir || d.puttMissDist || d.fh || d.gir != null || d.pen != null || d.club || d.dir || d.approachClub || d.approachDir || d.approachDist;
       if (!hasAny) continue;
       out.holesWithData++;
       if (d.putts != null) {
         out.puttHoles++; out.totalPutts += d.putts;
         if (d.putts <= 1) out.putts1++; else if (d.putts === 2) out.putts2++; else out.putts3p++;
       }
-      if (d.puttMiss && d.puttMiss in out.puttMiss) { out.puttMiss[d.puttMiss]++; out.puttMissTotal++; }
+      if (d.puttMissDir  && d.puttMissDir  in out.puttMissDir)  { out.puttMissDir[d.puttMissDir]++;   out.puttMissDirTotal++;  }
+      if (d.puttMissDist && d.puttMissDist in out.puttMissDist) { out.puttMissDist[d.puttMissDist]++; out.puttMissDistTotal++; }
       if (hole.par >= 4 && d.fh) {
         out.fhOpp++;
         if (d.fh === 'hit') out.fhHit++; else if (d.fh === 'left') out.fhLeft++; else if (d.fh === 'right') out.fhRight++;
@@ -233,6 +248,9 @@ function buildShotStats(rounds, playerName) {
       if (d.pen != null && d.pen > 0) { out.penHoles++; out.penTotal += d.pen; }
       if (d.club && d.club in out.clubs) { out.clubs[d.club]++; out.clubTotal++; }
       if (d.dir  && d.dir  in out.dirs)  { out.dirs[d.dir]++;   out.dirTotal++;  }
+      if (d.approachClub && d.approachClub in out.approachClubs) { out.approachClubs[d.approachClub]++; out.approachClubTotal++; }
+      if (d.approachDir  && d.approachDir  in out.approachDir)   { out.approachDir[d.approachDir]++;    out.approachDirTotal++;  }
+      if (d.approachDist && d.approachDist in out.approachDist)  { out.approachDist[d.approachDist]++;  out.approachDistTotal++; }
     }
   }
   out.avgPutts = out.puttHoles > 0 ? out.totalPutts / out.puttHoles : 0;
@@ -3100,11 +3118,13 @@ test('empty object → null',         () => assert(holeDetailSummary({}) === nul
 test('putts singular',              () => assert(holeDetailSummary({ putts: 1 }).includes('1 putt')));
 test('putts plural',                () => assert(holeDetailSummary({ putts: 3 }).includes('3 putts')));
 test('putts zero shows 0 putts',    () => assert(holeDetailSummary({ putts: 0 }).includes('0 putts')));
-test('puttMiss left in summary',    () => { const s = holeDetailSummary({ putts: 2, puttMiss: 'left' }); assert(s.includes('◀L'), s); });
-test('puttMiss right in summary',   () => { const s = holeDetailSummary({ putts: 2, puttMiss: 'right' }); assert(s.includes('R▶'), s); });
-test('puttMiss short in summary',   () => { const s = holeDetailSummary({ putts: 2, puttMiss: 'short' }); assert(s.includes('short'), s); });
-test('puttMiss long in summary',    () => { const s = holeDetailSummary({ putts: 2, puttMiss: 'long' }); assert(s.includes('long'), s); });
-test('puttMiss without putts not shown standalone', () => assert(!holeDetailSummary({ puttMiss: 'left' })?.includes('◀L')));
+test('puttMissDir left in summary',     () => { const s = holeDetailSummary({ putts: 2, puttMissDir: 'left' }); assert(s.includes('◀L'), s); });
+test('puttMissDir straight in summary', () => { const s = holeDetailSummary({ putts: 2, puttMissDir: 'straight' }); assert(s.includes('S'), s); });
+test('puttMissDir right in summary',    () => { const s = holeDetailSummary({ putts: 2, puttMissDir: 'right' }); assert(s.includes('R▶'), s); });
+test('puttMissDist short in summary',   () => { const s = holeDetailSummary({ putts: 2, puttMissDist: 'short' }); assert(s.includes('short'), s); });
+test('puttMissDist long in summary',    () => { const s = holeDetailSummary({ putts: 2, puttMissDist: 'long' }); assert(s.includes('long'), s); });
+test('puttMiss dir+dist combined',      () => { const s = holeDetailSummary({ putts: 2, puttMissDir: 'left', puttMissDist: 'short' }); assert(s.includes('◀L') && s.includes('short'), s); });
+test('puttMiss without putts not shown standalone', () => assert(!holeDetailSummary({ puttMissDir: 'left' })?.includes('◀L')));
 test('fh hit',                      () => assert(holeDetailSummary({ fh: 'hit' }).includes('FW ✓')));
 test('fh left',                     () => assert(holeDetailSummary({ fh: 'left' }).includes('FW left')));
 test('fh right',                    () => assert(holeDetailSummary({ fh: 'right' }).includes('FW right')));
@@ -3163,15 +3183,25 @@ test('1-putt / 2-putt / 3-putt+ buckets', () => {
   const st = buildShotStats(loadRounds(), 'Alice');
   eq(st.putts1, 1); eq(st.putts2, 1); eq(st.putts3p, 2);
 });
-test('puttMiss accumulated', () => {
+test('puttMissDir accumulated', () => {
   resetState();
   const r = makeDoneRound();
-  r.scores.p1[1] = { s: 4, putts: 2, puttMiss: 'left' };
-  r.scores.p1[2] = { s: 4, putts: 2, puttMiss: 'short' };
-  r.scores.p1[3] = { s: 4, putts: 2, puttMiss: 'left' };
+  r.scores.p1[1] = { s: 4, putts: 2, puttMissDir: 'left' };
+  r.scores.p1[2] = { s: 4, putts: 2, puttMissDir: 'right' };
+  r.scores.p1[3] = { s: 4, putts: 2, puttMissDir: 'left' };
   saveRound(r, 'round_created');
   const st = buildShotStats(loadRounds(), 'Alice');
-  eq(st.puttMiss.left, 2); eq(st.puttMiss.short, 1); eq(st.puttMissTotal, 3);
+  eq(st.puttMissDir.left, 2); eq(st.puttMissDir.right, 1); eq(st.puttMissDirTotal, 3);
+});
+test('puttMissDist accumulated', () => {
+  resetState();
+  const r = makeDoneRound();
+  r.scores.p1[1] = { s: 4, putts: 2, puttMissDist: 'short' };
+  r.scores.p1[2] = { s: 4, putts: 2, puttMissDist: 'long' };
+  r.scores.p1[3] = { s: 4, putts: 2, puttMissDist: 'short' };
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.puttMissDist.short, 2); eq(st.puttMissDist.long, 1); eq(st.puttMissDistTotal, 3);
 });
 test('fairway hit/left/right — par 4 only', () => {
   resetState();
@@ -3231,6 +3261,35 @@ test('non-done rounds excluded', () => {
   saveRound(r, 'round_created');
   const st = buildShotStats(loadRounds(), 'Alice');
   eq(st.rounds, 0); eq(st.puttHoles, 0);
+});
+test('approach club tracked', () => {
+  resetState();
+  const r = makeDoneRound();
+  r.scores.p1[1] = { s: 4, approachClub: 'wedge' };
+  r.scores.p1[2] = { s: 4, approachClub: 'mid-iron' };
+  r.scores.p1[3] = { s: 3, approachClub: 'wedge' };
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.approachClubs.wedge, 2); eq(st.approachClubs['mid-iron'], 1); eq(st.approachClubTotal, 3);
+});
+test('approach dir tracked', () => {
+  resetState();
+  const r = makeDoneRound();
+  r.scores.p1[1] = { s: 4, approachDir: 'on' };
+  r.scores.p1[2] = { s: 5, approachDir: 'left' };
+  r.scores.p1[3] = { s: 4, approachDir: 'on' };
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.approachDir.on, 2); eq(st.approachDir.left, 1); eq(st.approachDirTotal, 3);
+});
+test('approach dist tracked', () => {
+  resetState();
+  const r = makeDoneRound();
+  r.scores.p1[1] = { s: 4, approachDist: 'short' };
+  r.scores.p1[2] = { s: 5, approachDist: 'long' };
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.approachDist.short, 1); eq(st.approachDist.long, 1); eq(st.approachDistTotal, 2);
 });
 test('holes with no detail data are skipped', () => {
   resetState();
