@@ -1007,11 +1007,34 @@
   }
   .detail-note:focus { border-color: var(--green-mid); }
   .detail-done { width: 100%; margin-top: 16px; }
-  .p-detail-row {
-    font-size: 11px; color: var(--green-mid); cursor: pointer; padding-top: 3px;
-    touch-action: manipulation; -webkit-tap-highlight-color: transparent; user-select: none;
+  .p-name-wrap { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; }
+  .p-detail-btn {
+    background: #e8f5ee; border: none; border-radius: 8px;
+    padding: 4px 7px; font-size: 15px; line-height: 1; cursor: pointer;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent; flex-shrink: 0;
   }
-  .p-detail-row:active { opacity: .65; }
+  .p-detail-btn.has-data { background: var(--green-mid); }
+  .p-detail-btn:active { opacity: .7; }
+
+  /* Shot detail statistics page */
+  #view-shotdetail { padding: 14px; padding-bottom: 48px; }
+  .sd-empty { text-align: center; padding: 40px 24px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+  .sd-bar-row { display: flex; align-items: center; gap: 7px; margin-bottom: 9px; }
+  .sd-bar-lbl { font-size: 13px; color: #444; width: 80px; flex-shrink: 0; }
+  .sd-bar-wrap { flex: 1; height: 10px; background: #f0f0ec; border-radius: 5px; overflow: hidden; }
+  .sd-bar-fill { height: 100%; border-radius: 5px; }
+  .sd-bar-n   { font-size: 13px; font-weight: 700; width: 24px; text-align: right; flex-shrink: 0; }
+  .sd-bar-pct { font-size: 11px; color: #aaa; width: 32px; text-align: right; flex-shrink: 0; }
+  .sd-card { background: #fff; border-radius: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.07); padding: 14px; margin-bottom: 22px; }
+  .sd-card-foot { font-size: 11px; color: #bbb; text-align: center; margin-top: 6px; }
+  .sd-shot-btn {
+    display: inline-block; padding: 9px 18px; background: rgba(255,255,255,.18);
+    border: 1.5px solid rgba(255,255,255,.4); border-radius: 20px;
+    color: #fff; font-size: 13px; font-weight: 700; cursor: pointer;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+    text-decoration: none; margin-top: 10px;
+  }
+  .sd-shot-btn:active { opacity: .75; }
 
   /* Standings / 9-hole / comment overlays */
   .sc-top-bar { padding: 8px 16px 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
@@ -1312,6 +1335,7 @@ const S = {
   summaryPlayer: null,
   numpadPid: null,
   detailPid: null,
+  shotDetailPlayer: null,
   showLayout: false,
   showRoundSummary: false,
   showNineHoleSummary: false,
@@ -1778,7 +1802,11 @@ function netTotal(round, pid) {
 function holeDetailSummary(d) {
   if (!d) return null;
   const parts = [];
-  if (d.putts != null) parts.push(d.putts + (d.putts === 1 ? ' putt' : ' putts'));
+  if (d.putts != null) {
+    let puttStr = d.putts + (d.putts === 1 ? ' putt' : ' putts');
+    if (d.puttMiss) puttStr += ' (' + { left:'◀L', right:'R▶', short:'short', long:'long' }[d.puttMiss] + ')';
+    parts.push(puttStr);
+  }
   if (d.fh) parts.push({ hit: 'FW ✓', left: 'FW left', right: 'FW right' }[d.fh] || d.fh);
   if (d.gir === true)  parts.push('GIR ✓');
   if (d.gir === false) parts.push('No GIR');
@@ -1907,7 +1935,7 @@ function nav(view, params) {
   render();
 }
 function goBack() {
-  const map = { 'new-round':'home', players:'home', courses:'home', scorecard:'home', summary:'home', 'round-finish':'home', stats:'home' };
+  const map = { 'new-round':'home', players:'home', courses:'home', scorecard:'home', summary:'home', 'round-finish':'home', stats:'home', shotdetail:'stats' };
   nav(map[S.view] || 'home');
 }
 window.addEventListener('popstate', e => {
@@ -1931,6 +1959,7 @@ function render() {
     scorecard: S.roundId ? (byId(S.roundId)?.course || 'Scorecard') : 'Scorecard',
     summary: 'Round Summary', 'round-finish': 'Round Review',
     history: 'Change History', errors: 'Error Log', changelog: "What's New",
+    shotdetail: S.shotDetailPlayer ? esc(S.shotDetailPlayer) + ' — Shot Stats' : 'Shot Statistics',
   };
   title.textContent = titles[S.view] || 'Golf Scorecard';
   back.classList.toggle('show', S.view !== 'home');
@@ -1940,6 +1969,7 @@ function render() {
     'new-round': renderNewRound, scorecard: renderScorecard,
     summary: renderSummary, 'round-finish': renderRoundFinish, stats: renderStats,
     history: renderHistory, errors: renderErrorLog, changelog: renderChangelog,
+    shotdetail: renderShotDetail,
   };
   (views[S.view] || renderHome)(main);
 
@@ -3450,10 +3480,12 @@ function renderScorecard(c) {
     const infoLine = [runLine, netLine].filter(Boolean).join(' &middot; ');
     const hd = round.scores[p.id]?.[S.hole] || {};
     const detailSummary = holeDetailSummary(hd);
-    const detailRowTxt = detailSummary ? esc(detailSummary) : '+ Add details';
     return `<div class="p-card">
       <div class="p-card-top">
-        <div class="p-name">${esc(p.name)}${roleBadge}${strokeBadge}</div>
+        <div class="p-name-wrap">
+          <div class="p-name">${esc(p.name)}${roleBadge}${strokeBadge}</div>
+          <button class="p-detail-btn${detailSummary?' has-data':''}" onclick="openHoleDetail('${p.id}')" title="${detailSummary ? esc(detailSummary) : 'Add hole details'}">&#9971;</button>
+        </div>
         <div class="score-ctrl">
           <button class="sc-btn" onclick="adjScore('${p.id}',-1)">&#8722;</button>
           <div class="sc-circle" style="border-color:${col}" onclick="openNumpad('${p.id}')">
@@ -3465,7 +3497,6 @@ function renderScorecard(c) {
         </div>
       </div>
       ${infoLine ? `<div class="p-info">${infoLine}</div>` : ''}
-      <div class="p-detail-row" onclick="openHoleDetail('${p.id}')">${detailRowTxt}</div>
     </div>`;
   }).join('');
 
@@ -3508,6 +3539,15 @@ function renderScorecard(c) {
           <button class="detail-step-btn" onclick="stepHoleDetail('${S.detailPid}','putts',-1,0,9)">&#8722;</button>
           <div class="detail-step-val${puttsVal===null?' nil':''}">${puttsVal !== null ? puttsVal : '&mdash;'}</div>
           <button class="detail-step-btn" onclick="stepHoleDetail('${S.detailPid}','putts',1,0,9)">+</button>
+        </div>
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-lbl">Missed Putt Direction</div>
+        <div class="detail-chips">
+          ${[['left','◀ Left'],['right','Right ▶'],['short','Short'],['long','Long']].map(([v,l]) =>
+            `<button class="detail-chip${detailSc.puttMiss===v?' sel':''}" onclick="setHoleDetail('${S.detailPid}','puttMiss','${v}')">${l}</button>`
+          ).join('')}
         </div>
       </div>
 
@@ -5307,6 +5347,182 @@ function rivalrySectionHtml(rounds) {
   </div>`;
 }
 
+// ═══════════════════════════════════════════
+// SHOT DETAIL STATISTICS
+// ═══════════════════════════════════════════
+function buildShotStats(rounds, playerName) {
+  const done = rounds.filter(r => r.done && r.players.some(p => p.name === playerName));
+  const out = {
+    rounds: done.length, holesWithData: 0,
+    puttHoles: 0, totalPutts: 0, putts1: 0, putts2: 0, putts3p: 0,
+    puttMiss: { left: 0, right: 0, short: 0, long: 0 }, puttMissTotal: 0,
+    fhOpp: 0, fhHit: 0, fhLeft: 0, fhRight: 0,
+    girOpp: 0, girHit: 0,
+    penHoles: 0, penTotal: 0,
+    clubs: { driver:0,'3w':0,'5w':0,hyb:0,iron:0,layup:0 }, clubTotal: 0,
+    dirs: { left:0,str:0,right:0,pull:0,push:0 }, dirTotal: 0,
+  };
+  for (const r of done) {
+    const p = r.players.find(pl => pl.name === playerName);
+    if (!p) continue;
+    for (const hole of r.holes) {
+      const d = r.scores[p.id]?.[hole.n];
+      if (!d) continue;
+      const hasAny = d.putts != null || d.puttMiss || d.fh || d.gir != null || d.pen != null || d.club || d.dir;
+      if (!hasAny) continue;
+      out.holesWithData++;
+      if (d.putts != null) {
+        out.puttHoles++;
+        out.totalPutts += d.putts;
+        if (d.putts <= 1) out.putts1++;
+        else if (d.putts === 2) out.putts2++;
+        else out.putts3p++;
+      }
+      if (d.puttMiss && d.puttMiss in out.puttMiss) { out.puttMiss[d.puttMiss]++; out.puttMissTotal++; }
+      if (hole.par >= 4 && d.fh) {
+        out.fhOpp++;
+        if (d.fh === 'hit') out.fhHit++;
+        else if (d.fh === 'left') out.fhLeft++;
+        else if (d.fh === 'right') out.fhRight++;
+      }
+      if (d.gir != null) { out.girOpp++; if (d.gir) out.girHit++; }
+      if (d.pen != null && d.pen > 0) { out.penHoles++; out.penTotal += d.pen; }
+      if (d.club && d.club in out.clubs) { out.clubs[d.club]++; out.clubTotal++; }
+      if (d.dir  && d.dir  in out.dirs)  { out.dirs[d.dir]++;   out.dirTotal++;  }
+    }
+  }
+  out.avgPutts = out.puttHoles > 0 ? out.totalPutts / out.puttHoles : 0;
+  return out;
+}
+
+function navShotDetail(name) {
+  S.shotDetailPlayer = name;
+  nav('shotdetail');
+}
+
+function renderShotDetail(c) {
+  const rounds = loadRounds();
+  const name   = S.shotDetailPlayer;
+  if (!name) { nav('stats'); return; }
+
+  const st = buildShotStats(rounds, name);
+
+  function pct(n, d) { return d > 0 ? (n / d * 100).toFixed(0) + '%' : '—'; }
+  function barRow(label, n, total, color) {
+    const p = total > 0 ? n / total * 100 : 0;
+    return `<div class="sd-bar-row">
+      <div class="sd-bar-lbl">${label}</div>
+      <div class="sd-bar-wrap"><div class="sd-bar-fill" style="width:${p}%;background:${color}"></div></div>
+      <div class="sd-bar-n">${n}</div>
+      <div class="sd-bar-pct">${total > 0 ? p.toFixed(0)+'%' : '—'}</div>
+    </div>`;
+  }
+  function statBox(val, lbl, sub) {
+    return `<div class="stat-box"><div class="sb-val">${val}</div><div class="sb-lbl">${lbl}</div>${sub ? `<div class="sb-sub">${sub}</div>` : ''}</div>`;
+  }
+
+  // PUTTING
+  const puttSection = st.puttHoles > 0 ? `
+    <div class="sec">&#9971; Putting</div>
+    <div class="stat-grid">
+      ${statBox(st.avgPutts.toFixed(2), 'Avg Putts / Hole')}
+      ${statBox(pct(st.putts1, st.puttHoles), '1-Putt %', st.putts1 + ' holes')}
+      ${statBox(pct(st.putts2, st.puttHoles), '2-Putt %', st.putts2 + ' holes')}
+      ${statBox(pct(st.putts3p, st.puttHoles), '3-Putt+ %', st.putts3p + ' holes')}
+    </div>
+    ${st.puttMissTotal > 0 ? `
+    <div class="sd-card">
+      <div class="chart-title">Missed Putt Direction</div>
+      ${barRow('◀ Left',  st.puttMiss.left,  st.puttMissTotal, '#3b82f6')}
+      ${barRow('Right ▶', st.puttMiss.right, st.puttMissTotal, '#f59e0b')}
+      ${barRow('Short',   st.puttMiss.short, st.puttMissTotal, '#e63946')}
+      ${barRow('Long',    st.puttMiss.long,  st.puttMissTotal, '#8b5cf6')}
+      <div class="sd-card-foot">${st.puttMissTotal} missed putts recorded</div>
+    </div>` : '<p style="font-size:13px;color:var(--muted);margin-bottom:22px">No missed putt direction data yet.</p>'}
+  ` : '';
+
+  // FAIRWAY
+  const fwSection = st.fhOpp > 0 ? `
+    <div class="sec">&#127939; Fairways (Par 4 &amp; 5)</div>
+    <div class="stat-grid">
+      ${statBox(pct(st.fhHit, st.fhOpp), 'Fairway Hit %', st.fhHit + ' / ' + st.fhOpp)}
+      ${statBox(pct(st.fhLeft + st.fhRight, st.fhOpp), 'Missed %', (st.fhLeft + st.fhRight) + ' holes')}
+    </div>
+    <div class="sd-card">
+      <div class="chart-title">Fairway Result</div>
+      ${barRow('✓ Hit',    st.fhHit,   st.fhOpp, '#2d6a4f')}
+      ${barRow('◀ Left',  st.fhLeft,  st.fhOpp, '#3b82f6')}
+      ${barRow('Right ▶', st.fhRight, st.fhOpp, '#f59e0b')}
+      <div class="sd-card-foot">${st.fhOpp} par-4/5 holes recorded</div>
+    </div>
+  ` : '';
+
+  // GIR
+  const girSection = st.girOpp > 0 ? `
+    <div class="sec">&#127919; Greens in Regulation</div>
+    <div class="stat-grid">
+      ${statBox(pct(st.girHit, st.girOpp), 'GIR %', st.girHit + ' / ' + st.girOpp + ' holes')}
+      ${statBox(pct(st.girOpp - st.girHit, st.girOpp), 'Missed GIR %', (st.girOpp - st.girHit) + ' holes')}
+    </div>
+  ` : '';
+
+  // CLUBS
+  const clubLabels = { driver:'Driver','3w':'3-Wood','5w':'5-Wood',hyb:'Hybrid',iron:'Iron',layup:'Lay-up' };
+  const clubSection = st.clubTotal > 0 ? `
+    <div class="sec">&#127933; Tee Clubs</div>
+    <div class="sd-card">
+      <div class="chart-title">Club Usage (${st.clubTotal} holes)</div>
+      ${Object.entries(st.clubs).filter(([,n]) => n > 0)
+        .sort(([,a],[,b]) => b - a)
+        .map(([k,n]) => barRow(clubLabels[k]||k, n, st.clubTotal, '#1a4731')).join('')}
+    </div>
+  ` : '';
+
+  // SHOT DIRECTION
+  const dirLabels = { left:'◀ Left',str:'Straight',right:'Right ▶',pull:'Pull',push:'Push' };
+  const dirColors = { left:'#3b82f6',str:'#2d6a4f',right:'#f59e0b',pull:'#e63946',push:'#8b5cf6' };
+  const dirSection = st.dirTotal > 0 ? `
+    <div class="sec">&#127992; Shot Shape / Miss Direction</div>
+    <div class="sd-card">
+      <div class="chart-title">Shot Shape (${st.dirTotal} holes)</div>
+      ${Object.entries(st.dirs).filter(([,n]) => n > 0)
+        .sort(([,a],[,b]) => b - a)
+        .map(([k,n]) => barRow(dirLabels[k]||k, n, st.dirTotal, dirColors[k]||'#888')).join('')}
+    </div>
+  ` : '';
+
+  // PENALTIES
+  const penSection = st.penHoles > 0 ? `
+    <div class="sec">&#128683; Penalties</div>
+    <div class="stat-grid">
+      ${statBox(st.penTotal, 'Total Penalties')}
+      ${statBox(st.penHoles, 'Holes with Penalty')}
+      ${statBox((st.penTotal / st.rounds).toFixed(1), 'Avg per Round')}
+      ${statBox(pct(st.penHoles, st.holesWithData), '% Holes Penalized')}
+    </div>
+  ` : '';
+
+  const noData = !puttSection && !fwSection && !girSection && !clubSection && !dirSection && !penSection;
+
+  c.innerHTML = `<div id="view-shotdetail">
+    <div style="background:var(--green);padding:16px 14px 20px">
+      <div class="banner" style="margin:0;background:none;padding:0">
+        <h2 style="font-size:19px">${esc(name)}</h2>
+        <p>${st.holesWithData} hole${st.holesWithData!==1?'s':''} with detail data &middot; ${st.rounds} round${st.rounds!==1?'s':''}</p>
+      </div>
+    </div>
+    <div style="padding:14px;padding-bottom:48px">
+      ${noData ? `<div class="sd-empty">No shot detail data recorded yet for ${esc(name)}.<br><br>Tap the &#9971; icon on any hole during a round to add details like putts, fairway, club used, and shot shape.</div>` : ''}
+      ${puttSection}
+      ${fwSection}
+      ${girSection}
+      ${clubSection}
+      ${dirSection}
+      ${penSection}
+    </div>
+  </div>`;
+}
+
 function renderStats(c) {
   const rounds = loadRounds().filter(r => r.done);
   const currentNames = new Set(loadPlayers().map(p => p.name));
@@ -5569,6 +5785,7 @@ function renderStats(c) {
       <div class="banner" style="margin-bottom:16px">
         <h2>${esc(selPs.name)}</h2>
         <p>${totalUniqueRounds} round${totalUniqueRounds!==1?'s':''} completed</p>
+        <button class="sd-shot-btn" onclick="navShotDetail(${qname(selPs.name)})">&#9971; Shot Detail Stats &#8594;</button>
       </div>
       ${hcpSuggestSection}
       ${strokeSection}
@@ -6290,8 +6507,10 @@ function renderChangelog(c) {
 
   const html = [
     section('July 2026', [
+      entry('new',  '📊', 'Per-player shot detail statistics',
+        'A new Shot Detail Stats page (tap ⛳ → Statistics → Shot Detail Stats) shows putting averages, 1/2/3-putt breakdown, missed putt direction, fairway hit %, GIR %, club usage breakdown, shot shape tendencies, and penalty frequency — all aggregated from hole-by-hole data across every round.'),
       entry('new',  '📋', 'Hole-by-hole shot details',
-        'Each player can now record detailed stats for every hole: putts, fairway hit (left/right/hit), green in regulation, penalty strokes, tee club used, shot shape/miss direction, and a free-text note. Tap "+ Add details" under any player\'s score to open the detail sheet.'),
+        'Each player can now record detailed stats per hole by tapping the ⛳ icon next to their name: putts, missed putt direction (left/right/short/long), fairway hit, green in regulation, penalty strokes, tee club, shot shape, and a note.'),
     ]),
     section('June 2026', [
       entry('new',  '🔄', 'Start from the 10th hole',

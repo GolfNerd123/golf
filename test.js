@@ -185,7 +185,11 @@ function siStrokes(chcp, si, nh) {
 function holeDetailSummary(d) {
   if (!d) return null;
   const parts = [];
-  if (d.putts != null) parts.push(d.putts + (d.putts === 1 ? ' putt' : ' putts'));
+  if (d.putts != null) {
+    let puttStr = d.putts + (d.putts === 1 ? ' putt' : ' putts');
+    if (d.puttMiss) puttStr += ' (' + { left:'◀L', right:'R▶', short:'short', long:'long' }[d.puttMiss] + ')';
+    parts.push(puttStr);
+  }
   if (d.fh) parts.push({ hit: 'FW ✓', left: 'FW left', right: 'FW right' }[d.fh] || d.fh);
   if (d.gir === true)  parts.push('GIR ✓');
   if (d.gir === false) parts.push('No GIR');
@@ -194,6 +198,45 @@ function holeDetailSummary(d) {
   if (d.dir)  parts.push({ left:'◀L',str:'Straight',right:'R▶',pull:'Pull',push:'Push' }[d.dir] || d.dir);
   if (d.note) parts.push('📝');
   return parts.length ? parts.join(' · ') : null;
+}
+function buildShotStats(rounds, playerName) {
+  const done = rounds.filter(r => r.done && r.players.some(p => p.name === playerName));
+  const out = {
+    rounds: done.length, holesWithData: 0,
+    puttHoles: 0, totalPutts: 0, putts1: 0, putts2: 0, putts3p: 0,
+    puttMiss: { left: 0, right: 0, short: 0, long: 0 }, puttMissTotal: 0,
+    fhOpp: 0, fhHit: 0, fhLeft: 0, fhRight: 0,
+    girOpp: 0, girHit: 0,
+    penHoles: 0, penTotal: 0,
+    clubs: { driver:0,'3w':0,'5w':0,hyb:0,iron:0,layup:0 }, clubTotal: 0,
+    dirs: { left:0,str:0,right:0,pull:0,push:0 }, dirTotal: 0,
+  };
+  for (const r of done) {
+    const p = r.players.find(pl => pl.name === playerName);
+    if (!p) continue;
+    for (const hole of r.holes) {
+      const d = r.scores[p.id]?.[hole.n];
+      if (!d) continue;
+      const hasAny = d.putts != null || d.puttMiss || d.fh || d.gir != null || d.pen != null || d.club || d.dir;
+      if (!hasAny) continue;
+      out.holesWithData++;
+      if (d.putts != null) {
+        out.puttHoles++; out.totalPutts += d.putts;
+        if (d.putts <= 1) out.putts1++; else if (d.putts === 2) out.putts2++; else out.putts3p++;
+      }
+      if (d.puttMiss && d.puttMiss in out.puttMiss) { out.puttMiss[d.puttMiss]++; out.puttMissTotal++; }
+      if (hole.par >= 4 && d.fh) {
+        out.fhOpp++;
+        if (d.fh === 'hit') out.fhHit++; else if (d.fh === 'left') out.fhLeft++; else if (d.fh === 'right') out.fhRight++;
+      }
+      if (d.gir != null) { out.girOpp++; if (d.gir) out.girHit++; }
+      if (d.pen != null && d.pen > 0) { out.penHoles++; out.penTotal += d.pen; }
+      if (d.club && d.club in out.clubs) { out.clubs[d.club]++; out.clubTotal++; }
+      if (d.dir  && d.dir  in out.dirs)  { out.dirs[d.dir]++;   out.dirTotal++;  }
+    }
+  }
+  out.avgPutts = out.puttHoles > 0 ? out.totalPutts / out.puttHoles : 0;
+  return out;
 }
 function netTotal(round, pid) {
   const player=round.players.find(p=>p.id===pid); if (!player) return 0;
@@ -3052,32 +3095,151 @@ test('buildNineHoleSummaryHTML normal round uses front-9 scores (holes 1-9)', ()
 
 // ── HOLE DETAIL SUMMARY ───────────────────────────────────────────────────────
 suite('holeDetailSummary');
-test('null/empty → null',        () => assert(holeDetailSummary(null) === null));
-test('empty object → null',      () => assert(holeDetailSummary({}) === null));
-test('putts singular',           () => assert(holeDetailSummary({ putts: 1 }).includes('1 putt')));
-test('putts plural',             () => assert(holeDetailSummary({ putts: 3 }).includes('3 putts')));
-test('putts zero shows 0 putts', () => assert(holeDetailSummary({ putts: 0 }).includes('0 putts')));
-test('fh hit',                   () => assert(holeDetailSummary({ fh: 'hit' }).includes('FW ✓')));
-test('fh left',                  () => assert(holeDetailSummary({ fh: 'left' }).includes('FW left')));
-test('fh right',                 () => assert(holeDetailSummary({ fh: 'right' }).includes('FW right')));
-test('gir true',                 () => assert(holeDetailSummary({ gir: true }).includes('GIR ✓')));
-test('gir false',                () => assert(holeDetailSummary({ gir: false }).includes('No GIR')));
-test('gir undefined not shown',  () => assert(holeDetailSummary({ putts: 2 }) === '2 putts'));
-test('penalty singular',         () => assert(holeDetailSummary({ pen: 1 }).includes('1 penalty')));
-test('penalty plural',           () => assert(holeDetailSummary({ pen: 2 }).includes('2 penalties')));
-test('pen 0 not shown',          () => assert(!holeDetailSummary({ pen: 0 })?.includes('penalt')));
-test('club driver',              () => assert(holeDetailSummary({ club: 'driver' }).includes('Driver')));
-test('club 3w',                  () => assert(holeDetailSummary({ club: '3w' }).includes('3W')));
-test('club layup',               () => assert(holeDetailSummary({ club: 'layup' }).includes('Lay-up')));
-test('dir straight',             () => assert(holeDetailSummary({ dir: 'str' }).includes('Straight')));
-test('dir pull',                 () => assert(holeDetailSummary({ dir: 'pull' }).includes('Pull')));
-test('note shows emoji',         () => assert(holeDetailSummary({ note: 'lucky!' }).includes('📝')));
+test('null/empty → null',           () => assert(holeDetailSummary(null) === null));
+test('empty object → null',         () => assert(holeDetailSummary({}) === null));
+test('putts singular',              () => assert(holeDetailSummary({ putts: 1 }).includes('1 putt')));
+test('putts plural',                () => assert(holeDetailSummary({ putts: 3 }).includes('3 putts')));
+test('putts zero shows 0 putts',    () => assert(holeDetailSummary({ putts: 0 }).includes('0 putts')));
+test('puttMiss left in summary',    () => { const s = holeDetailSummary({ putts: 2, puttMiss: 'left' }); assert(s.includes('◀L'), s); });
+test('puttMiss right in summary',   () => { const s = holeDetailSummary({ putts: 2, puttMiss: 'right' }); assert(s.includes('R▶'), s); });
+test('puttMiss short in summary',   () => { const s = holeDetailSummary({ putts: 2, puttMiss: 'short' }); assert(s.includes('short'), s); });
+test('puttMiss long in summary',    () => { const s = holeDetailSummary({ putts: 2, puttMiss: 'long' }); assert(s.includes('long'), s); });
+test('puttMiss without putts not shown standalone', () => assert(!holeDetailSummary({ puttMiss: 'left' })?.includes('◀L')));
+test('fh hit',                      () => assert(holeDetailSummary({ fh: 'hit' }).includes('FW ✓')));
+test('fh left',                     () => assert(holeDetailSummary({ fh: 'left' }).includes('FW left')));
+test('fh right',                    () => assert(holeDetailSummary({ fh: 'right' }).includes('FW right')));
+test('gir true',                    () => assert(holeDetailSummary({ gir: true }).includes('GIR ✓')));
+test('gir false',                   () => assert(holeDetailSummary({ gir: false }).includes('No GIR')));
+test('gir undefined not shown',     () => assert(holeDetailSummary({ putts: 2 }) === '2 putts'));
+test('penalty singular',            () => assert(holeDetailSummary({ pen: 1 }).includes('1 penalty')));
+test('penalty plural',              () => assert(holeDetailSummary({ pen: 2 }).includes('2 penalties')));
+test('pen 0 not shown',             () => assert(!holeDetailSummary({ pen: 0 })?.includes('penalt')));
+test('club driver',                 () => assert(holeDetailSummary({ club: 'driver' }).includes('Driver')));
+test('club 3w',                     () => assert(holeDetailSummary({ club: '3w' }).includes('3W')));
+test('club layup',                  () => assert(holeDetailSummary({ club: 'layup' }).includes('Lay-up')));
+test('dir straight',                () => assert(holeDetailSummary({ dir: 'str' }).includes('Straight')));
+test('dir pull',                    () => assert(holeDetailSummary({ dir: 'pull' }).includes('Pull')));
+test('note shows emoji',            () => assert(holeDetailSummary({ note: 'lucky!' }).includes('📝')));
 test('multiple fields joined with ·', () => {
   const s = holeDetailSummary({ putts: 2, gir: true, club: 'driver' });
   assert(s.includes('·'), 'expected · separator');
   assert(s.includes('2 putts'), 'expected putts');
   assert(s.includes('GIR'), 'expected GIR');
   assert(s.includes('Driver'), 'expected club');
+});
+
+// ── BUILD SHOT STATS ──────────────────────────────────────────────────────────
+suite('buildShotStats');
+function makeDoneRound(ov) {
+  const r = makeRound18(ov);
+  r.done = true;
+  return r;
+}
+test('empty → zeros', () => {
+  resetState();
+  const r = makeDoneRound();
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.rounds, 1); eq(st.holesWithData, 0); eq(st.puttHoles, 0);
+});
+test('putts counted', () => {
+  resetState();
+  const r = makeDoneRound();
+  r.scores.p1[1] = { s: 4, putts: 2 };
+  r.scores.p1[2] = { s: 5, putts: 3 };
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.puttHoles, 2); eq(st.totalPutts, 5);
+  assert(Math.abs(st.avgPutts - 2.5) < 0.01, 'avgPutts');
+});
+test('1-putt / 2-putt / 3-putt+ buckets', () => {
+  resetState();
+  const r = makeDoneRound();
+  r.scores.p1[1] = { s: 3, putts: 1 };
+  r.scores.p1[2] = { s: 4, putts: 2 };
+  r.scores.p1[3] = { s: 6, putts: 3 };
+  r.scores.p1[4] = { s: 7, putts: 4 };
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.putts1, 1); eq(st.putts2, 1); eq(st.putts3p, 2);
+});
+test('puttMiss accumulated', () => {
+  resetState();
+  const r = makeDoneRound();
+  r.scores.p1[1] = { s: 4, putts: 2, puttMiss: 'left' };
+  r.scores.p1[2] = { s: 4, putts: 2, puttMiss: 'short' };
+  r.scores.p1[3] = { s: 4, putts: 2, puttMiss: 'left' };
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.puttMiss.left, 2); eq(st.puttMiss.short, 1); eq(st.puttMissTotal, 3);
+});
+test('fairway hit/left/right — par 4 only', () => {
+  resetState();
+  const r = makeDoneRound();
+  // hole 1 is par 4, hole 3 is par 3 (should not count for fairway)
+  r.scores.p1[1] = { s: 4, fh: 'hit' };
+  r.scores.p1[2] = { s: 4, fh: 'left' };
+  r.scores.p1[3] = { s: 3, fh: 'right' }; // par 3 — should be ignored for fh
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.fhOpp, 2, 'only par 4/5 count'); eq(st.fhHit, 1); eq(st.fhLeft, 1); eq(st.fhRight, 0);
+});
+test('GIR tracked', () => {
+  resetState();
+  const r = makeDoneRound();
+  r.scores.p1[1] = { s: 4, gir: true };
+  r.scores.p1[2] = { s: 5, gir: false };
+  r.scores.p1[3] = { s: 3, gir: true };
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.girOpp, 3); eq(st.girHit, 2);
+});
+test('penalties accumulated', () => {
+  resetState();
+  const r = makeDoneRound();
+  r.scores.p1[1] = { s: 6, pen: 2 };
+  r.scores.p1[2] = { s: 5, pen: 1 };
+  r.scores.p1[3] = { s: 3, pen: 0 }; // pen 0 should not count
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.penHoles, 2); eq(st.penTotal, 3);
+});
+test('clubs counted', () => {
+  resetState();
+  const r = makeDoneRound();
+  r.scores.p1[1] = { s: 4, club: 'driver' };
+  r.scores.p1[2] = { s: 4, club: 'driver' };
+  r.scores.p1[3] = { s: 3, club: 'iron' };
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.clubs.driver, 2); eq(st.clubs.iron, 1); eq(st.clubTotal, 3);
+});
+test('shot directions counted', () => {
+  resetState();
+  const r = makeDoneRound();
+  r.scores.p1[1] = { s: 4, dir: 'left' };
+  r.scores.p1[2] = { s: 4, dir: 'str' };
+  r.scores.p1[3] = { s: 3, dir: 'left' };
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.dirs.left, 2); eq(st.dirs.str, 1); eq(st.dirTotal, 3);
+});
+test('non-done rounds excluded', () => {
+  resetState();
+  const r = makeRound18(); r.done = false;
+  r.scores.p1[1] = { s: 4, putts: 2 };
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.rounds, 0); eq(st.puttHoles, 0);
+});
+test('holes with no detail data are skipped', () => {
+  resetState();
+  const r = makeDoneRound();
+  r.scores.p1[1] = { s: 4 };      // score only, no detail
+  r.scores.p1[2] = { s: 5, putts: 2 }; // has detail
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.holesWithData, 1);
 });
 
 suite('detail fields preserved when score updated');
