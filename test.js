@@ -210,7 +210,12 @@ function holeDetailSummary(d) {
   return parts.length ? parts.join(' · ') : null;
 }
 function buildShotStats(rounds, playerName) {
-  const done = rounds.filter(r => r.done && r.players.some(p => p.name === playerName));
+  const done = rounds.filter(r => {
+    if (!r.done) return false;
+    const p = r.players.find(pl => pl.name === playerName);
+    if (!p) return false;
+    return r.holes.filter(h => r.scores[p.id]?.[h.n]?.s).length === r.holes.length;
+  });
   const out = {
     rounds: done.length, holesWithData: 0,
     puttHoles: 0, totalPutts: 0, putts1: 0, putts2: 0, putts3p: 0,
@@ -228,7 +233,6 @@ function buildShotStats(rounds, playerName) {
   };
   for (const r of done) {
     const p = r.players.find(pl => pl.name === playerName);
-    if (!p) continue;
     let rPuttHoles = 0, rPuttTotal = 0;
     let rGirOpp = 0, rGirHit = 0;
     let rFhOpp = 0, rFhHit = 0;
@@ -703,6 +707,10 @@ function skipFinishComment() {
   nav('round-finish');
 }
 function updateFinishComment(val) { S.finishComment=val; }
+function playerCompletedRound(r, name) {
+  const p = r.players.find(pl => pl.name === name);
+  return !!p && r.holes.filter(h => r.scores[p.id]?.[h.n]?.s).length === r.holes.length;
+}
 function suggestHcpIndex(name, rounds) {
   const diffs=[];
   for (const r of rounds) {
@@ -840,6 +848,35 @@ function tryRecoverRound(rounds, navState, auditLog) {
   if (scored!==0) return rounds;
   const best=auditLog.find(e=>e.roundId===navState.roundId&&e.round); if (!best) return rounds;
   return rounds.map(x=>x.id===navState.roundId?best.round:x);
+}
+
+const RIVALRY_TEAM_A = ['sigurjon', 'michael'];
+const RIVALRY_TEAM_B = ['ingibjorg', 'carlos'];
+function computeRivalry(rounds) {
+  const allFour = [...RIVALRY_TEAM_A, ...RIVALRY_TEAM_B];
+  const findPid = (r, nn) => r.players.find(p => firstNorm(p.name) === nn)?.id;
+
+  let aWins = 0, bWins = 0, ties = 0;
+  const history = [];
+
+  for (const r of rounds) {
+    if (!r.done) continue;
+    const names = r.players.map(p => firstNorm(p.name));
+    if (!allFour.every(n => names.includes(n))) continue;
+    if (!names.every(n => allFour.includes(n))) continue;
+
+    const aPids = RIVALRY_TEAM_A.map(n => findPid(r, n)).filter(Boolean);
+    const bPids = RIVALRY_TEAM_B.map(n => findPid(r, n)).filter(Boolean);
+    if (aPids.length !== 2 || bPids.length !== 2) continue;
+    if (![...aPids, ...bPids].every(pid => r.holes.every(h => r.scores[pid]?.[h.n]?.s))) continue;
+
+    const aScore = aPids.reduce((s, pid) => s + netTotal(r, pid), 0);
+    const bScore = bPids.reduce((s, pid) => s + netTotal(r, pid), 0);
+    const result = aScore < bScore ? 'A' : bScore < aScore ? 'B' : 'TIE';
+    if (result === 'A') aWins++; else if (result === 'B') bWins++; else ties++;
+    history.push({ date: r.date, course: r.course, aScore, bScore, result, id: r.id });
+  }
+  return { aWins, bWins, ties, history, total: aWins + bWins + ties };
 }
 
 // ── TEST DATA FACTORIES ───────────────────────────────────────────────────────
@@ -1560,6 +1597,44 @@ test('label is "net strokes" when format is absent', () => {
   eq(rivalryBannerLabel({}), 'net strokes');
 });
 
+suite('computeRivalry — excludes rounds where a rivalry player quit partway');
+function makeRivalryRound(ov) {
+  const players = [
+    { id: 'pS', name: 'Sigurjon',  courseHcpOverride: 0 },
+    { id: 'pM', name: 'Michael',   courseHcpOverride: 0 },
+    { id: 'pI', name: 'Ingibjorg', courseHcpOverride: 0 },
+    { id: 'pC', name: 'Carlos',    courseHcpOverride: 0 },
+  ];
+  const holes = makeHoles18(), scores = {};
+  for (const p of players) scores[p.id] = {};
+  return Object.assign({ id: 'rR', date: '2026-05-02T10:00:00Z', course: 'Rivalry Course',
+    courseRating: 72, slopeRating: 113, players, holes, scores, done: true, format: 'stroke' }, ov);
+}
+test('fully-scored round counts toward the win totals', () => {
+  const r = makeRivalryRound();
+  for (const h of r.holes) {
+    r.scores.pS[h.n] = { s: h.par };     // Team A: par every hole
+    r.scores.pM[h.n] = { s: h.par };
+    r.scores.pI[h.n] = { s: h.par + 1 }; // Team B: bogey every hole (worse)
+    r.scores.pC[h.n] = { s: h.par + 1 };
+  }
+  const rv = computeRivalry([r]);
+  eq(rv.total, 1); eq(rv.aWins, 1); eq(rv.bWins, 0);
+});
+test('a rivalry player quitting partway excludes the round entirely', () => {
+  const r = makeRivalryRound();
+  for (const h of r.holes) {
+    r.scores.pS[h.n] = { s: h.par };
+    r.scores.pM[h.n] = { s: h.par };
+    r.scores.pI[h.n] = { s: h.par + 1 };
+    r.scores.pC[h.n] = { s: h.par + 1 };
+  }
+  delete r.scores.pI[18]; // Ingibjorg quit before the last hole
+  const rv = computeRivalry([r]);
+  eq(rv.total, 0, 'round should be ignored since Ingibjorg did not finish');
+  eq(rv.aWins, 0); eq(rv.bWins, 0); eq(rv.history.length, 0);
+});
+
 // ═════════════════════════════════════════════════════════════════════════════
 // COURSE OVERRIDE MERGE  (logic mirrored from init + onSnapshot)
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1996,6 +2071,27 @@ test('same-day "most recent 20" cutoff breaks ties by id (creation order)', () =
   // Buggy (id ignored, "older" kept instead): best 8 are all diff=8.0 (the
   // diff=100 blowup is excluded either way) → avg 8.0 × 0.96 = 7.7.
   assert(Math.abs(res.index - 7.0) < 0.1, `expected ~7.0 ("newer" round's good differential counted), got ${res.index}`);
+});
+
+suite('playerCompletedRound');
+test('true when the player has a score on every hole', () => {
+  const r = makeDoneRound();
+  eq(playerCompletedRound(r, 'Alice'), true); // makeDoneRound pre-fills every hole
+});
+test('false when the player quit partway (missing a hole score)', () => {
+  const r = makeDoneRound();
+  delete r.scores.p1[18];
+  eq(playerCompletedRound(r, 'Alice'), false);
+});
+test('false when the named player is not in the round', () => {
+  const r = makeDoneRound();
+  eq(playerCompletedRound(r, 'Nobody'), false);
+});
+test('one player quitting does not affect another player in the same round', () => {
+  const r = makeDoneRound();
+  delete r.scores.p1[18]; // Alice quit
+  eq(playerCompletedRound(r, 'Alice'), false);
+  eq(playerCompletedRound(r, 'Bob'), true); // Bob's scorecard (pre-filled) is untouched
 });
 
 // ── Net score during round (netTotal helper) ──────────────────────────────────
@@ -3235,6 +3331,14 @@ suite('buildShotStats');
 function makeDoneRound(ov) {
   const r = makeRound18(ov);
   r.done = true;
+  // Pre-fill every hole with a par score for every player, as if they'd
+  // finished the round — buildShotStats now requires a full scorecard before
+  // counting a round, so tests that only care about shot-detail fields don't
+  // need to fake 18 holes of scores themselves. Individual tests overwrite
+  // specific holes (adding putts/gir/etc.) after calling this.
+  for (const p of r.players) {
+    for (const h of r.holes) r.scores[p.id][h.n] = { s: h.par };
+  }
   return r;
 }
 test('empty → zeros', () => {
@@ -3342,6 +3446,38 @@ test('non-done rounds excluded', () => {
   saveRound(r, 'round_created');
   const st = buildShotStats(loadRounds(), 'Alice');
   eq(st.rounds, 0); eq(st.puttHoles, 0);
+});
+test('player who quit partway (missing scores on some holes) is excluded entirely', () => {
+  resetState();
+  const r = makeDoneRound(); // round marked done — e.g. other players finished it
+  delete r.scores.p1[18]; // Alice never scored the last hole — she quit
+  r.scores.p1[1] = { s: 4, putts: 2, gir: true };
+  r.scores.p1[2] = { s: 4, putts: 3 };
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.rounds, 0, 'the whole round should be ignored, not just the unscored hole');
+  eq(st.holesWithData, 0);
+  eq(st.puttHoles, 0);
+  eq(st.girOpp, 0);
+});
+test('one player quitting early does not affect another player\'s completed round', () => {
+  resetState();
+  const r = makeDoneRound();
+  delete r.scores.p1[18]; // Alice quit before the last hole
+  r.scores.p1[1] = { s: 4, putts: 2 };
+  r.scores.p2[1] = { s: 4, putts: 2 }; // Bob played every hole (pre-filled by makeDoneRound)
+  saveRound(r, 'round_created');
+  eq(buildShotStats(loadRounds(), 'Alice').rounds, 0, 'Alice quit — excluded');
+  eq(buildShotStats(loadRounds(), 'Bob').rounds, 1, 'Bob finished — still counted');
+  eq(buildShotStats(loadRounds(), 'Bob').puttHoles, 1);
+});
+test('a fully-scored round still counts (contrast with the quit case above)', () => {
+  resetState();
+  const r = makeDoneRound();
+  r.scores.p1[1] = { s: 4, putts: 2 };
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.rounds, 1); eq(st.puttHoles, 1);
 });
 test('approach club tracked', () => {
   resetState();

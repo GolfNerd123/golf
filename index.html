@@ -4403,6 +4403,11 @@ function buildNineHoleSummaryHTML(round) {
   return html;
 }
 
+function playerCompletedRound(r, name) {
+  const p = r.players.find(pl => pl.name === name);
+  return !!p && r.holes.filter(h => r.scores[p.id]?.[h.n]?.s).length === r.holes.length;
+}
+
 function suggestHcpIndex(name, rounds) {
   const diffs = [];
   for (const r of rounds) {
@@ -5324,6 +5329,9 @@ function computeRivalry(rounds) {
     const aPids = RIVALRY_TEAM_A.map(n => findPid(r, n)).filter(Boolean);
     const bPids = RIVALRY_TEAM_B.map(n => findPid(r, n)).filter(Boolean);
     if (aPids.length !== 2 || bPids.length !== 2) continue;
+    // If anyone quit partway (missing a score on any hole), the round's
+    // outcome can't be determined fairly — skip it entirely.
+    if (![...aPids, ...bPids].every(pid => r.holes.every(h => r.scores[pid]?.[h.n]?.s))) continue;
 
     const aScore = aPids.reduce((s, pid) => s + netTotal(r, pid), 0);
     const bScore = bPids.reduce((s, pid) => s + netTotal(r, pid), 0);
@@ -5396,9 +5404,14 @@ function rivalryDebugHtml(rounds) {
     const names = r.players.map(p => firstNorm(p.name));
     const allPresent = allFour.every(n => names.includes(n));
     const noExtra   = names.every(n => allFour.includes(n));
-    const status = allPresent && noExtra ? '✅ counts'
+    const fullyScored = allPresent && noExtra && allFour.every(n => {
+      const pid = r.players.find(p => firstNorm(p.name) === n)?.id;
+      return pid && r.holes.every(h => r.scores[pid]?.[h.n]?.s);
+    });
+    const status = fullyScored ? '✅ counts'
                  : !allPresent ? '❌ missing: ' + allFour.filter(n => !names.includes(n)).join(', ')
-                 : '❌ extra: ' + names.filter(n => !allFour.includes(n)).join(', ');
+                 : !noExtra ? '❌ extra: ' + names.filter(n => !allFour.includes(n)).join(', ')
+                 : '❌ someone quit partway (missing hole scores)';
     return `<div style="font-size:11px;padding:4px 0;border-bottom:1px solid #eee">
       <b>${esc(r.course||r.id)}</b> ${r.date||''}<br>
       Players: ${r.players.map(p=>`"${esc(p.name)}" → <i>${firstNorm(p.name)}</i>`).join(', ')}<br>
@@ -5467,7 +5480,15 @@ function rivalrySectionHtml(rounds) {
 // SHOT DETAIL STATISTICS
 // ═══════════════════════════════════════════
 function buildShotStats(rounds, playerName) {
-  const done = rounds.filter(r => r.done && r.players.some(p => p.name === playerName));
+  // A round only counts once this player has a score on every hole — if they
+  // quit partway through (even if others finished and the round got marked
+  // done), their partial data shouldn't skew the aggregates.
+  const done = rounds.filter(r => {
+    if (!r.done) return false;
+    const p = r.players.find(pl => pl.name === playerName);
+    if (!p) return false;
+    return r.holes.filter(h => r.scores[p.id]?.[h.n]?.s).length === r.holes.length;
+  });
   const out = {
     rounds: done.length, holesWithData: 0,
     puttHoles: 0, totalPutts: 0, putts1: 0, putts2: 0, putts3p: 0,
@@ -5485,7 +5506,6 @@ function buildShotStats(rounds, playerName) {
   };
   for (const r of done) {
     const p = r.players.find(pl => pl.name === playerName);
-    if (!p) continue;
     let rPuttHoles = 0, rPuttTotal = 0;
     let rGirOpp = 0, rGirHit = 0;
     let rFhOpp = 0, rFhHit = 0;
@@ -5832,8 +5852,9 @@ function renderStats(c) {
   }
   const selPs = allPlayerStats.find(ps => ps.name === S.statsPlayer);
 
-  // Total unique rounds for this player
-  const totalUniqueRounds = rounds.filter(r => r.players.some(p => p.name === selPs.name)).length;
+  // Total unique rounds for this player — only ones they actually finished
+  // (quit-partway rounds shouldn't inflate the "rounds completed" count).
+  const totalUniqueRounds = rounds.filter(r => playerCompletedRound(r, selPs.name)).length;
 
   // Player pills
   const pills = allPlayerStats.length > 1 ? `<div style="background:var(--green)">
@@ -6772,6 +6793,8 @@ function renderChangelog(c) {
 
   const html = [
     section('July 2026', [
+      entry('fix',  '🚪', 'Rounds you quit partway through no longer count in statistics',
+        'If you didn\'t finish scoring every hole in a round — even one that ended up marked done because others finished it — that round is now excluded from your stats, Shot Detail Stats, the "rounds completed" count, and the Team Scoreboard. Only fully-scored rounds count.'),
       entry('fix',  '🐛', 'Saving a player with no home club could silently fail to sync',
         'Leaving the Home Club field blank when saving a player could throw an error that stopped that save from reaching your other devices (it was always saved locally). Fixed by storing a proper empty value instead.'),
       entry('fix',  '📅', 'Same-day rounds could scramble progress trends and handicap suggestion',
