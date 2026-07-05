@@ -215,7 +215,7 @@ function buildShotStats(rounds, playerName) {
     rounds: done.length, holesWithData: 0,
     puttHoles: 0, totalPutts: 0, putts1: 0, putts2: 0, putts3p: 0,
     puttMissDir: { left: 0, straight: 0, right: 0 }, puttMissDirTotal: 0,
-    puttMissDist: { short: 0, long: 0 }, puttMissDistTotal: 0,
+    puttMissDist: { short: 0, correct: 0, long: 0 }, puttMissDistTotal: 0,
     fhOpp: 0, fhHit: 0, fhLeft: 0, fhRight: 0,
     girOpp: 0, girHit: 0,
     penHoles: 0, penTotal: 0,
@@ -223,11 +223,18 @@ function buildShotStats(rounds, playerName) {
     dirs: { left:0,str:0,right:0,pull:0,push:0 }, dirTotal: 0,
     approachClubs: { '8i':0,'9i':0,'PW':0,'GW':0,'SW':0,'LW':0,chip:0 }, approachClubTotal: 0,
     approachDir: { left:0,straight:0,right:0,on:0 }, approachDirTotal: 0,
-    approachDist: { short:0,long:0 }, approachDistTotal: 0,
+    approachDist: { short:0, correct: 0, long:0 }, approachDistTotal: 0,
+    puttsTrend: [], girTrend: [], fhTrend: [], puttDistTrend: [], approachDirTrend: [], approachDistTrend: [],
   };
   for (const r of done) {
     const p = r.players.find(pl => pl.name === playerName);
     if (!p) continue;
+    let rPuttHoles = 0, rPuttTotal = 0;
+    let rGirOpp = 0, rGirHit = 0;
+    let rFhOpp = 0, rFhHit = 0;
+    let rPuttDistTotal = 0, rPuttDistCorrect = 0;
+    let rApproachDirTotal = 0, rApproachDirOn = 0;
+    let rApproachDistTotal = 0, rApproachDistCorrect = 0;
     for (const hole of r.holes) {
       const d = r.scores[p.id]?.[hole.n];
       if (!d) continue;
@@ -237,23 +244,42 @@ function buildShotStats(rounds, playerName) {
       if (d.putts != null) {
         out.puttHoles++; out.totalPutts += d.putts;
         if (d.putts <= 1) out.putts1++; else if (d.putts === 2) out.putts2++; else out.putts3p++;
+        rPuttHoles++; rPuttTotal += d.putts;
       }
       if (d.puttMissDir  && d.puttMissDir  in out.puttMissDir)  { out.puttMissDir[d.puttMissDir]++;   out.puttMissDirTotal++;  }
-      if (d.puttMissDist && d.puttMissDist in out.puttMissDist) { out.puttMissDist[d.puttMissDist]++; out.puttMissDistTotal++; }
-      if (d.fh) {
-        out.fhOpp++;
-        if (d.fh === 'hit') out.fhHit++; else if (d.fh === 'left') out.fhLeft++; else if (d.fh === 'right') out.fhRight++;
+      if (d.puttMissDist && d.puttMissDist in out.puttMissDist) {
+        out.puttMissDist[d.puttMissDist]++; out.puttMissDistTotal++;
+        rPuttDistTotal++; if (d.puttMissDist === 'correct') rPuttDistCorrect++;
       }
-      if (d.gir != null) { out.girOpp++; if (d.gir) out.girHit++; }
+      if (d.fh) {
+        out.fhOpp++; rFhOpp++;
+        if (d.fh === 'hit') { out.fhHit++; rFhHit++; } else if (d.fh === 'left') out.fhLeft++; else if (d.fh === 'right') out.fhRight++;
+      }
+      if (d.gir != null) { out.girOpp++; rGirOpp++; if (d.gir) { out.girHit++; rGirHit++; } }
       if (d.pen != null && d.pen > 0) { out.penHoles++; out.penTotal += d.pen; }
       if (d.club && d.club in out.clubs) { out.clubs[d.club]++; out.clubTotal++; }
       if (d.dir  && d.dir  in out.dirs)  { out.dirs[d.dir]++;   out.dirTotal++;  }
       if (d.approachClub && d.approachClub in out.approachClubs) { out.approachClubs[d.approachClub]++; out.approachClubTotal++; }
-      if (d.approachDir  && d.approachDir  in out.approachDir)   { out.approachDir[d.approachDir]++;    out.approachDirTotal++;  }
-      if (d.approachDist && d.approachDist in out.approachDist)  { out.approachDist[d.approachDist]++;  out.approachDistTotal++; }
+      if (d.approachDir  && d.approachDir  in out.approachDir)   {
+        out.approachDir[d.approachDir]++; out.approachDirTotal++;
+        rApproachDirTotal++; if (d.approachDir === 'on') rApproachDirOn++;
+      }
+      if (d.approachDist && d.approachDist in out.approachDist)  {
+        out.approachDist[d.approachDist]++;  out.approachDistTotal++;
+        rApproachDistTotal++; if (d.approachDist === 'correct') rApproachDistCorrect++;
+      }
     }
+    if (rPuttHoles > 0)        out.puttsTrend.push({ date: r.date, id: r.id, val: rPuttTotal / rPuttHoles });
+    if (rGirOpp > 0)           out.girTrend.push({ date: r.date, id: r.id, val: rGirHit / rGirOpp * 100 });
+    if (rFhOpp > 0)            out.fhTrend.push({ date: r.date, id: r.id, val: rFhHit / rFhOpp * 100 });
+    if (rPuttDistTotal > 0)    out.puttDistTrend.push({ date: r.date, id: r.id, val: rPuttDistCorrect / rPuttDistTotal * 100 });
+    if (rApproachDirTotal > 0) out.approachDirTrend.push({ date: r.date, id: r.id, val: rApproachDirOn / rApproachDirTotal * 100 });
+    if (rApproachDistTotal > 0) out.approachDistTrend.push({ date: r.date, id: r.id, val: rApproachDistCorrect / rApproachDistTotal * 100 });
   }
   out.avgPutts = out.puttHoles > 0 ? out.totalPutts / out.puttHoles : 0;
+  const byDate = (a, b) => (new Date(a.date) - new Date(b.date)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  out.puttsTrend.sort(byDate); out.girTrend.sort(byDate); out.fhTrend.sort(byDate);
+  out.puttDistTrend.sort(byDate); out.approachDirTrend.sort(byDate); out.approachDistTrend.sort(byDate);
   return out;
 }
 function clubSVG(key) {
@@ -265,7 +291,7 @@ function approachClubSVG(key) {
   return keys.includes(key) ? `<svg>${key}</svg>` : '';
 }
 function dirSVG(key) {
-  const keys = ['left','straight','right','pull','push','str','on','short','long','hit','missed'];
+  const keys = ['left','straight','right','pull','push','str','on','short','long','correct','hit','missed'];
   return keys.includes(key) ? `<svg>${key}</svg>` : '';
 }
 function netTotal(round, pid) {
@@ -350,7 +376,7 @@ function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeSt
       const pts = stablefordTotal(r, pid);
       ss += pts;
       if (pts > s.bestPts) { s.bestPts = pts; s.bestDate = r.date; s.bestCourse = r.course; }
-      s.history.push({ date: r.date, course: r.course, val: pts });
+      s.history.push({ date: r.date, id: r.id, course: r.course, val: pts });
       for (const h of r.holes) {
         const g = r.scores[pid]?.[h.n]?.s; if (!g) continue;
         s.totalHoles++;
@@ -365,13 +391,13 @@ function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeSt
       const pts = wolfTotalPts(r, pid);
       ss += pts;
       if (pts > s.bestPts) { s.bestPts = pts; s.bestDate = r.date; s.bestCourse = r.course; }
-      s.history.push({ date: r.date, course: r.course, val: pts });
+      s.history.push({ date: r.date, id: r.id, course: r.course, val: pts });
     } else {
       const rpar = parSum(r);
       const net = noHcp ? grossTotal(r, pid) : netTotal(r, pid);
       ss += net; ps += rpar;
       if (net < s.bestNet) { s.bestNet = net; s.bestNetToPar = net - rpar; s.bestDate = r.date; s.bestCourse = r.course; s.bestFmt = roundFmt === 'stroke' ? null : roundFmt; }
-      s.history.push({ date: r.date, course: r.course, val: net - rpar, net, srcFmt: roundFmt });
+      s.history.push({ date: r.date, id: r.id, course: r.course, val: net - rpar, net, srcFmt: roundFmt });
       for (const h of r.holes) {
         const g = r.scores[pid]?.[h.n]?.s; if (!g) continue;
         s.totalHoles++;
@@ -393,7 +419,7 @@ function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeSt
   }
   if (s.bestNet === Infinity) s.bestNet = 0;
   if (s.bestPts === -Infinity) s.bestPts = 0;
-  s.history.sort((a, b) => new Date(a.date) - new Date(b.date));
+  s.history.sort((a, b) => (new Date(a.date) - new Date(b.date)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return s;
 }
 
@@ -685,10 +711,10 @@ function suggestHcpIndex(name, rounds) {
     const pid=p.id;
     if(!r.holes.every(h=>r.scores[pid]?.[h.n]?.s)) continue;
     const gross=grossTotal(r,pid);
-    diffs.push({diff:(gross-parseFloat(r.courseRating))*(113/parseFloat(r.slopeRating)),date:r.date,course:r.course});
+    diffs.push({diff:(gross-parseFloat(r.courseRating))*(113/parseFloat(r.slopeRating)),date:r.date,id:r.id,course:r.course});
   }
   if(!diffs.length) return null;
-  diffs.sort((a,b)=>new Date(b.date)-new Date(a.date));
+  diffs.sort((a,b)=>(new Date(b.date)-new Date(a.date))||(b.id<a.id?-1:b.id>a.id?1:0));
   const recent=diffs.slice(0,20);
   recent.sort((a,b)=>a.diff-b.diff);
   const useN=Math.min(8,recent.length);
@@ -1942,6 +1968,35 @@ test('slope rating affects differential', () => {
   const expected = Math.round((80 - 72) * (113 / 140) * 0.96 * 10) / 10;
   assert(Math.abs(res.index - expected) < 0.05, `expected ${expected}, got ${res.index}`);
 });
+test('same-day "most recent 20" cutoff breaks ties by id (creation order)', () => {
+  resetState();
+  // 19 filler rounds dated AFTER the tied pair below, all with diff=8.0
+  // (gross 80) — these occupy ranks 1-19 of "most recent", pushing the tied
+  // pair to compete for the 20th (last-kept) slot.
+  const rounds = [];
+  for (let i = 0; i < 19; i++) {
+    rounds.push(makeFinishedRound('p'+i, 'Alice', 10, 80, 72, 113, `2027-01-${String(i+1).padStart(2,'0')}T10:00:00Z`));
+  }
+  // Two more rounds share the exact same (older) date — same-day rounds are
+  // stored with an identical r.date in the real app. "older" was created
+  // first (diff=100, a blowup round); "newer" was created after it
+  // (diff=2.0, a great round). With 21 total rounds and a cap of 20, exactly
+  // one of this tied pair must be dropped — it must be "older" (by id), not
+  // whichever happens to sort first when dates tie.
+  const sameDate = '2026-01-01T10:00:00Z';
+  const older = makeFinishedRound('pOld', 'Alice', 10, 172, 72, 113, sameDate);
+  older.id = 'r1000';
+  const newer = makeFinishedRound('pNew', 'Alice', 10, 74, 72, 113, sameDate);
+  newer.id = 'r2000';
+  rounds.push(older, newer);
+
+  const res = suggestHcpIndex('Alice', rounds);
+  // Correct: "newer" (diff=2.0) is kept and sneaks into the best-8 —
+  // avg = (2.0 + 7×8.0) / 8 = 7.25 → ×0.96 = 6.96 → 7.0.
+  // Buggy (id ignored, "older" kept instead): best 8 are all diff=8.0 (the
+  // diff=100 blowup is excluded either way) → avg 8.0 × 0.96 = 7.7.
+  assert(Math.abs(res.index - 7.0) < 0.1, `expected ~7.0 ("newer" round's good differential counted), got ${res.index}`);
+});
 
 // ── Net score during round (netTotal helper) ──────────────────────────────────
 suite('Net score during round — partial netTotal');
@@ -2872,6 +2927,21 @@ test('buildStats identifies personal best', () => {
   eq(s.bestCourse, 'Test Course');
 });
 
+test('buildStats history — same-day rounds break ties by id (creation order)', () => {
+  // Two rounds played the same day share an identical r.date in the real app
+  // (truncated to noon). The sort must fall back to id — which embeds
+  // Date.now() at creation — to keep the earlier-created round first.
+  // loadRounds() returns newest-first (saveRound unshifts), so pass "later"
+  // before "earlier" here to match real call-site order and actually
+  // exercise the tie-break instead of getting it right by accident.
+  const sameDate = '2026-07-05T12:00:00.000Z';
+  const earlier = makeStblRound('p1', 'Alice', _allPars18, 'r1000', sameDate); // 36 pts
+  const later   = makeStblRound('p1', 'Alice', _allPars18.map(p => p - 1), 'r2000', sameDate); // 54 pts
+  const s = buildStats([later, earlier], 'Alice', 'stableford', false, false, false);
+  eq(s.history.length, 2);
+  eq(s.history[0].id, 'r1000', 'earlier-created round should come first despite identical dates');
+  eq(s.history[0].val, 36); eq(s.history[1].val, 54);
+});
 test('buildStats counts birdies (3-pt holes) correctly', () => {
   // 3 holes at par-1 (birdie = 3 pts), rest at par (2 pts)
   const gross = _allPars18.map((p, i) => i < 3 ? p - 1 : p);
@@ -3302,6 +3372,91 @@ test('approach dist tracked', () => {
   const st = buildShotStats(loadRounds(), 'Alice');
   eq(st.approachDist.short, 1); eq(st.approachDist.long, 1); eq(st.approachDistTotal, 2);
 });
+test('puttMissDist "correct" bucket counted', () => {
+  resetState();
+  const r = makeDoneRound();
+  r.scores.p1[1] = { s: 4, putts: 2, puttMissDist: 'correct' };
+  r.scores.p1[2] = { s: 4, putts: 2, puttMissDist: 'short' };
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.puttMissDist.correct, 1); eq(st.puttMissDist.short, 1); eq(st.puttMissDistTotal, 2);
+});
+test('approachDist "correct" bucket counted', () => {
+  resetState();
+  const r = makeDoneRound();
+  r.scores.p1[1] = { s: 4, approachDist: 'correct' };
+  r.scores.p1[2] = { s: 5, approachDist: 'long' };
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.approachDist.correct, 1); eq(st.approachDist.long, 1); eq(st.approachDistTotal, 2);
+});
+test('puttsTrend — one point per round, chronological', () => {
+  resetState();
+  const r1 = makeDoneRound({ id: 'r1', date: '2026-05-02T10:00:00Z' });
+  r1.scores.p1[1] = { s: 4, putts: 3 };
+  r1.scores.p1[2] = { s: 4, putts: 3 };
+  const r2 = makeDoneRound({ id: 'r2', date: '2026-04-01T10:00:00Z' });
+  r2.scores.p1[1] = { s: 4, putts: 1 };
+  r2.scores.p1[2] = { s: 4, putts: 1 };
+  saveRound(r1, 'round_created'); saveRound(r2, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.puttsTrend.length, 2);
+  eq(st.puttsTrend[0].date, r2.date, 'earlier round should come first');
+  eq(st.puttsTrend[0].val, 1); eq(st.puttsTrend[1].val, 3);
+});
+test('puttsTrend — same-day rounds break ties by id (creation order)', () => {
+  // Two rounds played the same day share an identical r.date (truncated to
+  // noon), so the trend must fall back to id — which embeds Date.now() at
+  // creation — to keep the earlier round first. Reproduces same-day ordering.
+  resetState();
+  const sameDate = '2026-07-05T12:00:00.000Z';
+  const earlier = makeDoneRound({ id: 'r1000', date: sameDate });
+  earlier.scores.p1[1] = { s: 4, putts: 3 };
+  const later = makeDoneRound({ id: 'r2000', date: sameDate });
+  later.scores.p1[1] = { s: 4, putts: 1 };
+  // saveRound unshifts new rounds, so the more-recently-created round (later)
+  // ends up first in storage order — the sort must not trust that order.
+  saveRound(earlier, 'round_created'); saveRound(later, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.puttsTrend.length, 2);
+  eq(st.puttsTrend[0].id, 'r1000', 'earlier-created round should come first despite identical dates');
+  eq(st.puttsTrend[0].val, 3); eq(st.puttsTrend[1].val, 1);
+});
+test('girTrend / fhTrend — percentage per round', () => {
+  resetState();
+  const r = makeDoneRound();
+  r.scores.p1[1] = { s: 4, gir: true,  fh: 'hit' };
+  r.scores.p1[2] = { s: 5, gir: false, fh: 'left' };
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.girTrend.length, 1); eq(st.girTrend[0].val, 50);
+  eq(st.fhTrend.length, 1); eq(st.fhTrend[0].val, 50);
+});
+test('puttDistTrend / approachDirTrend / approachDistTrend — percent correct/on per round', () => {
+  resetState();
+  const r = makeDoneRound();
+  r.scores.p1[1] = { s: 4, putts: 2, puttMissDist: 'correct' };
+  r.scores.p1[2] = { s: 4, putts: 2, puttMissDist: 'short' };
+  r.scores.p1[3] = { s: 4, approachDir: 'on' };
+  r.scores.p1[4] = { s: 4, approachDir: 'left' };
+  r.scores.p1[5] = { s: 4, approachDist: 'correct' };
+  r.scores.p1[6] = { s: 4, approachDist: 'correct' };
+  r.scores.p1[7] = { s: 4, approachDist: 'long' };
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.puttDistTrend.length, 1); eq(st.puttDistTrend[0].val, 50);
+  eq(st.approachDirTrend.length, 1); eq(st.approachDirTrend[0].val, 50);
+  eq(st.approachDistTrend.length, 1);
+  assert(Math.abs(st.approachDistTrend[0].val - 66.666) < 0.01, 'approachDistTrend val');
+});
+test('rounds with no relevant data produce no trend point', () => {
+  resetState();
+  const r = makeDoneRound();
+  r.scores.p1[1] = { s: 4, club: 'driver' }; // no putts/gir/fh/approach data
+  saveRound(r, 'round_created');
+  const st = buildShotStats(loadRounds(), 'Alice');
+  eq(st.puttsTrend.length, 0); eq(st.girTrend.length, 0); eq(st.fhTrend.length, 0);
+});
 test('holes with no detail data are skipped', () => {
   resetState();
   const r = makeDoneRound();
@@ -3353,7 +3508,7 @@ test('approachClubSVG — all approach clubs return non-empty string', () => {
   eq(approachClubSVG('unknown'), '', 'unknown key returns empty string');
 });
 test('dirSVG — all direction keys return non-empty string', () => {
-  for (const k of ['left','straight','right','pull','push','str','on','short','long','hit','missed']) {
+  for (const k of ['left','straight','right','pull','push','str','on','short','long','correct','hit','missed']) {
     assert(dirSVG(k).length > 0, `dirSVG('${k}') should be non-empty`);
   }
   eq(dirSVG('unknown'), '', 'unknown key returns empty string');

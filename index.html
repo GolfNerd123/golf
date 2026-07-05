@@ -1033,6 +1033,7 @@
   .sd-bar-pct { font-size: 11px; color: #aaa; width: 32px; text-align: right; flex-shrink: 0; }
   .sd-card { background: #fff; border-radius: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.07); padding: 14px; margin-bottom: 22px; }
   .sd-card-foot { font-size: 11px; color: #bbb; text-align: center; margin-top: 6px; }
+  .sd-trend-lbl { font-size: 11px; font-weight: 700; text-align: center; margin-top: 2px; }
   .sd-shot-btn {
     display: inline-block; padding: 9px 18px; background: rgba(255,255,255,.18);
     border: 1.5px solid rgba(255,255,255,.4); border-radius: 20px;
@@ -1154,6 +1155,29 @@
       </div>
     </div>
     <button class="sg-close" onclick="hideScoreGuide()">Got it</button>
+  </div>
+</div>
+
+<div id="hcp-info-overlay" class="sg-overlay" onclick="hideHcpInfo()">
+  <div class="sg-box" onclick="event.stopPropagation()">
+    <div class="sg-title">How the Suggested Handicap Is Calculated</div>
+    <div class="sg-section">
+      <div class="sg-lbl">1. Score differential per round</div>
+      <div class="sg-text">For every completed round that has a course rating and slope rating, we compute:<br><br><strong>(Gross score &minus; Course Rating) &times; 113 &divide; Slope Rating</strong><br><br>This is the World Handicap System (WHS) formula — it converts your raw score into a number that's comparable across different courses of different difficulty.</div>
+    </div>
+    <div class="sg-section">
+      <div class="sg-lbl">2. Most recent rounds</div>
+      <div class="sg-text">We take your most recent 20 qualifying rounds (fewer if you haven't played that many yet).</div>
+    </div>
+    <div class="sg-section">
+      <div class="sg-lbl">3. Best differentials only</div>
+      <div class="sg-text">Of those, we keep only your best 8 differentials (fewer if you have fewer than 8 rounds) — the same "best 8 of last 20" approach the real WHS uses, so a couple of bad rounds don't skew the number.</div>
+    </div>
+    <div class="sg-section">
+      <div class="sg-lbl">4. Average &amp; adjustment</div>
+      <div class="sg-text">We average those best differentials, then multiply by 0.96 (the standard WHS bracket adjustment) and round to one decimal place. That's your suggested Handicap Index.</div>
+    </div>
+    <button class="sg-close" onclick="hideHcpInfo()">Got it</button>
   </div>
 </div>
 
@@ -1942,7 +1966,7 @@ function nav(view, params) {
     S.numpadPid           = null;
     S.finishComment       = null;
     // Force-close all persistent body overlays so nothing blocks the scorecard
-    ['round-action-overlay','course-action-overlay','player-action-overlay','restore-action-overlay','score-guide-overlay']
+    ['round-action-overlay','course-action-overlay','player-action-overlay','restore-action-overlay','score-guide-overlay','hcp-info-overlay']
       .forEach(eid => { try { document.getElementById(eid)?.classList.remove('open'); } catch {} });
     try { document.getElementById('hamburger-overlay')?.classList.remove('open'); } catch {}
     try { localStorage.setItem(NAV_KEY, JSON.stringify({ roundId: S.roundId, hole: S.hole })); } catch {}
@@ -2275,7 +2299,7 @@ function submitPlayer(editId) {
     id: editId || ('pl' + Date.now()),
     name,
     handicapIndex: hcpVal !== '' && !isNaN(hcpVal) ? parseFloat(hcpVal) : null,
-    club:       clubVal || undefined,
+    club:       clubVal || null,
     gender:     genderBtn?.dataset.val || 'karlar',
     defaultTee: teeBtn?.dataset.val    || null,
   });
@@ -3660,6 +3684,8 @@ function gotoHole(n) {
 
 function showScoreGuide() { document.getElementById('score-guide-overlay').classList.add('open'); }
 function hideScoreGuide() { document.getElementById('score-guide-overlay').classList.remove('open'); }
+function showHcpInfo() { document.getElementById('hcp-info-overlay').classList.add('open'); }
+function hideHcpInfo() { document.getElementById('hcp-info-overlay').classList.remove('open'); }
 
 function adjScore(pid, delta) {
   const round = byId(S.roundId);
@@ -3759,6 +3785,7 @@ function dirSVG(key) {
     on:       `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="2.5" fill="none"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>`,
     short:    `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path ${s} d="M12 17V7M8 13L12 17L16 13"/></svg>`,
     long:     `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path ${s} d="M12 17V5M8 9L12 5L16 9M9 21H15"/></svg>`,
+    correct:  `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="2.5" fill="none"/><path ${s} stroke-linejoin="round" d="M8.5 12L11 14.5L15.5 9.5"/></svg>`,
     hit:      `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path ${s} stroke-linejoin="round" d="M5 12L10 17L19 8"/></svg>`,
     missed:   `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path ${s} d="M7 7L17 17M17 7L7 17"/></svg>`,
   };
@@ -3797,17 +3824,9 @@ function buildDetailSheetHTML(round) {
     <div class="detail-section">
       <div class="detail-lbl">Missed Putt &mdash; Distance</div>
       <div class="detail-chips">
-        <button class="detail-chip dir-chip${detailSc.puttMissDist==='short'?' sel':''}" onclick="setHoleDetail('${pid}','puttMissDist','short')">${dirSVG('short')}<span>Short</span></button>
-        <button class="detail-chip dir-chip${detailSc.puttMissDist==='long'?' sel':''}"  onclick="setHoleDetail('${pid}','puttMissDist','long')">${dirSVG('long')}<span>Long</span></button>
-      </div>
-    </div>
-
-    <div class="detail-section">
-      <div class="detail-lbl">Off the Tee</div>
-      <div class="detail-chips">
-        <button class="detail-chip dir-chip${detailSc.fh==='left'?' sel':''}"    onclick="setHoleDetail('${pid}','fh','left')">${dirSVG('left')}<span>Left</span></button>
-        <button class="detail-chip dir-chip${detailSc.fh==='hit'?' sel':''}"     onclick="setHoleDetail('${pid}','fh','hit')">${dirSVG('hit')}<span>Fairway</span></button>
-        <button class="detail-chip dir-chip${detailSc.fh==='right'?' sel':''}"   onclick="setHoleDetail('${pid}','fh','right')">${dirSVG('right')}<span>Right</span></button>
+        <button class="detail-chip dir-chip${detailSc.puttMissDist==='short'?' sel':''}"   onclick="setHoleDetail('${pid}','puttMissDist','short')">${dirSVG('short')}<span>Short</span></button>
+        <button class="detail-chip dir-chip${detailSc.puttMissDist==='correct'?' sel':''}" onclick="setHoleDetail('${pid}','puttMissDist','correct')">${dirSVG('correct')}<span>Correct</span></button>
+        <button class="detail-chip dir-chip${detailSc.puttMissDist==='long'?' sel':''}"    onclick="setHoleDetail('${pid}','puttMissDist','long')">${dirSVG('long')}<span>Long</span></button>
       </div>
     </div>
 
@@ -3816,15 +3835,6 @@ function buildDetailSheetHTML(round) {
       <div class="detail-chips">
         <button class="detail-chip dir-chip${detailSc.gir===true?' sel':''}"  onclick="setHoleDetail('${pid}','gir',true)">${dirSVG('hit')}<span>GIR</span></button>
         <button class="detail-chip dir-chip${detailSc.gir===false?' sel':''}" onclick="setHoleDetail('${pid}','gir',false)">${dirSVG('missed')}<span>No GIR</span></button>
-      </div>
-    </div>
-
-    <div class="detail-section">
-      <div class="detail-lbl">Penalty Strokes</div>
-      <div class="detail-stepper">
-        <button class="detail-step-btn" onclick="stepHoleDetail('${pid}','pen',-1,0,9)">&#8722;</button>
-        <div class="detail-step-val">${penVal}</div>
-        <button class="detail-step-btn" onclick="stepHoleDetail('${pid}','pen',1,0,9)">+</button>
       </div>
     </div>
 
@@ -3850,8 +3860,27 @@ function buildDetailSheetHTML(round) {
     <div class="detail-section">
       <div class="detail-lbl">Approach &mdash; Distance</div>
       <div class="detail-chips">
-        <button class="detail-chip dir-chip${detailSc.approachDist==='short'?' sel':''}" onclick="setHoleDetail('${pid}','approachDist','short')">${dirSVG('short')}<span>Short</span></button>
-        <button class="detail-chip dir-chip${detailSc.approachDist==='long'?' sel':''}"  onclick="setHoleDetail('${pid}','approachDist','long')">${dirSVG('long')}<span>Long</span></button>
+        <button class="detail-chip dir-chip${detailSc.approachDist==='short'?' sel':''}"   onclick="setHoleDetail('${pid}','approachDist','short')">${dirSVG('short')}<span>Short</span></button>
+        <button class="detail-chip dir-chip${detailSc.approachDist==='correct'?' sel':''}" onclick="setHoleDetail('${pid}','approachDist','correct')">${dirSVG('correct')}<span>Correct</span></button>
+        <button class="detail-chip dir-chip${detailSc.approachDist==='long'?' sel':''}"    onclick="setHoleDetail('${pid}','approachDist','long')">${dirSVG('long')}<span>Long</span></button>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-lbl">Off the Tee</div>
+      <div class="detail-chips">
+        <button class="detail-chip dir-chip${detailSc.fh==='left'?' sel':''}"    onclick="setHoleDetail('${pid}','fh','left')">${dirSVG('left')}<span>Left</span></button>
+        <button class="detail-chip dir-chip${detailSc.fh==='hit'?' sel':''}"     onclick="setHoleDetail('${pid}','fh','hit')">${dirSVG('hit')}<span>Fairway</span></button>
+        <button class="detail-chip dir-chip${detailSc.fh==='right'?' sel':''}"   onclick="setHoleDetail('${pid}','fh','right')">${dirSVG('right')}<span>Right</span></button>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-lbl">Penalty Strokes</div>
+      <div class="detail-stepper">
+        <button class="detail-step-btn" onclick="stepHoleDetail('${pid}','pen',-1,0,9)">&#8722;</button>
+        <div class="detail-step-val">${penVal}</div>
+        <button class="detail-step-btn" onclick="stepHoleDetail('${pid}','pen',1,0,9)">+</button>
       </div>
     </div>
 
@@ -4384,10 +4413,12 @@ function suggestHcpIndex(name, rounds) {
     if (!r.holes.every(h => r.scores[pid]?.[h.n]?.s)) continue;
     const gross = grossTotal(r, pid);
     const diff  = (gross - parseFloat(r.courseRating)) * (113 / parseFloat(r.slopeRating));
-    diffs.push({ diff, date: r.date, course: r.course });
+    diffs.push({ diff, date: r.date, id: r.id, course: r.course });
   }
   if (!diffs.length) return null;
-  diffs.sort((a, b) => new Date(b.date) - new Date(a.date));
+  // Same-day rounds share an identical r.date (truncated to noon), so id —
+  // which embeds creation-order Date.now() — breaks the tie chronologically.
+  diffs.sort((a, b) => (new Date(b.date) - new Date(a.date)) || (b.id < a.id ? -1 : b.id > a.id ? 1 : 0));
   const recent = diffs.slice(0, 20);
   recent.sort((a, b) => a.diff - b.diff);
   const useN = Math.min(8, recent.length);
@@ -5169,7 +5200,7 @@ function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeSt
       const pts = stablefordTotal(r, pid);
       ss += pts;
       if (pts > s.bestPts) { s.bestPts = pts; s.bestDate = r.date; s.bestCourse = r.course; }
-      s.history.push({ date: r.date, course: r.course, val: pts });
+      s.history.push({ date: r.date, id: r.id, course: r.course, val: pts });
       for (const h of r.holes) {
         const g = r.scores[pid]?.[h.n]?.s; if (!g) continue;
         s.totalHoles++;
@@ -5184,13 +5215,13 @@ function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeSt
       const pts = wolfTotalPts(r, pid);
       ss += pts;
       if (pts > s.bestPts) { s.bestPts = pts; s.bestDate = r.date; s.bestCourse = r.course; }
-      s.history.push({ date: r.date, course: r.course, val: pts });
+      s.history.push({ date: r.date, id: r.id, course: r.course, val: pts });
     } else {
       const rpar = parSum(r);
       const net = noHcp ? grossTotal(r, pid) : netTotal(r, pid);
       ss += net; ps += rpar;
       if (net < s.bestNet) { s.bestNet = net; s.bestNetToPar = net - rpar; s.bestDate = r.date; s.bestCourse = r.course; s.bestFmt = roundFmt === 'stroke' ? null : roundFmt; }
-      s.history.push({ date: r.date, course: r.course, val: net - rpar, net, srcFmt: roundFmt });
+      s.history.push({ date: r.date, id: r.id, course: r.course, val: net - rpar, net, srcFmt: roundFmt });
       for (const h of r.holes) {
         const g = r.scores[pid]?.[h.n]?.s; if (!g) continue;
         s.totalHoles++;
@@ -5212,7 +5243,9 @@ function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeSt
   }
   if (s.bestNet === Infinity) s.bestNet = 0;
   if (s.bestPts === -Infinity) s.bestPts = 0;
-  s.history.sort((a, b) => new Date(a.date) - new Date(b.date));
+  // Same-day rounds share an identical r.date (truncated to noon), so id —
+  // which embeds creation-order Date.now() — breaks the tie chronologically.
+  s.history.sort((a, b) => (new Date(a.date) - new Date(b.date)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return s;
 }
 
@@ -5439,7 +5472,7 @@ function buildShotStats(rounds, playerName) {
     rounds: done.length, holesWithData: 0,
     puttHoles: 0, totalPutts: 0, putts1: 0, putts2: 0, putts3p: 0,
     puttMissDir: { left: 0, straight: 0, right: 0 }, puttMissDirTotal: 0,
-    puttMissDist: { short: 0, long: 0 }, puttMissDistTotal: 0,
+    puttMissDist: { short: 0, correct: 0, long: 0 }, puttMissDistTotal: 0,
     fhOpp: 0, fhHit: 0, fhLeft: 0, fhRight: 0,
     girOpp: 0, girHit: 0,
     penHoles: 0, penTotal: 0,
@@ -5447,11 +5480,18 @@ function buildShotStats(rounds, playerName) {
     dirs: { left:0,str:0,right:0,pull:0,push:0 }, dirTotal: 0,
     approachClubs: { '8i':0,'9i':0,'PW':0,'GW':0,'SW':0,'LW':0,chip:0 }, approachClubTotal: 0,
     approachDir: { left:0,straight:0,right:0,on:0 }, approachDirTotal: 0,
-    approachDist: { short:0,long:0 }, approachDistTotal: 0,
+    approachDist: { short:0, correct: 0, long:0 }, approachDistTotal: 0,
+    puttsTrend: [], girTrend: [], fhTrend: [], puttDistTrend: [], approachDirTrend: [], approachDistTrend: [],
   };
   for (const r of done) {
     const p = r.players.find(pl => pl.name === playerName);
     if (!p) continue;
+    let rPuttHoles = 0, rPuttTotal = 0;
+    let rGirOpp = 0, rGirHit = 0;
+    let rFhOpp = 0, rFhHit = 0;
+    let rPuttDistTotal = 0, rPuttDistCorrect = 0;
+    let rApproachDirTotal = 0, rApproachDirOn = 0;
+    let rApproachDistTotal = 0, rApproachDistCorrect = 0;
     for (const hole of r.holes) {
       const d = r.scores[p.id]?.[hole.n];
       if (!d) continue;
@@ -5464,26 +5504,95 @@ function buildShotStats(rounds, playerName) {
         if (d.putts <= 1) out.putts1++;
         else if (d.putts === 2) out.putts2++;
         else out.putts3p++;
+        rPuttHoles++; rPuttTotal += d.putts;
       }
       if (d.puttMissDir  && d.puttMissDir  in out.puttMissDir)  { out.puttMissDir[d.puttMissDir]++;   out.puttMissDirTotal++;  }
-      if (d.puttMissDist && d.puttMissDist in out.puttMissDist) { out.puttMissDist[d.puttMissDist]++; out.puttMissDistTotal++; }
+      if (d.puttMissDist && d.puttMissDist in out.puttMissDist) {
+        out.puttMissDist[d.puttMissDist]++; out.puttMissDistTotal++;
+        rPuttDistTotal++; if (d.puttMissDist === 'correct') rPuttDistCorrect++;
+      }
       if (d.fh) {
-        out.fhOpp++;
-        if (d.fh === 'hit') out.fhHit++;
+        out.fhOpp++; rFhOpp++;
+        if (d.fh === 'hit') { out.fhHit++; rFhHit++; }
         else if (d.fh === 'left') out.fhLeft++;
         else if (d.fh === 'right') out.fhRight++;
       }
-      if (d.gir != null) { out.girOpp++; if (d.gir) out.girHit++; }
+      if (d.gir != null) { out.girOpp++; rGirOpp++; if (d.gir) { out.girHit++; rGirHit++; } }
       if (d.pen != null && d.pen > 0) { out.penHoles++; out.penTotal += d.pen; }
       if (d.club && d.club in out.clubs) { out.clubs[d.club]++; out.clubTotal++; }
       if (d.dir  && d.dir  in out.dirs)  { out.dirs[d.dir]++;   out.dirTotal++;  }
       if (d.approachClub && d.approachClub in out.approachClubs) { out.approachClubs[d.approachClub]++; out.approachClubTotal++; }
-      if (d.approachDir  && d.approachDir  in out.approachDir)   { out.approachDir[d.approachDir]++;    out.approachDirTotal++;  }
-      if (d.approachDist && d.approachDist in out.approachDist)  { out.approachDist[d.approachDist]++;  out.approachDistTotal++; }
+      if (d.approachDir  && d.approachDir  in out.approachDir)   {
+        out.approachDir[d.approachDir]++; out.approachDirTotal++;
+        rApproachDirTotal++; if (d.approachDir === 'on') rApproachDirOn++;
+      }
+      if (d.approachDist && d.approachDist in out.approachDist)  {
+        out.approachDist[d.approachDist]++;  out.approachDistTotal++;
+        rApproachDistTotal++; if (d.approachDist === 'correct') rApproachDistCorrect++;
+      }
     }
+    if (rPuttHoles > 0)        out.puttsTrend.push({ date: r.date, id: r.id, val: rPuttTotal / rPuttHoles });
+    if (rGirOpp > 0)           out.girTrend.push({ date: r.date, id: r.id, val: rGirHit / rGirOpp * 100 });
+    if (rFhOpp > 0)            out.fhTrend.push({ date: r.date, id: r.id, val: rFhHit / rFhOpp * 100 });
+    if (rPuttDistTotal > 0)    out.puttDistTrend.push({ date: r.date, id: r.id, val: rPuttDistCorrect / rPuttDistTotal * 100 });
+    if (rApproachDirTotal > 0) out.approachDirTrend.push({ date: r.date, id: r.id, val: rApproachDirOn / rApproachDirTotal * 100 });
+    if (rApproachDistTotal > 0) out.approachDistTrend.push({ date: r.date, id: r.id, val: rApproachDistCorrect / rApproachDistTotal * 100 });
   }
   out.avgPutts = out.puttHoles > 0 ? out.totalPutts / out.puttHoles : 0;
+  // Rounds played the same calendar day share an identical r.date (truncated to
+  // noon), so id — which embeds creation-order Date.now() — breaks the tie.
+  const byDate = (a, b) => (new Date(a.date) - new Date(b.date)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  out.puttsTrend.sort(byDate); out.girTrend.sort(byDate); out.fhTrend.sort(byDate);
+  out.puttDistTrend.sort(byDate); out.approachDirTrend.sort(byDate); out.approachDistTrend.sort(byDate);
   return out;
+}
+
+function buildStatTrend(history, opts) {
+  opts = opts || {};
+  const higherBetter = opts.higherBetter !== false;
+  const fmt = opts.fmt || (v => v.toFixed(1));
+  if (history.length < 2) return '';
+  const W = 300, H = 110, PL = 32, PR = 10, PT = 10, PB = 20;
+  const cW = W - PL - PR, cH = H - PT - PB;
+  const vals = history.map(h => h.val);
+  const minV = Math.min(...vals), maxV = Math.max(...vals);
+  const pad = (maxV - minV) * 0.15 || 1;
+  const lo = minV - pad, hi = maxV + pad;
+  const span = hi - lo || 1;
+  const px = i => PL + (i / (history.length - 1)) * cW;
+  const py = v => PT + ((hi - v) / span) * cH;
+  const pts = history.map((h, i) => `${px(i)},${py(h.val)}`).join(' ');
+  const mid = Math.floor(history.length / 2);
+  const firstHalf = vals.slice(0, mid);
+  const secondHalf = vals.slice(mid);
+  const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+  const delta = avg(secondHalf) - avg(firstHalf);
+  const improving = higherBetter ? delta > 0.05 : delta < -0.05;
+  const worsening = higherBetter ? delta < -0.05 : delta > 0.05;
+  const trendColor = improving ? '#2d6a4f' : worsening ? '#e63946' : '#888';
+  const trendLabel = improving ? '&#9650; Improving' : worsening ? '&#9660; Declining' : '&#9679; Steady';
+  const ticks = [lo, (lo + hi) / 2, hi].map(v => {
+    const y = py(v);
+    return `<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="#ebebeb" stroke-width=".5"/><text x="${PL-5}" y="${y+3}" text-anchor="end" font-size="8.5" fill="#ccc">${fmt(v)}</text>`;
+  }).join('');
+  const showEvery = Math.max(1, Math.ceil((history.length - 1) / 5));
+  let dots = '';
+  history.forEach((h, i) => {
+    const x = px(i), y = py(h.val);
+    dots += `<circle cx="${x}" cy="${y}" r="3" fill="${trendColor}" stroke="#fff" stroke-width="1.2"/>`;
+    if (i === 0 || i === history.length - 1 || i % showEvery === 0) {
+      const d = new Date(h.date);
+      dots += `<text x="${x}" y="${H-4}" text-anchor="middle" font-size="8" fill="#bbb">${d.getDate()}/${d.getMonth()+1}</text>`;
+    }
+  });
+  return `<div class="sd-trend">
+    <svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block">
+      ${ticks}
+      <polyline points="${pts}" fill="none" stroke="${trendColor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      ${dots}
+    </svg>
+    <div class="sd-trend-lbl" style="color:${trendColor}">${trendLabel}</div>
+  </div>`;
 }
 
 function navShotDetail(name) {
@@ -5521,6 +5630,11 @@ function renderShotDetail(c) {
       ${statBox(pct(st.putts2, st.puttHoles), '2-Putt %', st.putts2 + ' holes')}
       ${statBox(pct(st.putts3p, st.puttHoles), '3-Putt+ %', st.putts3p + ' holes')}
     </div>
+    ${st.puttsTrend.length > 1 ? `
+    <div class="sd-card">
+      <div class="chart-title">Avg Putts / Round — Trend</div>
+      ${buildStatTrend(st.puttsTrend, { higherBetter: false, fmt: v => v.toFixed(1) })}
+    </div>` : ''}
     ${st.puttMissDirTotal > 0 ? `
     <div class="sd-card">
       <div class="chart-title">Missed Putt — Direction (${st.puttMissDirTotal} recorded)</div>
@@ -5530,9 +5644,15 @@ function renderShotDetail(c) {
     </div>` : ''}
     ${st.puttMissDistTotal > 0 ? `
     <div class="sd-card">
-      <div class="chart-title">Missed Putt — Distance (${st.puttMissDistTotal} recorded)</div>
-      ${barRow('Short', st.puttMissDist.short, st.puttMissDistTotal, '#e63946')}
-      ${barRow('Long',  st.puttMissDist.long,  st.puttMissDistTotal, '#8b5cf6')}
+      <div class="chart-title">Putt Distance (${st.puttMissDistTotal} recorded)</div>
+      ${barRow('Short',   st.puttMissDist.short,   st.puttMissDistTotal, '#e63946')}
+      ${barRow('Correct', st.puttMissDist.correct, st.puttMissDistTotal, '#2d6a4f')}
+      ${barRow('Long',    st.puttMissDist.long,    st.puttMissDistTotal, '#8b5cf6')}
+    </div>` : ''}
+    ${st.puttDistTrend.length > 1 ? `
+    <div class="sd-card">
+      <div class="chart-title">Putt Distance Control — Trend</div>
+      ${buildStatTrend(st.puttDistTrend, { higherBetter: true, fmt: v => v.toFixed(0)+'%' })}
     </div>` : ''}
     ${st.puttMissDirTotal === 0 && st.puttMissDistTotal === 0 ? '<p style="font-size:13px;color:var(--muted);margin-bottom:22px">No missed putt data yet.</p>' : ''}
   ` : '';
@@ -5551,6 +5671,11 @@ function renderShotDetail(c) {
       ${barRow('Right ▶', st.fhRight, st.fhOpp, '#f59e0b')}
       <div class="sd-card-foot">${st.fhOpp} par-4/5 holes recorded</div>
     </div>
+    ${st.fhTrend.length > 1 ? `
+    <div class="sd-card">
+      <div class="chart-title">Fairway Hit % / Round — Trend</div>
+      ${buildStatTrend(st.fhTrend, { higherBetter: true, fmt: v => v.toFixed(0)+'%' })}
+    </div>` : ''}
   ` : '';
 
   // GIR
@@ -5560,6 +5685,11 @@ function renderShotDetail(c) {
       ${statBox(pct(st.girHit, st.girOpp), 'GIR %', st.girHit + ' / ' + st.girOpp + ' holes')}
       ${statBox(pct(st.girOpp - st.girHit, st.girOpp), 'Missed GIR %', (st.girOpp - st.girHit) + ' holes')}
     </div>
+    ${st.girTrend.length > 1 ? `
+    <div class="sd-card">
+      <div class="chart-title">GIR % / Round — Trend</div>
+      ${buildStatTrend(st.girTrend, { higherBetter: true, fmt: v => v.toFixed(0)+'%' })}
+    </div>` : ''}
   ` : '';
 
   // CLUBS
@@ -5593,11 +5723,22 @@ function renderShotDetail(c) {
       ${barRow('◀ Left',  st.approachDir.left,     st.approachDirTotal, '#3b82f6')}
       ${barRow('Right ▶', st.approachDir.right,    st.approachDirTotal, '#f59e0b')}
     </div>` : ''}
+    ${st.approachDirTrend.length > 1 ? `
+    <div class="sd-card">
+      <div class="chart-title">Approach On-Target % / Round — Trend</div>
+      ${buildStatTrend(st.approachDirTrend, { higherBetter: true, fmt: v => v.toFixed(0)+'%' })}
+    </div>` : ''}
     ${st.approachDistTotal > 0 ? `
     <div class="sd-card">
       <div class="chart-title">Approach Distance (${st.approachDistTotal} recorded)</div>
-      ${barRow('Short', st.approachDist.short, st.approachDistTotal, '#e63946')}
-      ${barRow('Long',  st.approachDist.long,  st.approachDistTotal, '#8b5cf6')}
+      ${barRow('Short',   st.approachDist.short,   st.approachDistTotal, '#e63946')}
+      ${barRow('Correct', st.approachDist.correct, st.approachDistTotal, '#2d6a4f')}
+      ${barRow('Long',    st.approachDist.long,    st.approachDistTotal, '#8b5cf6')}
+    </div>` : ''}
+    ${st.approachDistTrend.length > 1 ? `
+    <div class="sd-card">
+      <div class="chart-title">Approach Distance Control — Trend</div>
+      ${buildStatTrend(st.approachDistTrend, { higherBetter: true, fmt: v => v.toFixed(0)+'%' })}
     </div>` : ''}
   ` : '';
 
@@ -5894,7 +6035,7 @@ function renderStats(c) {
       ? Math.round((hcpSuggest.index - parseFloat(currentHcp)) * 10) / 10 : null;
     const diffStr = diff !== null ? (diff >= 0 ? ` (+${diff})` : ` (${diff})`) : '';
     return `<div class="hcp-suggest-card">
-      <div class="hcp-suggest-title">&#127933; Handicap Index Suggestion (WHS)</div>
+      <div class="hcp-suggest-title">&#127933; Handicap Index Suggestion (WHS) <button class="score-help-btn" style="display:inline-flex;vertical-align:middle" onclick="showHcpInfo()">i</button></div>
       <div class="hcp-suggest-val">${hcpSuggest.index}${diffStr}</div>
       <div class="hcp-suggest-sub">Based on best ${hcpSuggest.best} of ${hcpSuggest.roundsUsed} recent scored round${hcpSuggest.roundsUsed!==1?'s':''} with course rating &amp; slope &middot; &times;0.96 adjustment</div>
     </div>`;
@@ -6631,6 +6772,18 @@ function renderChangelog(c) {
 
   const html = [
     section('July 2026', [
+      entry('fix',  '🐛', 'Saving a player with no home club could silently fail to sync',
+        'Leaving the Home Club field blank when saving a player could throw an error that stopped that save from reaching your other devices (it was always saved locally). Fixed by storing a proper empty value instead.'),
+      entry('fix',  '📅', 'Same-day rounds could scramble progress trends and handicap suggestion',
+        'Rounds played on the same calendar day were sometimes ordered incorrectly in the Net Strokes vs Par chart, the new Shot Detail Stats trend charts, and the "most recent 20 rounds" window used for the suggested handicap — occasionally flipping an Improving trend to Declining or skewing the suggested number. Same-day rounds are now ordered by actual creation time.'),
+      entry('new',  'ℹ️', '"i" info button on the suggested handicap',
+        'Tap the small i beside "Handicap Index Suggestion (WHS)" on your Statistics page to see exactly how the number is calculated — the differential formula, the 20-round window, the best-8 selection, and the 0.96 adjustment.'),
+      entry('new',  '📈', 'Progress trend charts in Shot Detail Stats',
+        'Putting, Fairways, GIR, and Approach sections now show a round-by-round trend chart (with an Improving / Declining / Steady label) so you can see whether that part of your game is getting better over time.'),
+      entry('new',  '🎯', '"Correct" distance option for putts and approach shots',
+        'Putt Distance and Approach Distance now have a third option, Correct, alongside Short and Long — so you can log a well-judged distance, not just a miss.'),
+      entry('new',  '🔄', 'Hole detail sheet reordered green-to-tee',
+        'The hole detail sheet now follows the order you actually play a hole backwards: Putts, Green in Regulation, Approach, then Off the Tee. Penalty Strokes moved to just above Notes, as the last thing you enter.'),
       entry('fix',  '📐', 'Detail sheet stays scrolled — no more jumping to top',
         'Pressing any chip or stepper button inside the hole detail sheet no longer jumps the sheet back to the top. The sheet keeps its scroll position so you can tap buttons at the bottom without scrolling back every time.'),
       entry('fix',  '📐', 'No more scroll-to-top when entering hole details',
