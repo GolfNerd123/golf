@@ -1279,6 +1279,53 @@ test('roniIndivTotal sums across holes for each player independently',()=>{
   eq(roniIndivTotal(r,'pB'),1);
 });
 
+suite('Róni — 3-player (no teams)');
+function make3pRoniRound() {
+  const players=[
+    {id:'pA',name:'Alpha',courseHcpOverride:0},{id:'pB',name:'Beta', courseHcpOverride:0},
+    {id:'pC',name:'Gamma',courseHcpOverride:0},
+  ];
+  const holes=makeHoles18(), scores={};
+  for(const p of players) scores[p.id]={};
+  return {id:'rR3p',date:'2026-05-02T10:00:00Z',course:'Roni Course',
+    courseRating:72,slopeRating:113,players,holes,scores,done:false,format:'roni',wolfHoles:{}};
+}
+test('lowest of three net scores wins individual point, no team point involved',()=>{
+  const r=make3pRoniRound();
+  r.scores.pA[1]={s:4};r.scores.pB[1]={s:5};r.scores.pC[1]={s:5};
+  const p=roniHolePoints(r,1);
+  assert(p.teamPts===null);
+  eq(p.indivPts.pA,1); eq(p.indivPts.pB,0); eq(p.indivPts.pC,0);
+});
+test('three-way tie → nobody gets individual point',()=>{
+  const r=make3pRoniRound();
+  r.scores.pA[1]={s:4};r.scores.pB[1]={s:4};r.scores.pC[1]={s:4};
+  const p=roniHolePoints(r,1);
+  eq(p.indivPts.pA,0); eq(p.indivPts.pB,0); eq(p.indivPts.pC,0);
+});
+test('two-way tie for lowest among three → nobody gets individual point, third player unaffected',()=>{
+  const r=make3pRoniRound();
+  r.scores.pA[1]={s:4};r.scores.pB[1]={s:4};r.scores.pC[1]={s:6};
+  const p=roniHolePoints(r,1);
+  eq(p.indivPts.pA,0); eq(p.indivPts.pB,0); eq(p.indivPts.pC,0);
+});
+test('birdie/eagle still apply for each of three players independently',()=>{
+  const r=make3pRoniRound();
+  r.scores.pA[1]={s:3};r.scores.pB[1]={s:2};r.scores.pC[1]={s:6}; // par 4: pA birdie, pB eagle
+  const p=roniHolePoints(r,1);
+  eq(p.indivPts.pA,1); // birdie only (not lowest — pB is lower)
+  eq(p.indivPts.pB,1+2); // individual pt + eagle
+  eq(p.indivPts.pC,0);
+});
+test('roniIndivTotal sums across holes for three players',()=>{
+  const r=make3pRoniRound();
+  r.scores.pA[1]={s:4};r.scores.pB[1]={s:5};r.scores.pC[1]={s:5};
+  r.scores.pA[2]={s:5};r.scores.pB[2]={s:5};r.scores.pC[2]={s:4};
+  eq(roniIndivTotal(r,'pA'),1);
+  eq(roniIndivTotal(r,'pB'),0);
+  eq(roniIndivTotal(r,'pC'),1);
+});
+
 suite('roniTeamIdxForPid');
 test('finds correct team index',()=>{
   const r=makeRoniRound();

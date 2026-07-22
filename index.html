@@ -661,7 +661,7 @@
   .wolf-banner-sub { font-size: 11px; color: rgba(255,255,255,.55); font-weight: 400; margin-left: 4px; }
 
   /* Róni banner */
-  .roni-banner { font-size: 13px; }
+  .roni-banner { font-size: 13px; flex-wrap: wrap; row-gap: 4px; }
   .roni-team-name { font-weight: 600; }
   .roni-team-pts { font-size: 16px; color: var(--green-pale); }
   .roni-banner-sub { font-size: 11px; color: rgba(255,255,255,.55); font-weight: 400; }
@@ -1196,7 +1196,7 @@
     <div class="sg-title">Róni — how it works</div>
     <div class="sg-section">
       <div class="sg-lbl">Format</div>
-      <div class="sg-text">Played 1v1 (2 players) or as two fixed 2-person teams for the whole round (4 players). All scoring uses net strokes (after handicap).</div>
+      <div class="sg-text">Played individually (2 or 3 players) or as two fixed 2-person teams for the whole round (4 players). All scoring uses net strokes (after handicap).</div>
     </div>
     <div class="sg-section">
       <div class="sg-lbl">Every hole</div>
@@ -1213,7 +1213,7 @@
     </div>
     <div class="sg-section">
       <div class="sg-lbl">Scoring</div>
-      <div class="sg-text">1v1: each player's points are their own score. Teams: individual points aren't kept separately — every point a player earns goes straight into their team's total, along with the team point. Most points wins.</div>
+      <div class="sg-text">Individual play (2-3 players): each player's points are their own score. Teams: individual points aren't kept separately — every point a player earns goes straight into their team's total, along with the team point. Most points wins.</div>
     </div>
     <button class="sg-close" onclick="hideRoniInfo()">Got it</button>
   </div>
@@ -1995,10 +1995,10 @@ function wolfTotalPts(round, pid) {
 // The 3 ways to split 4 players (by index) into two 2-person teams.
 const RONI_PAIRINGS = [[[0,1],[2,3]],[[0,2],[1,3]],[[0,3],[1,2]]];
 
-// Played 1v1 (2 players, round.teams unset) or as fixed 2v2 teams for the
-// whole round: round.teams = [{pids:[id,id]}, {pids:[id,id]}]. (Stored as
-// objects, not raw arrays — Firestore rejects arrays nested directly inside
-// arrays.) Per hole: the single lowest net score among all players gets 1
+// Played individually (2 or 3 players, round.teams unset) or as fixed 2v2
+// teams for the whole round: round.teams = [{pids:[id,id]}, {pids:[id,id]}].
+// (Stored as objects, not raw arrays — Firestore rejects arrays nested
+// directly inside arrays.) Per hole: the single lowest net score among all players gets 1
 // individual point; any player with a net birdie gets 1 individual point, net
 // eagle (or better) gets 2. When played in teams, the team with the lowest net
 // best-ball score also gets 1 team point. Ties on the team/individual
@@ -2039,8 +2039,9 @@ function roniHolePoints(round, holeN) {
   return { teamPts, indivPts };
 }
 
-// A player's own tally of individual + birdie/eagle points (1v1 scoring, or
-// a team member's raw contribution before it's folded into the team total).
+// A player's own tally of individual + birdie/eagle points (individual-play
+// scoring, or a team member's raw contribution before it's folded into the
+// team total).
 function roniIndivTotal(round, pid) {
   let total = 0;
   for (const hole of round.holes) {
@@ -2973,7 +2974,7 @@ function renderNewRound(c) {
 
   // Format selector
   const fourPDisabled = totalSel !== 4;
-  const roniDisabled  = totalSel !== 2 && totalSel !== 4;
+  const roniDisabled  = totalSel !== 2 && totalSel !== 3 && totalSel !== 4;
   const fmts = [
     { key:'stroke',     ico:'⛳', lbl:'Stroke' },
     { key:'stableford', ico:'★',  lbl:'Stableford' },
@@ -2989,7 +2990,7 @@ function renderNewRound(c) {
   const fmtNote = nr.format === 'wolf' && fourPDisabled
     ? `<p class="fmt-note">Wolf requires exactly 4 players (${totalSel} selected)</p>`
     : nr.format === 'roni' && roniDisabled
-    ? `<p class="fmt-note">Róni requires 2 players (1v1) or 4 players (2v2 teams) — ${totalSel} selected</p>` : '';
+    ? `<p class="fmt-note">Róni requires 2-3 players (individual) or 4 players (2v2 teams) — ${totalSel} selected</p>` : '';
 
   const fmtDescriptions = {
     stroke: {
@@ -3025,14 +3026,14 @@ function renderNewRound(c) {
     roni: {
       title: 'Róni — how it works',
       lines: [
-        'Play 1v1 (2 players) or as two fixed 2-person teams (4 players) for the whole round.',
+        'Play individually (2 or 3 players) or as two fixed 2-person teams (4 players) for the whole round.',
         'Every hole, up to three things can happen (net = after handicap strokes):',
         '&nbsp;&nbsp;Individual point: the single lowest net score of everyone playing → +1 for that player.',
         '&nbsp;&nbsp;Birdie point: any player with a net birdie → +1.',
         '&nbsp;&nbsp;Eagle point: any player with a net eagle (or better) → +2.',
         'Playing in teams adds a 4th: Team point — the team with the lowest net ball (best of its two players) → +1 for that team.',
         'Ties on the individual point (or team point) award nothing that hole; birdie/eagle points always count.',
-        '1v1: each player\'s points are their own score — most points wins.',
+        'Individual play (2-3 players): each player\'s points are their own score — most points wins.',
         'Teams: individual points aren\'t kept separately — every point a player earns (individual, birdie, eagle) is added straight to their team\'s score, along with the team point. Most team points wins.',
       ],
     },
@@ -3069,8 +3070,8 @@ function renderNewRound(c) {
         </button>`;
       }).join('')}
     </div>`;
-  } else if (nr.format === 'roni' && totalSel === 2) {
-    roniPicker = `<p class="fmt-note">Playing 1v1 — no teams needed.</p>`;
+  } else if (nr.format === 'roni' && (totalSel === 2 || totalSel === 3)) {
+    roniPicker = `<p class="fmt-note">Playing individually — no teams needed.</p>`;
   }
 
   // Hole settings table
@@ -3525,8 +3526,8 @@ function startRound() {
     return;
   }
   if (S.nr.format === 'roni') {
-    if (players.length !== 2 && players.length !== 4) {
-      alert('Róni requires 2 players (1v1) or 4 players (teams). Please add or remove players.');
+    if (players.length !== 2 && players.length !== 3 && players.length !== 4) {
+      alert('Róni requires 2-3 players, or 4 players for teams. Please add or remove players.');
       return;
     }
     if (players.length === 4 && S.nr.roniPairingIdx == null) {
@@ -3598,7 +3599,7 @@ function renderScorecard(c) {
   const isStbl = round.format === 'stableford';
   const isRoni = round.format === 'roni';
   const isRoniTeam = isRoni && round.teams && round.teams.length === 2;
-  const isRoni1v1  = isRoni && !isRoniTeam;
+  const isRoniIndiv  = isRoni && !isRoniTeam;
 
   const dots = round.holes.map(h => {
     const done = round.players.every(p => round.scores[p.id]?.[h.n]?.s);
@@ -3685,15 +3686,12 @@ function renderScorecard(c) {
         roniResult = summary ? `<div class="wolf-result-bar w-win">${summary}</div>` : '';
       }
     }
-  } else if (isRoni1v1) {
-    const [p1, p2] = round.players;
-    const s1 = roniIndivTotal(round, p1.id), s2 = roniIndivTotal(round, p2.id);
+  } else if (isRoniIndiv) {
+    const parts = round.players.map(p =>
+      `<span class="roni-team-name">${esc(p.name.split(' ')[0])}</span><strong class="roni-team-pts">${roniIndivTotal(round, p.id)}</strong>`
+    );
     roniBanner = `<div class="wolf-banner roni-banner">
-      <span class="roni-team-name">${esc(p1.name.split(' ')[0])}</span>
-      <strong class="roni-team-pts">${s1}</strong>
-      <span class="roni-banner-sub">vs</span>
-      <strong class="roni-team-pts">${s2}</strong>
-      <span class="roni-team-name">${esc(p2.name.split(' ')[0])}</span>
+      ${parts.join('<span class="roni-banner-sub">vs</span>')}
       <button class="score-help-btn" style="margin-left:auto" onclick="showRoniInfo()">i</button>
     </div>`;
 
@@ -3740,7 +3738,7 @@ function renderScorecard(c) {
       const teamLbl = roniTeamIdxForPid(round, p.id) === 0 ? 'A' : 'B';
       runLine = (ip !== 0 || run > 0) ? `+${ip} to Team ${teamLbl}` : 'No scores yet';
       netLine = netBracket;
-    } else if (isRoni1v1) {
+    } else if (isRoniIndiv) {
       const ip = roniIndivTotal(round, p.id);
       runLine = (ip !== 0 || run > 0) ? `${ip} pt${ip===1?'':'s'}` : 'No scores yet';
       netLine = netBracket;
@@ -4456,7 +4454,7 @@ function buildRoundStandingsHTML(round) {
   const isStbl = round.format === 'stableford';
   const isRoni = round.format === 'roni';
   const isRoniTeam = isRoni && round.teams && round.teams.length === 2;
-  const isRoni1v1  = isRoni && !isRoniTeam;
+  const isRoniIndiv  = isRoni && !isRoniTeam;
 
   // ── Auto-detect rivalry teams (works for in-progress rounds) ──
   let _rivalryTeamBanner = '';
@@ -4515,7 +4513,7 @@ function buildRoundStandingsHTML(round) {
       const wp  = wolfTotalPts(round, p.id);
       primary = sortKey = wp;
       secondary = gross ? `${wp >= 0 ? '+' : ''}${wp} wolf pts` : '-';
-    } else if (isRoni1v1) {
+    } else if (isRoniIndiv) {
       const ip = roniIndivTotal(round, p.id);
       primary = sortKey = ip;
       secondary = gross ? `gross ${gross}` : '-';
@@ -4530,14 +4528,14 @@ function buildRoundStandingsHTML(round) {
     return { p, gross, primary, sortKey, secondary, grossVsPar };
   });
 
-  if (isStbl || isWolf || isRoni1v1) {
+  if (isStbl || isWolf || isRoniIndiv) {
     rows.sort((a, b) => b.sortKey - a.sortKey);
   } else {
     rows.sort((a, b) => a.sortKey - b.sortKey);
   }
 
   const holesLabel = holesPlayed === round.holes.length ? 'All holes' : `${holesPlayed} hole${holesPlayed !== 1 ? 's' : ''} played`;
-  const colHead = isStbl ? 'Points' : isWolf ? 'Wolf Pts' : isRoni1v1 ? 'Róni Pts' : 'Strokes';
+  const colHead = isStbl ? 'Points' : isWolf ? 'Wolf Pts' : isRoniIndiv ? 'Róni Pts' : 'Strokes';
 
   let html = `<div style="font-size:11px;color:var(--muted);margin-bottom:10px">${esc(round.course)} &middot; ${holesLabel}</div>`;
   html += _rivalryTeamBanner;
@@ -4545,13 +4543,13 @@ function buildRoundStandingsHTML(round) {
     <thead><tr><th class="pos">#</th><th>Player</th><th>${colHead}</th></tr></thead>
     <tbody>`;
   rows.forEach((row, i) => {
-    const isLeader = i === 0 && (isStbl || isWolf || isRoni1v1 ? row.gross > 0 : row.sortKey !== Infinity);
+    const isLeader = i === 0 && (isStbl || isWolf || isRoniIndiv ? row.gross > 0 : row.sortKey !== Infinity);
     let primaryStr;
     if (isStbl) {
       primaryStr = row.gross > 0 ? String(row.primary) : '-';
     } else if (isWolf) {
       primaryStr = row.gross > 0 ? `${row.primary >= 0 ? '+' : ''}${row.primary}` : '-';
-    } else if (isRoni1v1) {
+    } else if (isRoniIndiv) {
       primaryStr = row.gross > 0 ? String(row.primary) : '-';
     } else {
       primaryStr = row.gross > 0 ? String(row.gross) : '-';
@@ -4637,13 +4635,13 @@ function buildNineHoleSummaryHTML(round) {
   const isStbl = round.format === 'stableford';
   const isRoni = round.format === 'roni';
   const isRoniTeam = isRoni && round.teams && round.teams.length === 2;
-  const isRoni1v1  = isRoni && !isRoniTeam;
+  const isRoniIndiv  = isRoni && !isRoniTeam;
   const title = bnf ? 'Halfway — Back 9' : 'Halfway — Front 9';
 
   const rows = round.players.map(p => {
     const gross = grossTotal(round, p.id, from, to);
     const chcp  = courseHcp(p, round);
-    const net   = (isStbl || isRoni1v1) ? null : nine.reduce((s, h) => {
+    const net   = (isStbl || isRoniIndiv) ? null : nine.reduce((s, h) => {
       const g = round.scores[p.id]?.[h.n]?.s || 0;
       return g ? s + g - siStrokes(chcp, h.si, round.holes.length) : s;
     }, 0);
@@ -4652,15 +4650,15 @@ function buildNineHoleSummaryHTML(round) {
       const pts = stablefordPts(g, h.par, siStrokes(chcp, h.si, round.holes.length));
       return s + (pts || 0);
     }, 0) : null;
-    const roniPts = isRoni1v1 ? roniIndivTotal(round, p.id) : null;
+    const roniPts = isRoniIndiv ? roniIndivTotal(round, p.id) : null;
     return { p, gross, net, stbPts, roniPts, chcp };
-  }).sort((a, b) => (isStbl || isRoni1v1) ? (isStbl ? b.stbPts - a.stbPts : b.roniPts - a.roniPts) : (a.net || 999) - (b.net || 999));
+  }).sort((a, b) => (isStbl || isRoniIndiv) ? (isStbl ? b.stbPts - a.stbPts : b.roniPts - a.roniPts) : (a.net || 999) - (b.net || 999));
 
   let html = `<div class="nine-hole-title">${title}</div>
     <div style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:14px">Par ${fpar} &middot; ${esc(round.course)}</div>
     ${isRoniTeam ? `<div style="text-align:center;font-size:13px;font-weight:700;margin-bottom:10px">Team: ${roniTeamTotal(round,0)} &ndash; ${roniTeamTotal(round,1)}</div>` : ''}
     <table class="standings-table">
-      <thead><tr><th class="pos">#</th><th>Player</th><th>${isStbl ? 'Points' : isRoni1v1 ? 'Róni Pts' : 'vs Par'}</th></tr></thead>
+      <thead><tr><th class="pos">#</th><th>Player</th><th>${isStbl ? 'Points' : isRoniIndiv ? 'Róni Pts' : 'vs Par'}</th></tr></thead>
       <tbody>`;
   rows.forEach((row, i) => {
     const grossVsPar = row.gross ? row.gross - fpar : null;
@@ -4670,7 +4668,7 @@ function buildNineHoleSummaryHTML(round) {
     if (isStbl) {
       primary = `${row.stbPts} pts`;
       sub = row.gross ? `gross ${row.gross}` : '-';
-    } else if (isRoni1v1) {
+    } else if (isRoniIndiv) {
       primary = `${row.roniPts} pts`;
       sub = row.gross ? `gross ${row.gross}` : 'No scores';
     } else {
@@ -4744,7 +4742,7 @@ function renderSummary(c) {
   const isStbl = round.format === 'stableford';
   const isRoni = round.format === 'roni';
   const isRoniTeam = isRoni && round.teams && round.teams.length === 2;
-  const isRoni1v1  = isRoni && !isRoniTeam;
+  const isRoniIndiv  = isRoni && !isRoniTeam;
 
   const fmtLabel = isStbl ? ' &middot; Stableford' : isWolf ? ' &middot; Wolf' : isRoni ? ' &middot; Róni' : '';
 
@@ -5016,7 +5014,7 @@ function renderSummary(c) {
   }
 
   // Róni leaderboard (individual points) + team score summary
-  // 1v1 individual leaderboard (no teams involved)
+  // Individual leaderboard (2 or 3 players, no teams involved)
   function roniLeaderboard() {
     const players = [...round.players].sort((a,b) =>
       roniIndivTotal(round,b.id) - roniIndivTotal(round,a.id)
@@ -5063,7 +5061,7 @@ function renderSummary(c) {
       const bestIdx = scores[0] >= scores[1] ? 0 : 1;
       winName  = teamName(round.teams[bestIdx].pids);
       winScore = `${scores[bestIdx]} pts`;
-    } else if (isRoni1v1) {
+    } else if (isRoniIndiv) {
       const best = [...round.players].sort((a,b) => roniIndivTotal(round,b.id) - roniIndivTotal(round,a.id))[0];
       winName  = best.name;
       winScore = `${roniIndivTotal(round, best.id)} pts`;
@@ -5111,7 +5109,7 @@ function renderSummary(c) {
       <div class="sec">Gross Scorecard</div>
       ${buildGrossTable()}
     `;
-  } else if (isRoni1v1) {
+  } else if (isRoniIndiv) {
     mainContent = `
       ${winHTML}
       <div class="sec">Róni Leaderboard</div>
@@ -7174,6 +7172,8 @@ function renderChangelog(c) {
 
   const html = [
     section('July 2026', [
+      entry('new',  '🤮', 'Róni: 3-player games now supported',
+        'Róni can now be played with 3 players (individual scoring, no teams), in addition to 1v1 and 2-vs-2 teams — lowest net score, birdies, and eagles all still count.'),
       entry('new',  '🤮', 'Róni: play 1v1, and team points are now pooled into one team score',
         'Róni can now be played 1v1 (2 players) as well as 2-vs-2 teams. And when playing in teams, individual/birdie/eagle points are no longer a separate leaderboard — every point a player earns is added straight into their team\'s total alongside the team point, so there\'s just one score per team to follow.'),
       entry('new',  '🤮', 'Róni format',
