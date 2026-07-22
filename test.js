@@ -1099,6 +1099,12 @@ test('18-hcp, all bogeys → net par → 36',()=>{
   const r=makeRound18(); r.players[0]={id:'p1',name:'A',courseHcpOverride:18};
   DEFAULT_PARS_18.forEach((par,i)=>{r.scores.p1[i+1]={s:par+1};}); eq(stablefordTotal(r,'p1'),36);
 });
+test('computes correctly regardless of round.format (Róni summary reuses it for its Stableford Scorecard)',()=>{
+  const r=makeRoniRound();
+  r.scores.pA[1]={s:4}; // par 4, scratch player -> par -> 2 pts
+  eq(r.format,'roni');
+  eq(stablefordTotal(r,'pA'),2);
+});
 
 // ── 6. WOLF ───────────────────────────────────────────────────────────────────
 suite('wolfForHole — rotation');

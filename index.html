@@ -5106,6 +5106,8 @@ function renderSummary(c) {
       ${roniTeamSummary()}
       <div class="sec">Hole-by-Hole Róni Results</div>
       ${buildRoniTable()}
+      <div class="sec">Stableford Scorecard</div>
+      ${buildStablefordTable()}
       <div class="sec">Gross Scorecard</div>
       ${buildGrossTable()}
     `;
@@ -5116,6 +5118,8 @@ function renderSummary(c) {
       ${roniLeaderboard()}
       <div class="sec">Hole-by-Hole Róni Results</div>
       ${buildRoniTable()}
+      <div class="sec">Stableford Scorecard</div>
+      ${buildStablefordTable()}
       <div class="sec">Gross Scorecard</div>
       ${buildGrossTable()}
     `;
@@ -7172,6 +7176,8 @@ function renderChangelog(c) {
 
   const html = [
     section('July 2026', [
+      entry('new',  '🤮', 'Róni round summary now includes a Stableford Scorecard',
+        'The Standings screen for a finished Róni round now shows a Stableford points scorecard alongside the Róni results and Gross Scorecard, so you can see strokes and Stableford points too, not just Róni points.'),
       entry('new',  '🤮', 'Róni: 3-player games now supported',
         'Róni can now be played with 3 players (individual scoring, no teams), in addition to 1v1 and 2-vs-2 teams — lowest net score, birdies, and eagles all still count.'),
       entry('new',  '🤮', 'Róni: play 1v1, and team points are now pooled into one team score',
