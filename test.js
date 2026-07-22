@@ -1247,6 +1247,22 @@ test('roniTeamTotal is 0 when no teams (1v1)',()=>{
   r.scores.pA[1]={s:4};r.scores.pB[1]={s:5};r.scores.pC[1]={s:5};r.scores.pD[1]={s:5};
   eq(roniTeamTotal(r,0),0);
 });
+test('equal scores every hole → team totals tied (drives "Tied" result on the summary screen)',()=>{
+  const r=makeRoniRound();
+  DEFAULT_PARS_18.forEach((par,i)=>{
+    const n=i+1;
+    r.scores.pA[n]={s:par+1};r.scores.pB[n]={s:par+1};r.scores.pC[n]={s:par+1};r.scores.pD[n]={s:par+1};
+  });
+  eq(roniTeamTotal(r,0), roniTeamTotal(r,1));
+});
+test('one team consistently better → higher team total is unambiguous',()=>{
+  const r=makeRoniRound();
+  DEFAULT_PARS_18.forEach((par,i)=>{
+    const n=i+1;
+    r.scores.pA[n]={s:par-1};r.scores.pB[n]={s:par+1};r.scores.pC[n]={s:par+1};r.scores.pD[n]={s:par+1};
+  });
+  assert(roniTeamTotal(r,0) > roniTeamTotal(r,1));
+});
 
 suite('Róni — 1v1 (no teams)');
 function make1v1RoniRound() {

@@ -5045,7 +5045,7 @@ function renderSummary(c) {
   // Winner card
   let winHTML = '';
   if (round.players.length > 1) {
-    let winName, winScore;
+    let winName, winScore, winLabel = 'WINNER';
     if (isStbl) {
       const best = [...round.players].sort((a,b) => stablefordTotal(round,b.id) - stablefordTotal(round,a.id))[0];
       winName  = best.name;
@@ -5058,20 +5058,37 @@ function renderSummary(c) {
     } else if (isRoniTeam) {
       const teamName = pids => pids.map(pid => round.players.find(p => p.id === pid)?.name.split(' ')[0]).join(' & ');
       const scores = [roniTeamTotal(round, 0), roniTeamTotal(round, 1)];
-      const bestIdx = scores[0] >= scores[1] ? 0 : 1;
-      winName  = teamName(round.teams[bestIdx].pids);
-      winScore = `${scores[bestIdx]} pts`;
+      const diff = Math.abs(scores[0] - scores[1]);
+      if (scores[0] === scores[1]) {
+        winLabel = 'RESULT';
+        winName  = 'Tied';
+        winScore = `${scores[0]}&ndash;${scores[1]}`;
+      } else {
+        const bestIdx = scores[0] > scores[1] ? 0 : 1;
+        winName  = teamName(round.teams[bestIdx].pids);
+        winScore = `won by ${diff} point${diff===1?'':'s'} (${scores[bestIdx]}&ndash;${scores[1-bestIdx]})`;
+      }
     } else if (isRoniIndiv) {
-      const best = [...round.players].sort((a,b) => roniIndivTotal(round,b.id) - roniIndivTotal(round,a.id))[0];
-      winName  = best.name;
-      winScore = `${roniIndivTotal(round, best.id)} pts`;
+      const sorted   = [...round.players].sort((a,b) => roniIndivTotal(round,b.id) - roniIndivTotal(round,a.id));
+      const top      = roniIndivTotal(round, sorted[0].id);
+      const runnerUp = sorted.length > 1 ? roniIndivTotal(round, sorted[1].id) : 0;
+      const tiedTop  = sorted.filter(p => roniIndivTotal(round, p.id) === top);
+      if (tiedTop.length > 1) {
+        winLabel = 'RESULT';
+        winName  = 'Tied';
+        winScore = `${tiedTop.map(p => esc(p.name.split(' ')[0])).join(' & ')} at ${top} pt${top===1?'':'s'}`;
+      } else {
+        const diff = top - runnerUp;
+        winName  = sorted[0].name;
+        winScore = `won by ${diff} point${diff===1?'':'s'} (${top} pts)`;
+      }
     } else {
       const best = [...round.players].sort((a,b) => grossTotal(round,a.id) - grossTotal(round,b.id))[0];
       winName  = best.name;
       winScore = `${grossTotal(round, best.id)} (${dStr(grossTotal(round,best.id)-tpar)})`;
     }
     winHTML = `<div class="winner-card">
-      <div class="wl">WINNER</div>
+      <div class="wl">${winLabel}</div>
       <div class="wn">${esc(winName)}</div>
       <div class="ws">${winScore}</div>
     </div>`;
@@ -7176,6 +7193,8 @@ function renderChangelog(c) {
 
   const html = [
     section('July 2026', [
+      entry('new',  '🤮', 'Róni result front and center on the round summary',
+        'The winner card at the top of a finished Róni round now states the actual result — which team won and by how many points (or "Tied"), or which player won and by how many points in individual play. Strokes and Stableford points remain below as secondary detail.'),
       entry('new',  '🤮', 'Róni round summary now includes a Stableford Scorecard',
         'The Standings screen for a finished Róni round now shows a Stableford points scorecard alongside the Róni results and Gross Scorecard, so you can see strokes and Stableford points too, not just Róni points.'),
       entry('new',  '🤮', 'Róni: 3-player games now supported',
