@@ -353,7 +353,6 @@ function wolfTotalPts(round, pid) {
 }
 const RONI_PAIRINGS = [[[0,1],[2,3]],[[0,2],[1,3]],[[0,3],[1,2]]];
 function roniHolePoints(round, holeN) {
-  if (!round.teams || round.teams.length !== 2) return null;
   const hole = round.holes.find(h => h.n === holeN);
   if (!hole) return null;
   const nh = round.holes.length;
@@ -363,9 +362,6 @@ function roniHolePoints(round, holeN) {
     if (!g) return null;
     nets[p.id] = g - siStrokes(courseHcp(p, round), hole.si, nh);
   }
-  const teamPts = [0, 0];
-  const teamBest = round.teams.map(t => Math.min(...t.pids.map(pid => nets[pid])));
-  if (teamBest[0] !== teamBest[1]) teamPts[teamBest[0] < teamBest[1] ? 0 : 1] = 1;
   const indivPts = {};
   round.players.forEach(p => { indivPts[p.id] = 0; });
   const minNet = Math.min(...round.players.map(p => nets[p.id]));
@@ -376,16 +372,24 @@ function roniHolePoints(round, holeN) {
     if (d <= -2)      indivPts[p.id] += 2;
     else if (d === -1) indivPts[p.id] += 1;
   });
+  let teamPts = null;
+  if (round.teams && round.teams.length === 2) {
+    teamPts = [0, 0];
+    const teamBest = round.teams.map(t => Math.min(...t.pids.map(pid => nets[pid])));
+    if (teamBest[0] !== teamBest[1]) teamPts[teamBest[0] < teamBest[1] ? 0 : 1] = 1;
+  }
   return { teamPts, indivPts };
-}
-function roniTeamTotal(round, teamIdx) {
-  let total = 0;
-  for (const hole of round.holes) { const r = roniHolePoints(round, hole.n); if (r) total += r.teamPts[teamIdx]; }
-  return total;
 }
 function roniIndivTotal(round, pid) {
   let total = 0;
   for (const hole of round.holes) { const r = roniHolePoints(round, hole.n); if (r) total += r.indivPts[pid] || 0; }
+  return total;
+}
+function roniTeamTotal(round, teamIdx) {
+  if (!round.teams || round.teams.length !== 2) return 0;
+  let total = 0;
+  for (const hole of round.holes) { const r = roniHolePoints(round, hole.n); if (r && r.teamPts) total += r.teamPts[teamIdx]; }
+  total += round.teams[teamIdx].pids.reduce((s, pid) => s + roniIndivTotal(round, pid), 0);
   return total;
 }
 function roniTeamIdxForPid(round, pid) {
@@ -1156,9 +1160,12 @@ test('wolfTotalPts sums correctly',()=>{
 
 // ── 6b. RÓNI ──────────────────────────────────────────────────────────────────
 suite('roniHolePoints');
-test('no teams → null',()=>{
+test('no teams, scores present → indivPts computed, teamPts null (1v1)',()=>{
   const r=makeRoniRound(); delete r.teams;
-  assert(roniHolePoints(r,1)===null);
+  r.scores.pA[1]={s:4};r.scores.pB[1]={s:5};r.scores.pC[1]={s:5};r.scores.pD[1]={s:5};
+  const p=roniHolePoints(r,1);
+  assert(p.teamPts===null);
+  eq(p.indivPts.pA,1);
 });
 test('missing scores → null',()=>{
   const r=makeRoniRound(); r.scores.pA[1]={s:4};
@@ -1214,18 +1221,62 @@ test('team + individual + birdie all award same player at once',()=>{
 });
 
 suite('roniTeamTotal / roniIndivTotal');
-test('sums points across holes',()=>{
+test('team total = team point + both members individual points pooled',()=>{
   const r=makeRoniRound();
   r.scores.pA[1]={s:4};r.scores.pB[1]={s:5};r.scores.pC[1]={s:5};r.scores.pD[1]={s:5};
   r.scores.pA[2]={s:5};r.scores.pB[2]={s:5};r.scores.pC[2]={s:4};r.scores.pD[2]={s:5};
-  eq(roniTeamTotal(r,0),1); // won hole 1 only
-  eq(roniTeamTotal(r,1),1); // won hole 2 only
+  // Hole1: team0 wins team pt (+1), pA gets individual pt (+1) -> team0 so far: 1+1=2
+  // Hole2: team1 wins team pt (+1), pC gets individual pt (+1) -> team1 so far: 1+1=2
   eq(roniIndivTotal(r,'pA'),1); // low score hole 1
   eq(roniIndivTotal(r,'pC'),1); // low score hole 2
+  eq(roniTeamTotal(r,0),2);
+  eq(roniTeamTotal(r,1),2);
 });
 test('unscored holes contribute zero',()=>{
   const r=makeRoniRound();
   eq(roniTeamTotal(r,0),0); eq(roniIndivTotal(r,'pA'),0);
+});
+test('roniTeamTotal is 0 when no teams (1v1)',()=>{
+  const r=makeRoniRound(); delete r.teams;
+  r.scores.pA[1]={s:4};r.scores.pB[1]={s:5};r.scores.pC[1]={s:5};r.scores.pD[1]={s:5};
+  eq(roniTeamTotal(r,0),0);
+});
+
+suite('Róni — 1v1 (no teams)');
+function make1v1RoniRound() {
+  const players=[
+    {id:'pA',name:'Alpha',courseHcpOverride:0},{id:'pB',name:'Beta', courseHcpOverride:0},
+  ];
+  const holes=makeHoles18(), scores={};
+  for(const p of players) scores[p.id]={};
+  return {id:'rR1v1',date:'2026-05-02T10:00:00Z',course:'Roni Course',
+    courseRating:72,slopeRating:113,players,holes,scores,done:false,format:'roni',wolfHoles:{}};
+}
+test('lowest net score wins individual point, no team point involved',()=>{
+  const r=make1v1RoniRound();
+  r.scores.pA[1]={s:4};r.scores.pB[1]={s:5};
+  const p=roniHolePoints(r,1);
+  assert(p.teamPts===null);
+  eq(p.indivPts.pA,1); eq(p.indivPts.pB,0);
+});
+test('tie → nobody gets individual point',()=>{
+  const r=make1v1RoniRound();
+  r.scores.pA[1]={s:4};r.scores.pB[1]={s:4};
+  const p=roniHolePoints(r,1);
+  eq(p.indivPts.pA,0); eq(p.indivPts.pB,0);
+});
+test('birdie/eagle still apply 1v1',()=>{
+  const r=make1v1RoniRound();
+  r.scores.pA[1]={s:2};r.scores.pB[1]={s:5}; // par 4 hole, pA eagles
+  const p=roniHolePoints(r,1);
+  eq(p.indivPts.pA,1+2); // individual pt + eagle
+});
+test('roniIndivTotal sums across holes for each player independently',()=>{
+  const r=make1v1RoniRound();
+  r.scores.pA[1]={s:4};r.scores.pB[1]={s:5};
+  r.scores.pA[2]={s:5};r.scores.pB[2]={s:4};
+  eq(roniIndivTotal(r,'pA'),1);
+  eq(roniIndivTotal(r,'pB'),1);
 });
 
 suite('roniTeamIdxForPid');
