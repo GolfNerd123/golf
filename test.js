@@ -351,6 +351,47 @@ function wolfTotalPts(round, pid) {
   for (const hole of round.holes){const p=wolfHolePoints(round,hole.n);if(p)t+=p[pid]||0;}
   return t;
 }
+const RONI_PAIRINGS = [[[0,1],[2,3]],[[0,2],[1,3]],[[0,3],[1,2]]];
+function roniHolePoints(round, holeN) {
+  if (!round.teams || round.teams.length !== 2) return null;
+  const hole = round.holes.find(h => h.n === holeN);
+  if (!hole) return null;
+  const nh = round.holes.length;
+  const nets = {};
+  for (const p of round.players) {
+    const g = round.scores[p.id]?.[holeN]?.s;
+    if (!g) return null;
+    nets[p.id] = g - siStrokes(courseHcp(p, round), hole.si, nh);
+  }
+  const teamPts = [0, 0];
+  const teamBest = round.teams.map(t => Math.min(...t.pids.map(pid => nets[pid])));
+  if (teamBest[0] !== teamBest[1]) teamPts[teamBest[0] < teamBest[1] ? 0 : 1] = 1;
+  const indivPts = {};
+  round.players.forEach(p => { indivPts[p.id] = 0; });
+  const minNet = Math.min(...round.players.map(p => nets[p.id]));
+  const lowest = round.players.filter(p => nets[p.id] === minNet);
+  if (lowest.length === 1) indivPts[lowest[0].id] += 1;
+  round.players.forEach(p => {
+    const d = nets[p.id] - hole.par;
+    if (d <= -2)      indivPts[p.id] += 2;
+    else if (d === -1) indivPts[p.id] += 1;
+  });
+  return { teamPts, indivPts };
+}
+function roniTeamTotal(round, teamIdx) {
+  let total = 0;
+  for (const hole of round.holes) { const r = roniHolePoints(round, hole.n); if (r) total += r.teamPts[teamIdx]; }
+  return total;
+}
+function roniIndivTotal(round, pid) {
+  let total = 0;
+  for (const hole of round.holes) { const r = roniHolePoints(round, hole.n); if (r) total += r.indivPts[pid] || 0; }
+  return total;
+}
+function roniTeamIdxForPid(round, pid) {
+  if (!round.teams) return -1;
+  return round.teams.findIndex(t => t.pids.includes(pid));
+}
 
 function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeStroke, noHcp) {
   fmt = fmt || 'stroke';
@@ -661,9 +702,8 @@ function gotoHole(n) {
 function saveRoundTeams(roundId, pairingIdx) {
   const round=byId(roundId); if(!round||round.players.length!==4) return;
   const pl=round.players;
-  const pairings=[[[0,1],[2,3]],[[0,2],[1,3]],[[0,3],[1,2]]];
-  const[t1i,t2i]=pairings[pairingIdx];
-  round.teams=[t1i.map(i=>pl[i].id),t2i.map(i=>pl[i].id)];
+  const[t1i,t2i]=RONI_PAIRINGS[pairingIdx];
+  round.teams=[{pids:t1i.map(i=>pl[i].id)},{pids:t2i.map(i=>pl[i].id)}];
   saveRound(round);
   S.showTeamSetup=false;
   requestAnimationFrame(()=>openRoundSummary());
@@ -899,6 +939,17 @@ function makeWolfRound() {
   return {id:'rW',date:'2026-05-02T10:00:00Z',course:'Wolf Course',
     courseRating:72,slopeRating:113,players,holes,scores,done:false,format:'wolf',wolfHoles:{}};
 }
+function makeRoniRound() {
+  const players=[
+    {id:'pA',name:'Alpha',courseHcpOverride:0},{id:'pB',name:'Beta', courseHcpOverride:0},
+    {id:'pC',name:'Gamma',courseHcpOverride:0},{id:'pD',name:'Delta',courseHcpOverride:0},
+  ];
+  const holes=makeHoles18(), scores={};
+  for(const p of players) scores[p.id]={};
+  return {id:'rR',date:'2026-05-02T10:00:00Z',course:'Roni Course',
+    courseRating:72,slopeRating:113,players,holes,scores,done:false,format:'roni',wolfHoles:{},
+    teams:[{pids:['pA','pB']},{pids:['pC','pD']}]};
+}
 const _par18=DEFAULT_PARS_18.reduce((s,p)=>s+p,0); // 72
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1101,6 +1152,94 @@ test('wolfTotalPts sums correctly',()=>{
   r.wolfHoles[2]={isLone:true,partnerPid:null};
   eq(wolfTotalPts(r,'pA'),4); eq(wolfTotalPts(r,'pB'),4);
   eq(wolfTotalPts(r,'pC'),-4);eq(wolfTotalPts(r,'pD'),-4);
+});
+
+// ── 6b. RÓNI ──────────────────────────────────────────────────────────────────
+suite('roniHolePoints');
+test('no teams → null',()=>{
+  const r=makeRoniRound(); delete r.teams;
+  assert(roniHolePoints(r,1)===null);
+});
+test('missing scores → null',()=>{
+  const r=makeRoniRound(); r.scores.pA[1]={s:4};
+  assert(roniHolePoints(r,1)===null);
+});
+test('team point: lowest net ball wins, no tie',()=>{
+  const r=makeRoniRound();
+  r.scores.pA[1]={s:4};r.scores.pB[1]={s:5};r.scores.pC[1]={s:5};r.scores.pD[1]={s:5};
+  const p=roniHolePoints(r,1);
+  eq(p.teamPts[0],1); eq(p.teamPts[1],0);
+});
+test('team point tied → nobody gets it',()=>{
+  const r=makeRoniRound();
+  r.scores.pA[1]={s:4};r.scores.pB[1]={s:6};r.scores.pC[1]={s:4};r.scores.pD[1]={s:7};
+  const p=roniHolePoints(r,1);
+  eq(p.teamPts[0],0); eq(p.teamPts[1],0);
+});
+test('individual point: single lowest net score',()=>{
+  const r=makeRoniRound();
+  r.scores.pA[1]={s:4};r.scores.pB[1]={s:5};r.scores.pC[1]={s:5};r.scores.pD[1]={s:5};
+  const p=roniHolePoints(r,1);
+  eq(p.indivPts.pA,1); eq(p.indivPts.pB,0); eq(p.indivPts.pC,0); eq(p.indivPts.pD,0);
+});
+test('individual point tied → nobody gets it',()=>{
+  const r=makeRoniRound();
+  r.scores.pA[1]={s:4};r.scores.pB[1]={s:4};r.scores.pC[1]={s:5};r.scores.pD[1]={s:5};
+  const p=roniHolePoints(r,1);
+  eq(p.indivPts.pA,0); eq(p.indivPts.pB,0);
+});
+test('net birdie → +1',()=>{
+  const r=makeRoniRound();
+  r.scores.pA[1]={s:3};r.scores.pB[1]={s:5};r.scores.pC[1]={s:5};r.scores.pD[1]={s:5};
+  const p=roniHolePoints(r,1);
+  eq(p.indivPts.pA,1+1); // individual low-score point + birdie point
+});
+test('net eagle → +2, stacks with individual point',()=>{
+  const r=makeRoniRound();
+  r.scores.pA[1]={s:2};r.scores.pB[1]={s:5};r.scores.pC[1]={s:5};r.scores.pD[1]={s:5};
+  const p=roniHolePoints(r,1);
+  eq(p.indivPts.pA,1+2);
+});
+test('birdie/eagle points apply even when tied for individual point',()=>{
+  const r=makeRoniRound();
+  r.scores.pA[1]={s:3};r.scores.pB[1]={s:3};r.scores.pC[1]={s:5};r.scores.pD[1]={s:5};
+  const p=roniHolePoints(r,1);
+  eq(p.indivPts.pA,1); eq(p.indivPts.pB,1); // birdie only, no individual point (tied)
+});
+test('team + individual + birdie all award same player at once',()=>{
+  const r=makeRoniRound();
+  r.scores.pA[1]={s:3};r.scores.pB[1]={s:6};r.scores.pC[1]={s:5};r.scores.pD[1]={s:5};
+  const p=roniHolePoints(r,1);
+  eq(p.teamPts[0],1); eq(p.indivPts.pA,2); // individual(1) + birdie(1)
+});
+
+suite('roniTeamTotal / roniIndivTotal');
+test('sums points across holes',()=>{
+  const r=makeRoniRound();
+  r.scores.pA[1]={s:4};r.scores.pB[1]={s:5};r.scores.pC[1]={s:5};r.scores.pD[1]={s:5};
+  r.scores.pA[2]={s:5};r.scores.pB[2]={s:5};r.scores.pC[2]={s:4};r.scores.pD[2]={s:5};
+  eq(roniTeamTotal(r,0),1); // won hole 1 only
+  eq(roniTeamTotal(r,1),1); // won hole 2 only
+  eq(roniIndivTotal(r,'pA'),1); // low score hole 1
+  eq(roniIndivTotal(r,'pC'),1); // low score hole 2
+});
+test('unscored holes contribute zero',()=>{
+  const r=makeRoniRound();
+  eq(roniTeamTotal(r,0),0); eq(roniIndivTotal(r,'pA'),0);
+});
+
+suite('roniTeamIdxForPid');
+test('finds correct team index',()=>{
+  const r=makeRoniRound();
+  eq(roniTeamIdxForPid(r,'pA'),0); eq(roniTeamIdxForPid(r,'pC'),1);
+});
+test('no teams → -1',()=>{
+  const r=makeRoniRound(); delete r.teams;
+  eq(roniTeamIdxForPid(r,'pA'),-1);
+});
+test('unknown player → -1',()=>{
+  const r=makeRoniRound();
+  eq(roniTeamIdxForPid(r,'nobody'),-1);
 });
 
 // ── 7. STORAGE ────────────────────────────────────────────────────────────────
@@ -2669,24 +2808,24 @@ test('pairing 0 → [pA,pB] vs [pC,pD]', () => {
   const r = make4PlayerRound(); saveRound(r);
   saveRoundTeams(r.id, 0);
   const teams = byId(r.id).teams;
-  eq(JSON.stringify(teams[0].sort()), JSON.stringify(['pA','pB']));
-  eq(JSON.stringify(teams[1].sort()), JSON.stringify(['pC','pD']));
+  eq(JSON.stringify(teams[0].pids.sort()), JSON.stringify(['pA','pB']));
+  eq(JSON.stringify(teams[1].pids.sort()), JSON.stringify(['pC','pD']));
 });
 test('pairing 1 → [pA,pC] vs [pB,pD]', () => {
   resetState();
   const r = make4PlayerRound(); saveRound(r);
   saveRoundTeams(r.id, 1);
   const teams = byId(r.id).teams;
-  eq(JSON.stringify(teams[0].sort()), JSON.stringify(['pA','pC']));
-  eq(JSON.stringify(teams[1].sort()), JSON.stringify(['pB','pD']));
+  eq(JSON.stringify(teams[0].pids.sort()), JSON.stringify(['pA','pC']));
+  eq(JSON.stringify(teams[1].pids.sort()), JSON.stringify(['pB','pD']));
 });
 test('pairing 2 → [pA,pD] vs [pB,pC]', () => {
   resetState();
   const r = make4PlayerRound(); saveRound(r);
   saveRoundTeams(r.id, 2);
   const teams = byId(r.id).teams;
-  eq(JSON.stringify(teams[0].sort()), JSON.stringify(['pA','pD']));
-  eq(JSON.stringify(teams[1].sort()), JSON.stringify(['pB','pC']));
+  eq(JSON.stringify(teams[0].pids.sort()), JSON.stringify(['pA','pD']));
+  eq(JSON.stringify(teams[1].pids.sort()), JSON.stringify(['pB','pC']));
 });
 test('clearRoundTeams removes teams', () => {
   resetState();
