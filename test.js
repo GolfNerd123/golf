@@ -396,6 +396,9 @@ function roniTeamIdxForPid(round, pid) {
   if (!round.teams) return -1;
   return round.teams.findIndex(t => t.pids.includes(pid));
 }
+function roniPointsLabel(n) {
+  return `Rónipoint${n === 1 ? '' : 's'}`;
+}
 
 function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeStroke, noHcp) {
   fmt = fmt || 'stroke';
@@ -1262,6 +1265,14 @@ test('one team consistently better → higher team total is unambiguous',()=>{
     r.scores.pA[n]={s:par-1};r.scores.pB[n]={s:par+1};r.scores.pC[n]={s:par+1};r.scores.pD[n]={s:par+1};
   });
   assert(roniTeamTotal(r,0) > roniTeamTotal(r,1));
+});
+
+suite('roniPointsLabel');
+test('singular for exactly 1',()=>{ eq(roniPointsLabel(1),'Rónipoint'); });
+test('plural for 0 and >1',()=>{
+  eq(roniPointsLabel(0),'Rónipoints');
+  eq(roniPointsLabel(2),'Rónipoints');
+  eq(roniPointsLabel(-1),'Rónipoints');
 });
 
 suite('Róni — 1v1 (no teams)');
