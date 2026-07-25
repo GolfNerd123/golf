@@ -1291,6 +1291,38 @@ test('team total = team point + both members individual points pooled',()=>{
   eq(roniTeamTotal(r,0),2);
   eq(roniTeamTotal(r,1),2);
 });
+
+// The Round Summary's "Hole-by-Hole Róni Results" table (buildRoniTable) has
+// its own team-point column + a Total row so the numbers there add up to the
+// Team Score shown above it — a player noticed hole 1 today looked like it
+// gave zero points to anyone even though the Team Score totalled 49.
+suite('buildRoniTable Total row — team-point column + player columns reconcile with Team Score');
+test('summed team-point column plus both members\' Rónipoint totals equal roniTeamTotal',()=>{
+  const r=makeRoniRound();
+  r.scores.pA[1]={s:4};r.scores.pB[1]={s:5};r.scores.pC[1]={s:5};r.scores.pD[1]={s:5};
+  r.scores.pA[2]={s:5};r.scores.pB[2]={s:5};r.scores.pC[2]={s:4};r.scores.pD[2]={s:5};
+  let team0PtCol=0, team1PtCol=0;
+  for (const hole of r.holes) {
+    const p = roniHolePoints(r, hole.n);
+    if (p && p.teamPts) { team0PtCol += p.teamPts[0]; team1PtCol += p.teamPts[1]; }
+  }
+  eq(team0PtCol + roniIndivTotal(r,'pA') + roniIndivTotal(r,'pB'), roniTeamTotal(r,0));
+  eq(team1PtCol + roniIndivTotal(r,'pC') + roniIndivTotal(r,'pD'), roniTeamTotal(r,1));
+});
+test('reconciles for the real Hlíðavöllur hole 1 scenario (team-point column now shows +1, not the old 0-0)',()=>{
+  const r=makeRoniRound();
+  r.players=[
+    {id:'sig',name:'Sigurjón',courseHcpOverride:10},{id:'jon',name:'Jónas',courseHcpOverride:23},
+    {id:'car',name:'Carlos',  courseHcpOverride:6}, {id:'hil',name:'Hilmir',courseHcpOverride:48},
+  ];
+  r.teams=[{pids:['sig','jon']},{pids:['car','hil']}];
+  r.holes[0]={n:1,par:4,si:6};
+  r.scores={sig:{1:{s:5}},jon:{1:{s:5}},car:{1:{s:5}},hil:{1:{s:11}}};
+  const p = roniHolePoints(r,1);
+  eq(p.teamPts[0] + roniIndivTotal(r,'sig') + roniIndivTotal(r,'jon'), roniTeamTotal(r,0));
+  eq(roniTeamTotal(r,0), 1);
+});
+
 test('unscored holes contribute zero',()=>{
   const r=makeRoniRound();
   eq(roniTeamTotal(r,0),0); eq(roniIndivTotal(r,'pA'),0);

@@ -887,6 +887,7 @@
   .wolf-hole-tbl .wolf-cell { font-weight: 700; color: var(--green); }
   .wolf-hole-tbl .win-row td { background: #f0f7f4; }
   .wolf-hole-tbl .lose-row td { background: #fff8f6; }
+  .wolf-hole-tbl .total-row td { background: #f0f7f4; color: var(--green-mid); }
 
   .act-row { display: flex; gap: 10px; margin-top: 22px; }
   .act-row .btn { flex: 1; padding: 14px; }
@@ -5017,33 +5018,49 @@ function renderSummary(c) {
     </table></div>`;
   }
 
-  // Róni hole-by-hole table
+  // Róni hole-by-hole table — team points get their own +1/- column per team
+  // (instead of just naming the winner) and a Total row at the bottom, so the
+  // numbers here are the ones that actually add up to the Team Score above:
+  // team column total + both members' player-column totals = roniTeamTotal.
   function buildRoniTable() {
     const teamName = pids => pids.map(pid => round.players.find(p => p.id === pid)?.name.split(' ')[0]).join('+');
+    const teamPtTotals = [0, 0];
     const rows = round.holes.map(h => {
       const r = roniHolePoints(round, h.n);
-      const teamStr = (r && r.teamPts)
-        ? (r.teamPts[0] > r.teamPts[1] ? esc(teamName(round.teams[0].pids))
-           : r.teamPts[1] > r.teamPts[0] ? esc(teamName(round.teams[1].pids)) : '-')
-        : '-';
+      const teamCells = isRoniTeam
+        ? round.teams.map((t, ti) => {
+            const v = r && r.teamPts ? r.teamPts[ti] : 0;
+            if (v) teamPtTotals[ti] += v;
+            return `<td style="${v ? 'color:#1a4731;font-weight:700' : 'color:#aaa'}">${v ? '+1' : '-'}</td>`;
+          }).join('')
+        : '';
       const ptsCells = r
         ? round.players.map(p => {
             const v = r.indivPts[p.id] || 0;
             return `<td style="${v ? 'color:#1a4731;font-weight:700' : 'color:#aaa'}">${v ? '+'+v : '-'}</td>`;
           }).join('')
         : round.players.map(() => `<td style="color:#ddd">-</td>`).join('');
-      return `<tr><td>${h.n}</td>${isRoniTeam ? `<td>${teamStr}</td>` : ''}${ptsCells}</tr>`;
+      return `<tr><td>${h.n}</td>${teamCells}${ptsCells}</tr>`;
     }).join('');
 
+    const teamHeaders = isRoniTeam
+      ? round.teams.map(t => `<th>${esc(teamName(t.pids))}</th>`).join('')
+      : '';
     const playerHeaders = round.players.map(p =>
       `<th>${esc(p.name.split(' ')[0])}</th>`
     ).join('');
 
+    const totalRow = `<tr class="total-row">
+      <td><strong>Total</strong></td>
+      ${isRoniTeam ? round.teams.map((t, ti) => `<td><strong>${teamPtTotals[ti] || '-'}</strong></td>`).join('') : ''}
+      ${round.players.map(p => `<td><strong>${roniIndivTotal(round, p.id) || '-'}</strong></td>`).join('')}
+    </tr>`;
+
     return `<div class="tbl-wrap"><table class="wolf-hole-tbl">
       <thead><tr>
-        <th>H</th>${isRoniTeam ? '<th>Rónipt</th>' : ''}${playerHeaders}
+        <th>H</th>${teamHeaders}${playerHeaders}
       </tr></thead>
-      <tbody>${rows}</tbody>
+      <tbody>${rows}${totalRow}</tbody>
     </table></div>`;
   }
 
@@ -7289,6 +7306,8 @@ function renderChangelog(c) {
 
   const html = [
     section('July 2026', [
+      entry('fix',  '🤮', 'Róni hole-by-hole table now shows the team point as a number',
+        'The "Hole-by-Hole Róni Results" table used to only name which team won each hole\'s team point, with no numeric value — so summing the visible columns never matched the Team Score total above it. Team points now get their own +1/- column per team, plus a Total row, so every number in the table adds up correctly.'),
       entry('fix',  '🤮', 'Róni team point now sums both players\' net scores',
         'The team point was being decided by each team\'s single best net score on the hole (best-ball), so a strong player on the losing team could tie it out by matching the other team\'s best score alone — as happened on hole 1 at Hlíðavöllur. It now correctly compares the two teams\' combined net scores.'),
       entry('new',  '📊', 'Live Stableford points, in any format',
