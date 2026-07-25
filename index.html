@@ -1409,6 +1409,7 @@ const S = {
   showRoundSummary: false,
   showNineHoleSummary: false,
   showStrokesCard: false,
+  strokesCardTab: 'strokes',
   showTeamSetup: false,
   finishComment: null,
 
@@ -3865,7 +3866,13 @@ function renderScorecard(c) {
           <span>&#128203; Scorecard</span>
           <button onclick="closeStrokesCard()" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer;line-height:1">&#10005;</button>
         </div>
-        <div class="overlay-body" style="padding:12px">${buildStrokesCardHTML(round)}</div>
+        <div class="overlay-body" style="padding:12px">
+          <div class="seg-row" style="margin-bottom:10px">
+            <button class="seg-btn ${S.strokesCardTab !== 'stableford' ? 'active' : ''}" onclick="switchStrokesCardTab('strokes')">Strokes</button>
+            <button class="seg-btn ${S.strokesCardTab === 'stableford' ? 'active' : ''}" onclick="switchStrokesCardTab('stableford')">Stableford</button>
+          </div>
+          ${S.strokesCardTab === 'stableford' ? buildStablefordCardHTML(round) : buildStrokesCardHTML(round)}
+        </div>
         <div class="overlay-foot">
           <button class="btn btn-outline" style="flex:1" onclick="closeStrokesCard()">Close</button>
         </div>
@@ -4356,11 +4363,17 @@ function saveSummaryTeams(roundId, pairingIdx) {
 
 function openStrokesCard() {
   S.showStrokesCard = true;
+  S.strokesCardTab = 'strokes';
   renderScorecard(document.getElementById('main'));
 }
 
 function closeStrokesCard() {
   S.showStrokesCard = false;
+  renderScorecard(document.getElementById('main'));
+}
+
+function switchStrokesCardTab(tab) {
+  S.strokesCardTab = tab;
   renderScorecard(document.getElementById('main'));
 }
 
@@ -4448,6 +4461,83 @@ function buildStrokesCardHTML(round) {
     <thead>${thead}</thead>
     <tbody>${parRow}${siRow}${pRows}</tbody>
   </table></div>${legend}`;
+}
+
+// Live Stableford points grid, shown from the Scorecard overlay regardless of
+// which format the round is actually being scored under (Róni, Wolf, etc.) —
+// lets players track Stableford alongside whatever the round's real game is.
+function buildStablefordCardHTML(round) {
+  const nh   = round.holes.length;
+  const half = Math.floor(nh / 2);
+  const front = round.holes.filter(h => h.n <= half);
+  const back  = round.holes.filter(h => h.n > half);
+  const fpar  = parSum(round, 1, half);
+  const bpar  = parSum(round, half+1, nh);
+  const tpar  = fpar + bpar;
+
+  function stblColor(v) {
+    if (v >= 5) return '#c084fc';
+    if (v === 4) return '#FFD700';
+    if (v === 3) return '#e63946';
+    if (v === 2) return '#2d6a4f';
+    if (v === 1) return '#888';
+    return '#ccc';
+  }
+
+  function cell(g, par, hs) {
+    const v = stablefordPts(g, par, hs);
+    if (v === null) return `<span style="color:#ddd">-</span>`;
+    const strokePart = g > 0 ? `<div style="font-size:9px;color:#bbb;line-height:1.2">${g}</div>` : '';
+    return `${strokePart}<span style="font-weight:700;color:${stblColor(v)}">${v}</span>`;
+  }
+
+  let thead = `<tr><th class="nc">Player</th>`;
+  for (const h of front) thead += `<th>${h.n}</th>`;
+  thead += `<th class="sc">${nh === 18 ? 'OUT' : 'F'}</th>`;
+  for (const h of back)  thead += `<th>${h.n}</th>`;
+  if (nh === 18) thead += `<th class="sc">IN</th>`;
+  thead += `<th class="sc" style="color:var(--green-pale)">PTS</th></tr>`;
+
+  let parRow = `<tr class="par-row"><td class="nc">Par</td>`;
+  for (const h of front) parRow += `<td>${h.par}</td>`;
+  parRow += `<td class="sc">${fpar}</td>`;
+  for (const h of back)  parRow += `<td>${h.par}</td>`;
+  if (nh === 18) parRow += `<td class="sc">${bpar}</td>`;
+  parRow += `<td class="sc"><strong>${tpar}</strong></td></tr>`;
+
+  const sorted = [...round.players].sort((a, b) => stablefordTotal(round, b.id) - stablefordTotal(round, a.id));
+  const winId  = sorted[0]?.id;
+
+  let pRows = '';
+  for (const p of round.players) {
+    const chcp = courseHcp(p, round);
+    const isW  = p.id === winId && round.players.length > 1;
+    let f = 0, b = 0;
+    for (const h of front) f += stablefordPts(round.scores[p.id]?.[h.n]?.s || 0, h.par, siStrokes(chcp, h.si, nh)) || 0;
+    for (const h of back)  b += stablefordPts(round.scores[p.id]?.[h.n]?.s || 0, h.par, siStrokes(chcp, h.si, nh)) || 0;
+    const tot = f + b;
+    const hcpLabel = chcp > 0 ? ` <span style="font-size:9px;font-weight:400;color:#aaa">(HCP ${chcp})</span>` : '';
+    pRows += `<tr ${isW ? 'class="win-row"' : ''}>
+      <td class="nc" style="font-weight:700;color:${isW?'#8B6914':'#1a1a1a'}">${esc(p.name.split(' ')[0])}${hcpLabel}</td>`;
+    for (const h of front) {
+      const g  = round.scores[p.id]?.[h.n]?.s || 0;
+      const hs = siStrokes(chcp, h.si, nh);
+      pRows += `<td>${cell(g, h.par, hs)}</td>`;
+    }
+    pRows += `<td class="sc" style="font-weight:700">${f || '-'}</td>`;
+    for (const h of back) {
+      const g  = round.scores[p.id]?.[h.n]?.s || 0;
+      const hs = siStrokes(chcp, h.si, nh);
+      pRows += `<td>${cell(g, h.par, hs)}</td>`;
+    }
+    if (nh === 18) pRows += `<td class="sc" style="font-weight:700">${b || '-'}</td>`;
+    pRows += `<td class="sc"><strong style="color:${isW?'#8B6914':'var(--green)'}">${tot || '-'}</strong></td></tr>`;
+  }
+
+  return `<div class="tbl-wrap"><table class="sc-tbl">
+    <thead>${thead}</thead>
+    <tbody>${parRow}${pRows}</tbody>
+  </table></div>`;
 }
 
 function continueToBackNine() {
@@ -7199,6 +7289,8 @@ function renderChangelog(c) {
 
   const html = [
     section('July 2026', [
+      entry('new',  '📊', 'Live Stableford points, in any format',
+        'The mid-round Scorecard popup (tap "📋 Scorecard" during a round) now has Strokes/Stableford tabs, so you can check everyone\'s running Stableford points even when the round is actually being scored as Róni, Wolf, or Stroke Play.'),
       entry('new',  '🤮', 'Róni scores now called "Rónipoints" everywhere',
         'Every place a Róni score appears — the live hole banner, player cards, standings, leaderboards, and the winner card — now labels it "Rónipoints" instead of a bare "points", so it\'s never confused with a Stableford points total in the same round.'),
       entry('new',  '🤮', 'Róni result front and center on the round summary',

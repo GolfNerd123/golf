@@ -1109,6 +1109,39 @@ test('computes correctly regardless of round.format (Róni summary reuses it for
   eq(stablefordTotal(r,'pA'),2);
 });
 
+// Front/back split used by the live Scorecard overlay's Stableford tab
+// (buildStablefordCardHTML) — mirrors its half = floor(nh/2) boundary.
+function stablefordFrontBackTotal(round, pid) {
+  const nh = round.holes.length, half = Math.floor(nh / 2);
+  const front = round.holes.filter(h => h.n <= half);
+  const back  = round.holes.filter(h => h.n > half);
+  const chcp  = courseHcp(round.players.find(p => p.id === pid), round);
+  let f = 0, b = 0;
+  for (const h of front) f += stablefordPts(round.scores[pid]?.[h.n]?.s || 0, h.par, siStrokes(chcp, h.si, nh)) || 0;
+  for (const h of back)  b += stablefordPts(round.scores[pid]?.[h.n]?.s || 0, h.par, siStrokes(chcp, h.si, nh)) || 0;
+  return { f, b, tot: f + b };
+}
+suite('stablefordFrontBackTotal — live Scorecard overlay Stableford tab');
+test('front + back sums match stablefordTotal for an 18-hole round',()=>{
+  const r=makeRound18(); r.players[0]={id:'p1',name:'A',courseHcpOverride:0};
+  DEFAULT_PARS_18.forEach((par,i)=>{r.scores.p1[i+1]={s:par};});
+  const { f, b, tot } = stablefordFrontBackTotal(r,'p1');
+  eq(f,18); eq(b,18); eq(tot,stablefordTotal(r,'p1'));
+});
+test('9-hole round splits at half=4 (holes 1-4 front, 5-9 back)',()=>{
+  const r=makeRound18({holes:makeHoles9()}); r.players[0]={id:'p1',name:'A',courseHcpOverride:0};
+  r.scores.p1={};
+  DEFAULT_PARS_9.forEach((par,i)=>{r.scores.p1[i+1]={s:par};});
+  const { f, b, tot } = stablefordFrontBackTotal(r,'p1');
+  eq(f,8); eq(b,10); eq(tot,18);
+});
+test('works for a Róni-format round (the whole point of the feature)',()=>{
+  const r=makeRoniRound();
+  r.scores.pA[1]={s:4}; // par 4, scratch -> par -> 2 pts, in the front half
+  const { f, tot } = stablefordFrontBackTotal(r,'pA');
+  eq(f,2); eq(tot,2);
+});
+
 // ── 6. WOLF ───────────────────────────────────────────────────────────────────
 suite('wolfForHole — rotation');
 test('hole 1 → A', ()=>eq(wolfForHole(makeWolfRound(),1),'pA'));
