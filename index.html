@@ -1397,6 +1397,7 @@ const S = {
   statsIncludeStroke: true,
   statsIncludeWolf: true,
   statsIncludeStableford: true,
+  statsIncludeRoni: true,
   statsShowRaw: false,
   justFinishedRoundId: null,
   playerEdit: null,
@@ -5572,7 +5573,7 @@ function renderRoundFinish(c) {
       // Points average + personal best: stableford rounds only
       const past = buildStats(pastRounds, p.name, 'stableford', false, false, false);
       // Gross birdie/bogey averages: all past rounds, no handicap
-      const pastGross = buildStats(pastRounds, p.name, 'stroke', true, true, true, true);
+      const pastGross = buildStats(pastRounds, p.name, 'stroke', true, true, true, true, true);
 
       const bullets = [];
 
@@ -5689,8 +5690,8 @@ function renderRoundFinish(c) {
 // STATS
 // ═══════════════════════════════════════════
 // fmt = 'stroke' | 'stableford' | 'wolf'
-// includeWolf / includeStableford: when fmt='stroke', also count those rounds as stroke rounds
-function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeStroke, noHcp) {
+// includeWolf / includeStableford / includeRoni: when fmt='stroke', also count those rounds as stroke rounds
+function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeStroke, noHcp, includeRoni) {
   fmt = fmt || 'stroke';
   if (includeStroke === undefined) includeStroke = true;
   const s = {
@@ -5706,7 +5707,8 @@ function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeSt
     const roundFmt = r.format || 'stroke';
     const matches = (roundFmt === fmt && (roundFmt !== 'stroke' || includeStroke))
       || (fmt === 'stroke' && includeWolf        && roundFmt === 'wolf')
-      || (fmt === 'stroke' && includeStableford  && roundFmt === 'stableford');
+      || (fmt === 'stroke' && includeStableford  && roundFmt === 'stableford')
+      || (fmt === 'stroke' && includeRoni        && roundFmt === 'roni');
     if (!r.done || !matches) continue;
     const p = r.players.find(pl => pl.name === name);
     if (!p) continue;
@@ -5731,6 +5733,12 @@ function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeSt
       }
     } else if (fmt === 'wolf') {
       const pts = wolfTotalPts(r, pid);
+      ss += pts;
+      if (pts > s.bestPts) { s.bestPts = pts; s.bestDate = r.date; s.bestCourse = r.course; }
+      s.history.push({ date: r.date, id: r.id, course: r.course, val: pts });
+    } else if (fmt === 'roni') {
+      const teamIdx = roniTeamIdxForPid(r, pid);
+      const pts = teamIdx >= 0 ? roniTeamTotal(r, teamIdx) : roniIndivTotal(r, pid);
       ss += pts;
       if (pts > s.bestPts) { s.bestPts = pts; s.bestDate = r.date; s.bestCourse = r.course; }
       s.history.push({ date: r.date, id: r.id, course: r.course, val: pts });
@@ -5795,6 +5803,7 @@ function buildProgressChart(history, refLine, refLabel) {
   const higherBetter = refLine == null || refLabel !== 'E';
   const hasWolf  = history.some(h => h.srcFmt === 'wolf');
   const hasStabl = history.some(h => h.srcFmt === 'stableford');
+  const hasRoni  = history.some(h => h.srcFmt === 'roni');
   let overlay = '';
   history.forEach((h, i) => {
     const x = px(i), y = py(h.val);
@@ -5805,6 +5814,8 @@ function buildProgressChart(history, refLine, refLabel) {
       overlay += `<rect x="${x-4}" y="${y-4}" width="8" height="8" fill="${clr}" stroke="#fff" stroke-width="1.5" transform="rotate(45,${x},${y})"/>`;
     } else if (h.srcFmt === 'stableford') {
       overlay += `<rect x="${x-3.5}" y="${y-3.5}" width="7" height="7" fill="${clr}" stroke="#fff" stroke-width="1.5"/>`;
+    } else if (h.srcFmt === 'roni') {
+      overlay += `<polygon points="${x},${y-4.5} ${x-4.5},${y+3} ${x+4.5},${y+3}" fill="${clr}" stroke="#fff" stroke-width="1.5"/>`;
     } else {
       overlay += `<circle cx="${x}" cy="${y}" r="3.5" fill="${clr}" stroke="#fff" stroke-width="1.5"/>`;
     }
@@ -5816,7 +5827,8 @@ function buildProgressChart(history, refLine, refLabel) {
   const legendItems = ['<span><svg width="9" height="9" style="vertical-align:middle"><circle cx="4.5" cy="4.5" r="3.5" fill="#888"/></svg> Stroke</span>'];
   if (hasWolf)  legendItems.push('<span><svg width="9" height="9" style="vertical-align:middle"><rect x="0.5" y="0.5" width="8" height="8" fill="#888" transform="rotate(45,4.5,4.5)"/></svg> Wolf</span>');
   if (hasStabl) legendItems.push('<span><svg width="9" height="9" style="vertical-align:middle"><rect x="1" y="1" width="7" height="7" fill="#888"/></svg> Stableford</span>');
-  const legend = (hasWolf || hasStabl) ? `<div style="display:flex;gap:12px;font-size:10px;color:#aaa;padding:2px 4px 0;justify-content:flex-end">${legendItems.join('')}</div>` : '';
+  if (hasRoni)  legendItems.push('<span><svg width="9" height="9" style="vertical-align:middle"><polygon points="4.5,0.5 0.5,8 8.5,8" fill="#888"/></svg> Róni</span>');
+  const legend = (hasWolf || hasStabl || hasRoni) ? `<div style="display:flex;gap:12px;font-size:10px;color:#aaa;padding:2px 4px 0;justify-content:flex-end">${legendItems.join('')}</div>` : '';
   return `<svg width="100%" viewBox="0 0 ${W} ${H}" style="display:block">
     ${ticks}
     <polyline points="${pts}" fill="none" stroke="#1a4731" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
@@ -6335,17 +6347,19 @@ function renderStats(c) {
   const fmtSet = new Set(rounds.map(r => r.format || 'stroke'));
   const hasWolfRounds       = fmtSet.has('wolf');
   const hasStablefordRounds = fmtSet.has('stableford');
+  const hasRoniRounds       = fmtSet.has('roni');
 
   const qname = n => JSON.stringify(n).replace(/"/g, '&quot;');
 
-  // Build all three format stats for every player simultaneously
+  // Build all format stats for every player simultaneously
   const allPlayerStats = allNames.map(name => ({
     name,
-    stroke:     buildStats(rounds, name, 'stroke',     S.statsIncludeWolf, S.statsIncludeStableford, S.statsIncludeStroke),
-    strokeRaw:  buildStats(rounds, name, 'stroke',     S.statsIncludeWolf, S.statsIncludeStableford, S.statsIncludeStroke, true),
+    stroke:     buildStats(rounds, name, 'stroke',     S.statsIncludeWolf, S.statsIncludeStableford, S.statsIncludeStroke, false, S.statsIncludeRoni),
+    strokeRaw:  buildStats(rounds, name, 'stroke',     S.statsIncludeWolf, S.statsIncludeStableford, S.statsIncludeStroke, true,  S.statsIncludeRoni),
     stableford: buildStats(rounds, name, 'stableford', false, false),
     wolf:       buildStats(rounds, name, 'wolf',       false, false),
-  })).filter(ps => ps.stroke.rounds > 0 || ps.stableford.rounds > 0 || ps.wolf.rounds > 0);
+    roni:       buildStats(rounds, name, 'roni',       false, false),
+  })).filter(ps => ps.stroke.rounds > 0 || ps.stableford.rounds > 0 || ps.wolf.rounds > 0 || ps.roni.rounds > 0);
 
   if (!allPlayerStats.length) {
     c.innerHTML = `<div id="view-stats"><div class="no-stats"><h2>No Statistics Yet</h2><p>Complete at least one full round to see statistics here.</p></div></div>`;
@@ -6357,7 +6371,7 @@ function renderStats(c) {
     if (a.stroke.rounds > 0 && b.stroke.rounds > 0) return a.stroke.avgNetToPar - b.stroke.avgNetToPar;
     if (a.stroke.rounds > 0) return -1;
     if (b.stroke.rounds > 0) return 1;
-    return (b.stableford.rounds + b.wolf.rounds) - (a.stableford.rounds + a.wolf.rounds);
+    return (b.stableford.rounds + b.wolf.rounds + b.roni.rounds) - (a.stableford.rounds + a.wolf.rounds + a.roni.rounds);
   });
 
   if (!S.statsPlayer || !allPlayerStats.find(ps => ps.name === S.statsPlayer)) {
@@ -6428,22 +6442,24 @@ function renderStats(c) {
 
     const checkStyle = 'width:15px;height:15px;accent-color:#52b788;cursor:pointer';
     const lblStyle   = 'display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--green);cursor:pointer;user-select:none';
-    const mixToggles = (hasWolfRounds || hasStablefordRounds)
+    const mixToggles = (hasWolfRounds || hasStablefordRounds || hasRoniRounds)
       ? `<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;padding:10px 14px;background:#f0f7f4;border-radius:10px;border-left:3px solid var(--green-mid)">
           <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;width:100%;margin-bottom:2px">Include in stroke stats:</span>
           <label style="${lblStyle}"><input type="checkbox" ${S.statsIncludeStroke?'checked':''}     onchange="toggleStatsIncludeStroke()"     style="${checkStyle}"> ⛳ Stroke rounds</label>
           ${hasWolfRounds       ? `<label style="${lblStyle}"><input type="checkbox" ${S.statsIncludeWolf?'checked':''}       onchange="toggleStatsIncludeWolf()"       style="${checkStyle}"> 🐺 Wolf rounds</label>` : ''}
           ${hasStablefordRounds ? `<label style="${lblStyle}"><input type="checkbox" ${S.statsIncludeStableford?'checked':''} onchange="toggleStatsIncludeStableford()" style="${checkStyle}"> ★ Stableford rounds</label>` : ''}
+          ${hasRoniRounds       ? `<label style="${lblStyle}"><input type="checkbox" ${S.statsIncludeRoni?'checked':''}       onchange="toggleStatsIncludeRoni()"       style="${checkStyle}"> 🤮 Róni rounds</label>` : ''}
          </div>`
       : '';
 
     const mixedIn = [];
     if (sel.history.some(h => h.srcFmt === 'wolf'))       mixedIn.push('🐺 Wolf');
     if (sel.history.some(h => h.srcFmt === 'stableford')) mixedIn.push('★ Stableford');
+    if (sel.history.some(h => h.srcFmt === 'roni'))       mixedIn.push('🤮 Róni');
     const mixNote = mixedIn.length ? ` <span style="font-size:11px;color:var(--muted)">(incl. ${mixedIn.join(' + ')})</span>` : '';
 
     const fmtTag = sel.bestFmt
-      ? ` &middot; ${{ wolf:'<span class="badge-fmt badge-wolf">🐺 Wolf</span>', stableford:'<span class="badge-fmt badge-stableford">★ Stableford</span>' }[sel.bestFmt] || ''}`
+      ? ` &middot; ${{ wolf:'<span class="badge-fmt badge-wolf">🐺 Wolf</span>', stableford:'<span class="badge-fmt badge-stableford">★ Stableford</span>', roni:'<span class="badge-fmt badge-roni">🤮 Róni</span>' }[sel.bestFmt] || ''}`
       : '';
 
     strokeSection = `
@@ -6511,6 +6527,25 @@ function renderStats(c) {
   }
 
   // ═══════════════════════════════════════════
+  // RÓNI SECTION
+  // ═══════════════════════════════════════════
+  let roniSection = '';
+  if (selPs.roni.rounds > 0) {
+    const sel = selPs.roni;
+    roniSection = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;margin-top:28px">
+        <div class="sec" style="margin:0">🤮 Róni</div>
+        <span style="font-size:11px;color:var(--muted)">${sel.rounds} round${sel.rounds!==1?'s':''}</span>
+      </div>
+      <div class="stat-grid-2">
+        <div class="stat-box"><div class="sb-val">${sel.avgPts.toFixed(1)}</div><div class="sb-lbl">Avg Rónipoints</div></div>
+        <div class="stat-box"><div class="sb-val">${sel.bestPts>0?String(sel.bestPts):'-'}</div><div class="sb-lbl">Best Rónipoints</div>${bestSubHtml(sel, '')}</div>
+      </div>
+      ${chartCard(sel, 'Rónipoints — Progress', null, null)}
+    `;
+  }
+
+  // ═══════════════════════════════════════════
   // LEADERBOARDS (one per format, all players)
   // ═══════════════════════════════════════════
   const strokeLb = lbSection(
@@ -6530,6 +6565,12 @@ function renderStats(c) {
     '🐺 Wolf — All Players — with handicap',
     ps => `${ps.wolf.avgPts.toFixed(1)} avg pts`,
     ps => ps.wolf.bestPts > 0 ? 'best '+ps.wolf.bestPts+' pts' : ''
+  );
+  const roniLb = lbSection(
+    [...allPlayerStats].filter(ps => ps.roni.rounds > 0).sort((a,b) => b.roni.avgPts - a.roni.avgPts),
+    '🤮 Róni — All Players — with handicap',
+    ps => `${ps.roni.avgPts.toFixed(1)} avg`,
+    ps => ps.roni.bestPts > 0 ? 'best '+ps.roni.bestPts+' '+roniPointsLabel(ps.roni.bestPts) : ''
   );
 
   // ── Without handicap (raw) collapsible ──────────────────────────────────────
@@ -6590,7 +6631,8 @@ function renderStats(c) {
       ${strokeSection}
       ${stablefordSection}
       ${wolfSection}
-      ${strokeLb}${sbLb}${wolfLb}
+      ${roniSection}
+      ${strokeLb}${sbLb}${wolfLb}${roniLb}
       ${rawSection}
       ${rivalrySection}
     </div>
@@ -6924,6 +6966,11 @@ function toggleStatsIncludeWolf() {
 
 function toggleStatsIncludeStableford() {
   S.statsIncludeStableford = !S.statsIncludeStableford;
+  renderStats(document.getElementById('main'));
+}
+
+function toggleStatsIncludeRoni() {
+  S.statsIncludeRoni = !S.statsIncludeRoni;
   renderStats(document.getElementById('main'));
 }
 
@@ -7306,6 +7353,8 @@ function renderChangelog(c) {
 
   const html = [
     section('July 2026', [
+      entry('new',  '📈', 'Róni rounds now count in Statistics',
+        'The Statistics page now has a Róni section (avg/best Rónipoints, progress chart, all-players leaderboard) alongside Stroke Play, Stableford and Wolf. Róni rounds can also be included in your Stroke Play stats via the "Include in stroke stats" toggles, matching how Wolf and Stableford rounds already work.'),
       entry('fix',  '🤮', 'Róni hole-by-hole table now shows the team point as a number',
         'The "Hole-by-Hole Róni Results" table used to only name which team won each hole\'s team point, with no numeric value — so summing the visible columns never matched the Team Score total above it. Team points now get their own +1/- column per team, plus a Total row, so every number in the table adds up correctly.'),
       entry('fix',  '🤮', 'Róni team point now sums both players\' net scores',

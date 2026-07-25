@@ -400,7 +400,7 @@ function roniPointsLabel(n) {
   return `Rónipoint${n === 1 ? '' : 's'}`;
 }
 
-function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeStroke, noHcp) {
+function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeStroke, noHcp, includeRoni) {
   fmt = fmt || 'stroke';
   if (includeStroke === undefined) includeStroke = true;
   const s = {
@@ -416,7 +416,8 @@ function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeSt
     const roundFmt = r.format || 'stroke';
     const matches = (roundFmt === fmt && (roundFmt !== 'stroke' || includeStroke))
       || (fmt === 'stroke' && includeWolf        && roundFmt === 'wolf')
-      || (fmt === 'stroke' && includeStableford  && roundFmt === 'stableford');
+      || (fmt === 'stroke' && includeStableford  && roundFmt === 'stableford')
+      || (fmt === 'stroke' && includeRoni        && roundFmt === 'roni');
     if (!r.done || !matches) continue;
     const p = r.players.find(pl => pl.name === name);
     if (!p) continue;
@@ -441,6 +442,12 @@ function buildStats(rounds, name, fmt, includeWolf, includeStableford, includeSt
       }
     } else if (fmt === 'wolf') {
       const pts = wolfTotalPts(r, pid);
+      ss += pts;
+      if (pts > s.bestPts) { s.bestPts = pts; s.bestDate = r.date; s.bestCourse = r.course; }
+      s.history.push({ date: r.date, id: r.id, course: r.course, val: pts });
+    } else if (fmt === 'roni') {
+      const teamIdx = roniTeamIdxForPid(r, pid);
+      const pts = teamIdx >= 0 ? roniTeamTotal(r, teamIdx) : roniIndivTotal(r, pid);
       ss += pts;
       if (pts > s.bestPts) { s.bestPts = pts; s.bestDate = r.date; s.bestCourse = r.course; }
       s.history.push({ date: r.date, id: r.id, course: r.course, val: pts });
@@ -3507,6 +3514,37 @@ test('buildStats noHcp=true includeStableford aggregates all round formats', () 
   eq(s.rounds, 2, 'both formats counted');
   eq(s.sc.pars, 36, '18 gross pars per round × 2 rounds');
   eq(s.sc.birdies, 0);
+});
+
+suite('buildStats — Róni format (stats page "Róni" section)');
+test('individual Róni: avgPts/bestPts use roniIndivTotal for that player',()=>{
+  const r = make1v1RoniRound();
+  r.done = true;
+  DEFAULT_PARS_18.forEach((par,i)=>{ const n=i+1; r.scores.pA[n]={s:par-1}; r.scores.pB[n]={s:par+1}; }); // pA birdies every hole
+  const s = buildStats([r], 'Alpha', 'roni', false, false);
+  eq(s.rounds, 1);
+  eq(s.avgPts, roniIndivTotal(r,'pA'));
+  eq(s.bestPts, roniIndivTotal(r,'pA'));
+});
+test('team Róni: both teammates get their shared roniTeamTotal as avgPts/bestPts',()=>{
+  const r = makeRoniRound();
+  r.done = true;
+  DEFAULT_PARS_18.forEach((par,i)=>{ const n=i+1; r.scores.pA[n]={s:par}; r.scores.pB[n]={s:par}; r.scores.pC[n]={s:par+1}; r.scores.pD[n]={s:par+1}; });
+  const sA = buildStats([r], 'Alpha', 'roni', false, false);
+  const sB = buildStats([r], 'Beta',  'roni', false, false);
+  eq(sA.avgPts, roniTeamTotal(r,0));
+  eq(sB.avgPts, roniTeamTotal(r,0));
+  eq(sA.avgPts, sB.avgPts, 'teammates share the same pooled team total');
+});
+test('includeRoni mixes a Róni round\'s gross scores into stroke stats and tags srcFmt for the chart',()=>{
+  const r = make1v1RoniRound();
+  r.done = true;
+  DEFAULT_PARS_18.forEach((par,i)=>{ const n=i+1; r.scores.pA[n]={s:par}; r.scores.pB[n]={s:par}; });
+  const withRoni    = buildStats([r], 'Alpha', 'stroke', false, false, true, false, true);
+  const withoutRoni = buildStats([r], 'Alpha', 'stroke', false, false, true, false, false);
+  eq(withRoni.rounds, 1);
+  eq(withoutRoni.rounds, 0, 'Róni rounds excluded from stroke stats unless includeRoni is set');
+  eq(withRoni.history[0].srcFmt, 'roni');
 });
 
 // ── Round finish review — net scoring and most-pars logic ────────────────────
