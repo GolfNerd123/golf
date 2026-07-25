@@ -375,8 +375,8 @@ function roniHolePoints(round, holeN) {
   let teamPts = null;
   if (round.teams && round.teams.length === 2) {
     teamPts = [0, 0];
-    const teamBest = round.teams.map(t => Math.min(...t.pids.map(pid => nets[pid])));
-    if (teamBest[0] !== teamBest[1]) teamPts[teamBest[0] < teamBest[1] ? 0 : 1] = 1;
+    const teamNetSum = round.teams.map(t => t.pids.reduce((s, pid) => s + nets[pid], 0));
+    if (teamNetSum[0] !== teamNetSum[1]) teamPts[teamNetSum[0] < teamNetSum[1] ? 0 : 1] = 1;
   }
   return { teamPts, indivPts };
 }
@@ -1221,9 +1221,26 @@ test('team point: lowest net ball wins, no tie',()=>{
 });
 test('team point tied → nobody gets it',()=>{
   const r=makeRoniRound();
-  r.scores.pA[1]={s:4};r.scores.pB[1]={s:6};r.scores.pC[1]={s:4};r.scores.pD[1]={s:7};
+  // net sums: pA+pB = 4+6=10, pC+pD = 5+5=10 → tied
+  r.scores.pA[1]={s:4};r.scores.pB[1]={s:6};r.scores.pC[1]={s:5};r.scores.pD[1]={s:5};
   const p=roniHolePoints(r,1);
   eq(p.teamPts[0],0); eq(p.teamPts[1],0);
+});
+test('team point is the SUM of both members\' net scores, not just the better one (real bug: Hlíðavöllur hole 1, 25 Jul 2026)',()=>{
+  // Sigurjón (CH10) net 4, Jónas (CH23) net 4, Carlos (CH6) net 4, Hilmir (CH48) net 8 — SI 6.
+  // Carlos alone matches Sigurjón/Jónas's net score, so a best-ball comparison
+  // wrongly tied the hole 0-0; the team point should go to whichever pair's
+  // net scores add up lower, i.e. Sigurjón+Jónas (8) beat Carlos+Hilmir (12).
+  const r=makeRoniRound();
+  r.players=[
+    {id:'sig',name:'Sigurjón',courseHcpOverride:10},{id:'jon',name:'Jónas',courseHcpOverride:23},
+    {id:'car',name:'Carlos',  courseHcpOverride:6}, {id:'hil',name:'Hilmir',courseHcpOverride:48},
+  ];
+  r.teams=[{pids:['sig','jon']},{pids:['car','hil']}];
+  r.holes[0]={n:1,par:4,si:6};
+  r.scores={sig:{1:{s:5}},jon:{1:{s:5}},car:{1:{s:5}},hil:{1:{s:11}}};
+  const p=roniHolePoints(r,1);
+  eq(p.teamPts[0],1); eq(p.teamPts[1],0);
 });
 test('individual point: single lowest net score',()=>{
   const r=makeRoniRound();

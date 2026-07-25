@@ -1204,7 +1204,7 @@
         <strong>Individual point</strong> — the single lowest net score of everyone playing → +1 for that player.<br><br>
         <strong>Birdie point</strong> — any player with a net birdie → +1.<br><br>
         <strong>Eagle point</strong> — any player with a net eagle (or better) → +2.<br><br>
-        <strong>Team point</strong> (teams only) — the team with the lowest net ball (best of its two players) → +1 for that team.
+        <strong>Team point</strong> (teams only) — the team whose two net scores add up lowest → +1 for that team.
       </div>
     </div>
     <div class="sg-section">
@@ -2001,8 +2001,8 @@ const RONI_PAIRINGS = [[[0,1],[2,3]],[[0,2],[1,3]],[[0,3],[1,2]]];
 // (Stored as objects, not raw arrays — Firestore rejects arrays nested
 // directly inside arrays.) Per hole: the single lowest net score among all players gets 1
 // individual point; any player with a net birdie gets 1 individual point, net
-// eagle (or better) gets 2. When played in teams, the team with the lowest net
-// best-ball score also gets 1 team point. Ties on the team/individual
+// eagle (or better) gets 2. When played in teams, the team whose two net
+// scores add up lowest also gets 1 team point. Ties on the team/individual
 // low-score points award nothing (birdie/eagle points always apply regardless
 // of ties). In team play the individual points aren't tracked as a separate
 // score — roniTeamTotal folds them into the team's total (see below).
@@ -2033,8 +2033,8 @@ function roniHolePoints(round, holeN) {
   let teamPts = null;
   if (round.teams && round.teams.length === 2) {
     teamPts = [0, 0];
-    const teamBest = round.teams.map(t => Math.min(...t.pids.map(pid => nets[pid])));
-    if (teamBest[0] !== teamBest[1]) teamPts[teamBest[0] < teamBest[1] ? 0 : 1] = 1;
+    const teamNetSum = round.teams.map(t => t.pids.reduce((s, pid) => s + nets[pid], 0));
+    if (teamNetSum[0] !== teamNetSum[1]) teamPts[teamNetSum[0] < teamNetSum[1] ? 0 : 1] = 1;
   }
 
   return { teamPts, indivPts };
@@ -3038,7 +3038,7 @@ function renderNewRound(c) {
         '&nbsp;&nbsp;Individual point: the single lowest net score of everyone playing → +1 for that player.',
         '&nbsp;&nbsp;Birdie point: any player with a net birdie → +1.',
         '&nbsp;&nbsp;Eagle point: any player with a net eagle (or better) → +2.',
-        'Playing in teams adds a 4th: Team point — the team with the lowest net ball (best of its two players) → +1 for that team.',
+        'Playing in teams adds a 4th: Team point — the team whose two net scores add up lowest → +1 for that team.',
         'Ties on the individual point (or team point) award nothing that hole; birdie/eagle points always count.',
         'Individual play (2-3 players): each player\'s Rónipoints are their own score — most Rónipoints wins.',
         'Teams: individual points aren\'t kept separately — every point a player earns (individual, birdie, eagle) is added straight to their team\'s score, along with the team point. Most team Rónipoints wins.',
@@ -7289,6 +7289,8 @@ function renderChangelog(c) {
 
   const html = [
     section('July 2026', [
+      entry('fix',  '🤮', 'Róni team point now sums both players\' net scores',
+        'The team point was being decided by each team\'s single best net score on the hole (best-ball), so a strong player on the losing team could tie it out by matching the other team\'s best score alone — as happened on hole 1 at Hlíðavöllur. It now correctly compares the two teams\' combined net scores.'),
       entry('new',  '📊', 'Live Stableford points, in any format',
         'The mid-round Scorecard popup (tap "📋 Scorecard" during a round) now has Strokes/Stableford tabs, so you can check everyone\'s running Stableford points even when the round is actually being scored as Róni, Wolf, or Stroke Play.'),
       entry('new',  '🤮', 'Róni scores now called "Rónipoints" everywhere',
